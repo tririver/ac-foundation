@@ -3,14 +3,14 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "arc-llm"
+name = "arc-jobs"
 version = "1.0.0"
-description = "Reusable host LLM execution helpers for ARC tools."
-readme = "../../README.md"
+description = "Protocol-neutral persistent job execution for ARC CLIs."
+readme = "README.md"
 license = "MIT"
 authors = [{ name = "ARC" }]
 requires-python = ">=3.11"
-dependencies = ["json-repair>=0.59,<1", "jsonschema>=4.0"]
+dependencies = []
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
@@ -24,10 +24,10 @@ Repository = "https://github.com/tririver/arc"
 Issues = "https://github.com/tririver/arc/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "sympy>=1.12"]
+test = ["pytest>=8.0"]
 
 [project.scripts]
-arc-llm = "arc_llm.cli:main"
+arc-jobs = "arc_jobs.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/arc_llm"]
+packages = ["src/arc_jobs"]
