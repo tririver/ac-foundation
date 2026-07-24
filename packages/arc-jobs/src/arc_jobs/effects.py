@@ -233,9 +233,18 @@ class EffectJournal:
             return RecoveryDecision.RETRY_VERIFIED_NOT_RUN
         if policy is None:
             raise UnsafeEffectRecoveryError(
-                f"effect {effect_id!r} may have run and requires supervision"
+                f"effect {effect_id!r} may have run and requires supervision",
+                effect_id=effect_id,
             )
         decision = policy.classify(record)
         if not isinstance(decision, RecoveryDecision):
             raise TypeError("effect recovery policy returned an invalid decision")
-        return decision
+        if decision in {
+            RecoveryDecision.RETRY_VERIFIED_NOT_RUN,
+            RecoveryDecision.RESUME_EXTERNALLY,
+        }:
+            return decision
+        raise UnsafeEffectRecoveryError(
+            f"effect {effect_id!r} recovery decision {decision.value!r} requires supervision",
+            effect_id=effect_id,
+        )

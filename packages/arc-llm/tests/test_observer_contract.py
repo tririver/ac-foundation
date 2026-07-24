@@ -47,3 +47,51 @@ def test_observer_contract_matrix_is_bounded_body_free_and_delivery_ordered() ->
     marker = object()
     observer.response_saved(marker)
     assert calls[-1] == ("output", ("effect", marker))
+
+
+@pytest.mark.parametrize(
+    "key",
+    ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),
+)
+def test_observer_uses_shared_progress_body_validator(key: str) -> None:
+    class Effects:
+        def mark_may_have_run(self, effect_id: str) -> None:
+            pass
+
+    class Events:
+        def emit(self, kind: str, data: object) -> None:
+            pass
+
+    context = type("Context", (), {"effects": Effects(), "events": Events()})()
+    observer = DurableProviderObserver(
+        context=context,
+        effect_id="effect",
+        on_handle=lambda handle: None,
+    )
+
+    with pytest.raises(ValueError):
+        observer.progress("unsafe", {"nested": [{key.capitalize(): "body"}]})
+
+
+def test_observer_rejects_stringifiable_progress_body_key() -> None:
+    class BodyKey:
+        def __str__(self) -> str:
+            return "ConTent"
+
+    class Effects:
+        def mark_may_have_run(self, effect_id: str) -> None:
+            pass
+
+    class Events:
+        def emit(self, kind: str, data: object) -> None:
+            pass
+
+    context = type("Context", (), {"effects": Effects(), "events": Events()})()
+    observer = DurableProviderObserver(
+        context=context,
+        effect_id="effect",
+        on_handle=lambda handle: None,
+    )
+
+    with pytest.raises(ValueError):
+        observer.progress("unsafe", {BodyKey(): "body"})

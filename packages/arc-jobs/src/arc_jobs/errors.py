@@ -62,4 +62,12 @@ class CancelledError(ArcJobsError):
 
 
 class UnsafeEffectRecoveryError(ArcJobsError):
-    pass
+    def __init__(self, *args: object, effect_id: str | None = None):
+        """Pause an effect recovery that requires human supervision.
+
+        Preserve the base exception's positional argument contract while
+        allowing recovery code to attach an optional effect identifier.
+        """
+
+        self.effect_id = effect_id
+        super().__init__(*args)

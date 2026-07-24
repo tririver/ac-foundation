@@ -91,6 +91,7 @@ from .protocol import (
     snapshot_data,
     validate_command_result,
 )
+from .progress import validate_progress_data
 from .storage import AtomicStateStore, ImmutableArtifactStore
 
 __version__ = "1.0.1"
@@ -182,5 +183,6 @@ __all__ = [
     "snapshot_data",
     "validate_artifact_id",
     "validate_command_result",
+    "validate_progress_data",
     "validate_simple_id",
 ]

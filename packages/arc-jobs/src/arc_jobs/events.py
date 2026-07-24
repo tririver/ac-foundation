@@ -10,26 +10,11 @@ from .errors import CorruptStateError
 from .identity import canonical_json_bytes, validate_simple_id
 from .lease import FileLease
 from .models import JsonValue
+from .progress import validate_progress_data
 from .storage import _ensure_directory, _fsync_directory, utc_now
 
 MAX_EVENT_BYTES = 256 * 1024
 MAX_TAIL_BYTES = 1024 * 1024
-_FORBIDDEN_PROGRESS_KEYS = {"text", "token", "content", "output", "delta"}
-
-
-def _validate_safe_data(value: JsonValue) -> None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key.lower() in _FORBIDDEN_PROGRESS_KEYS:
-                raise ValueError(
-                    f"event data contains forbidden partial-output field {key!r}"
-                )
-            _validate_safe_data(child)
-    elif isinstance(value, list):
-        for child in value:
-            _validate_safe_data(child)
-
-
 class EventWriter:
     def __init__(self, path: Path, *, run_id: str):
         self.path = path
@@ -72,7 +57,7 @@ class EventWriter:
         if value["event_id"] != expected_id:
             raise CorruptStateError("event_id does not match event content")
         try:
-            _validate_safe_data(value["data"])
+            validate_progress_data(value["data"])
         except ValueError as exc:
             raise CorruptStateError(str(exc)) from exc
 
@@ -154,7 +139,7 @@ class EventWriter:
 
     def emit(self, event: str, data: Mapping[str, JsonValue]) -> None:
         validate_simple_id(event, label="event")
-        _validate_safe_data(dict(data))
+        validate_progress_data(dict(data))
         lock = FileLease(self.path.with_suffix(".lock")).acquire(blocking=True)
         try:
             size = self._truncate_incomplete_tail()
@@ -208,6 +193,11 @@ class EventWriter:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
             if isinstance(value, dict):
+                if "data" in value:
+                    try:
+                        validate_progress_data(value["data"])
+                    except ValueError:
+                        continue
                 documents.append(value)
         return tuple(documents)
 

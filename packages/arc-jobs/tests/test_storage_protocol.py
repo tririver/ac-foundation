@@ -22,6 +22,7 @@ from arc_jobs import (
     decode_progress_event,
     encode_command_result,
     encode_progress_event,
+    validate_progress_data,
 )
 from arc_jobs.cli import main
 
@@ -111,6 +112,23 @@ def test_progress_rejects_partial_output_and_runless_events():
         encode_progress_event(
             ProgressEvent("run-1", 1, "step", {"nested": {"delta": "secret"}})
         )
+
+
+@pytest.mark.parametrize(
+    "key",
+    ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),
+)
+def test_progress_codec_and_public_validator_reject_all_body_keys(key):
+    data = {"nested": [{key.swapcase(): "secret"}]}
+    with pytest.raises(ValueError):
+        validate_progress_data(data)
+    with pytest.raises(ValueError):
+        encode_progress_event(ProgressEvent("run-1", 1, "step", data))
+
+    document = encode_progress_event(ProgressEvent("run-1", 1, "step"))
+    document["data"] = data
+    with pytest.raises(CorruptStateError):
+        decode_progress_event(document)
 
 
 def test_cli_status_and_usage_emit_one_shared_envelope(tmp_path, capsys):

@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-import threading
+import hashlib
 import json
+import threading
 
 import pytest
 
 import arc_jobs.groups as group_storage
+import arc_jobs.lease as lease_module
 
 from arc_jobs import (
     Awaiting,
+    CorruptStateError,
     EffectRequestDigest,
     EventWriter,
     FailureMode,
     Paused,
+    RecoveryDecision,
     ResumeReason,
     RunBusyError,
     RunEngine,
@@ -23,7 +27,9 @@ from arc_jobs import (
     RunContext,
     Succeeded,
     UnitResult,
+    UnsafeEffectRecoveryError,
     WorkUnit,
+    canonical_json_bytes,
     validate_artifact_id,
     validate_simple_id,
 )
@@ -51,6 +57,39 @@ def test_same_process_file_lease_is_exclusive(tmp_path):
     finally:
         first.release()
     FileLease(tmp_path / "lease").acquire().release()
+
+
+def test_file_lease_chmod_failure_releases_local_lease(tmp_path, monkeypatch):
+    path = tmp_path / "lease"
+
+    def fail_chmod(*_args):
+        raise PermissionError("permission setup failed")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(lease_module.os, "chmod", fail_chmod)
+        with pytest.raises(PermissionError, match="permission setup failed"):
+            FileLease(path).acquire()
+
+    FileLease(path).acquire().release()
+
+
+@pytest.mark.skipif(lease_module.fcntl is None, reason="POSIX flock required")
+def test_file_lease_release_clears_local_lock_after_unlock_failure(tmp_path, monkeypatch):
+    path = tmp_path / "lease"
+    original_flock = lease_module.fcntl.flock
+    held = FileLease(path).acquire()
+
+    def fail_unlock(fd, flags):
+        if flags == lease_module.fcntl.LOCK_UN:
+            raise OSError("unlock failed")
+        return original_flock(fd, flags)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(lease_module.fcntl, "flock", fail_unlock)
+        with pytest.raises(OSError, match="unlock failed"):
+            held.release()
+
+    FileLease(path).acquire().release()
 
 
 def test_inspect_is_a_pure_read(tmp_path):
@@ -88,6 +127,35 @@ def test_event_limits_and_incomplete_tail(tmp_path):
     assert [item["sequence"] for item in writer.tail()] == [1, 2]
     with pytest.raises(ValueError):
         writer.emit("unsafe", {"nested": {"content": "body"}})
+
+
+@pytest.mark.parametrize(
+    "key",
+    ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),
+)
+def test_event_writer_rejects_all_progress_body_keys_on_emit_and_read(tmp_path, key):
+    writer = EventWriter(tmp_path / "events.jsonl", run_id="run-1")
+    body_data = {"nested": [{key.upper(): "body"}]}
+
+    with pytest.raises(ValueError):
+        writer.emit("progress", body_data)
+
+    stable = {
+        "run_id": "run-1",
+        "sequence": 1,
+        "event": "progress",
+        "data": body_data,
+    }
+    document = {
+        "schema_version": "arc.jobs.event.v1",
+        **stable,
+        "event_id": hashlib.sha256(canonical_json_bytes(stable)).hexdigest(),
+        "emitted_at": "2026-01-01T00:00:00.000000Z",
+    }
+    writer.path.write_text(json.dumps(document) + "\n")
+    assert writer.tail() == ()
+    with pytest.raises(CorruptStateError):
+        writer.validate()
 
 
 def test_event_validation_rejects_tampered_identity(tmp_path):
@@ -364,6 +432,103 @@ def test_uncertain_effect_pauses_for_supervision_without_retry(tmp_path):
     assert snapshot.status is RunStatus.PAUSED
     assert snapshot.awaiting.reason is ResumeReason.SUPERVISION_REQUIRED
     assert snapshot.awaiting.details["code"] == "unsafe_effect_recovery"
+    assert snapshot.awaiting.details["effect_id"] == "call"
+
+
+class PolicyPauseEffectHandler:
+    name = "policy-pause-effect.v1"
+
+    def execute(self, context):
+        context.effects.prepare(
+            "call", effect_request_digest=EffectRequestDigest("a" * 64)
+        )
+        context.effects.mark_may_have_run("call")
+        context.effects.recover(
+            "call",
+            policy=type(
+                "PausePolicy",
+                (),
+                {"classify": lambda self, record: RecoveryDecision.PAUSE_UNCERTAIN},
+            )(),
+        )
+        return Succeeded()
+
+
+def test_policy_pause_for_uncertain_effect_maps_to_supervision_with_effect_id(tmp_path):
+    snapshot = RunEngine(RunRepository(tmp_path)).execute(
+        RunSpec("run-1", "policy-pause-effect.v1", {}), PolicyPauseEffectHandler()
+    )
+
+    assert snapshot.status is RunStatus.PAUSED
+    assert snapshot.awaiting is not None
+    assert snapshot.awaiting.details["code"] == "unsafe_effect_recovery"
+    assert snapshot.awaiting.details["effect_id"] == "call"
+
+
+@pytest.mark.parametrize(
+    ("error_args", "message"),
+    (
+        ((), ""),
+        (("legacy recovery needs supervision",), "legacy recovery needs supervision"),
+        (("legacy", "recovery"), "('legacy', 'recovery')"),
+    ),
+)
+def test_legacy_unsafe_effect_error_preserves_exception_args_and_pauses(
+    tmp_path, error_args, message
+):
+    class LegacyUnsafeEffectHandler:
+        name = "legacy-unsafe-effect.v1"
+
+        def execute(self, context):
+            raise UnsafeEffectRecoveryError(*error_args)
+
+    snapshot = RunEngine(RunRepository(tmp_path)).execute(
+        RunSpec("run-1", "legacy-unsafe-effect.v1", {}), LegacyUnsafeEffectHandler()
+    )
+
+    assert snapshot.status is RunStatus.PAUSED
+    assert snapshot.awaiting is not None
+    assert snapshot.awaiting.details == {
+        "code": "unsafe_effect_recovery",
+        "message": message,
+    }
+
+
+@pytest.mark.parametrize(
+    "decision",
+    (
+        RecoveryDecision.RETRY_VERIFIED_NOT_RUN,
+        RecoveryDecision.RESUME_EXTERNALLY,
+    ),
+)
+def test_may_have_run_recovery_accepts_only_verified_or_external_decisions(
+    tmp_path, decision
+):
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(RunSpec("run-1", "example.v1", {}))
+    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context.effects.prepare("call", effect_request_digest=EffectRequestDigest("a" * 64))
+    context.effects.mark_may_have_run("call")
+    policy = type("Policy", (), {"classify": lambda self, record: decision})()
+
+    assert context.effects.recover("call", policy=policy) is decision
+
+
+@pytest.mark.parametrize(
+    "decision",
+    (RecoveryDecision.PAUSE_UNCERTAIN, RecoveryDecision.REPLAY_OUTPUT),
+)
+def test_may_have_run_recovery_rejects_uncertain_or_impossible_decisions(tmp_path, decision):
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(RunSpec("run-1", "example.v1", {}))
+    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context.effects.prepare("call", effect_request_digest=EffectRequestDigest("a" * 64))
+    context.effects.mark_may_have_run("call")
+    policy = type("Policy", (), {"classify": lambda self, record: decision})()
+
+    with pytest.raises(UnsafeEffectRecoveryError) as caught:
+        context.effects.recover("call", policy=policy)
+    assert caught.value.effect_id == "call"
 
 
 def test_effect_recovery_revalidates_saved_artifact(tmp_path):

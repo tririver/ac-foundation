@@ -4,20 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping
 
+from arc_jobs import validate_progress_data
+
 from .providers.base import NativeResumeHandle
-
-_FORBIDDEN_PROGRESS_KEYS = {"text", "token", "content", "output", "delta", "prompt"}
-
-
-def _validate_progress(value: Any) -> None:
-    if isinstance(value, Mapping):
-        for key, child in value.items():
-            if str(key).lower() in _FORBIDDEN_PROGRESS_KEYS:
-                raise ValueError("Progress cannot contain response-body fields.")
-            _validate_progress(child)
-    elif isinstance(value, (list, tuple)):
-        for child in value:
-            _validate_progress(child)
 
 
 class DurableProviderObserver:
@@ -57,7 +46,7 @@ class DurableProviderObserver:
         self.raw_bytes += size
 
     def progress(self, kind: str, data: Mapping[str, Any]) -> None:
-        _validate_progress(data)
+        validate_progress_data(data)
         self.context.events.emit(kind, dict(data))
 
     def response_saved(self, ref: Any) -> None:

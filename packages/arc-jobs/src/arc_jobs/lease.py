@@ -34,6 +34,7 @@ class FileLease:
         if not local_lock.acquire(blocking=blocking):
             raise RunBusyError(f"lease is held: {self.path}")
         self._local_lock = local_lock
+        handle = None
         try:
             handle = self.path.open("a+b")
             if fcntl is not None:
@@ -48,36 +49,54 @@ class FileLease:
             else:  # pragma: no cover
                 raise RuntimeError("no supported file locking backend")
         except (BlockingIOError, OSError) as exc:
-            if "handle" in locals():
-                handle.close()
-            local_lock.release()
-            self._local_lock = None
+            self._abort_acquire(handle)
             raise RunBusyError(f"lease is held: {self.path}") from exc
-        except Exception:
-            if "handle" in locals():
-                handle.close()
-            local_lock.release()
-            self._local_lock = None
+        except BaseException:
+            self._abort_acquire(handle)
             raise
-        os.chmod(self.path, 0o600)
+        try:
+            os.chmod(self.path, 0o600)
+        except BaseException:
+            self._abort_acquire(handle)
+            raise
         self._handle = handle
         return self
 
-    def release(self) -> None:
-        if self._handle is None:
-            return
+    def _abort_acquire(self, handle: object | None) -> None:
         try:
-            if fcntl is not None:
-                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
-            elif msvcrt is not None:  # pragma: no cover - Windows
-                self._handle.seek(0)
-                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+            if handle is not None:
+                try:
+                    handle.close()
+                except BaseException:
+                    pass
         finally:
-            self._handle.close()
-            self._handle = None
-            if self._local_lock is not None:
-                self._local_lock.release()
-                self._local_lock = None
+            local_lock = self._local_lock
+            self._local_lock = None
+            if local_lock is not None:
+                try:
+                    local_lock.release()
+                except BaseException:
+                    pass
+
+    def release(self) -> None:
+        handle = self._handle
+        local_lock = self._local_lock
+        self._handle = None
+        self._local_lock = None
+        try:
+            if handle is not None:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                elif msvcrt is not None:  # pragma: no cover - Windows
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        finally:
+            try:
+                if handle is not None:
+                    handle.close()
+            finally:
+                if local_lock is not None:
+                    local_lock.release()
 
     def __enter__(self) -> "FileLease":
         return self.acquire()

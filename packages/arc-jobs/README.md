@@ -41,6 +41,19 @@ See the canonical
 [`identity-and-reuse.md`](../../docs/architecture/identity-and-reuse.md)
 policy.
 
+File leases are transactional: an acquire returns only after the OS lock and
+user-only file permissions are in place. Any acquisition failure releases both
+the file handle and the in-process lock; `release()` also clears the local lock
+even when the OS unlock or close reports an error.
+
+Effects advance from `PREPARED` through `MAY_HAVE_RUN` to saved/committed
+output. A `MAY_HAVE_RUN` recovery needs a policy that can prove either
+`RETRY_VERIFIED_NOT_RUN` or `RESUME_EXTERNALLY`; absent, uncertain, or
+impossible replay decisions pause the run for supervision with the effect ID.
+Progress data is recursively body-free: case-insensitive `text`, `token`,
+`content`, `output`, `delta`, `prompt`, `candidate`, and `result` keys are
+rejected at event, codec, and observer boundaries.
+
 Joined work groups are also immutable within a run. Use
 `repository.inspect_group(run_id, group_id)` (or `context.inspect_group(group_id)`
 inside a handler) to read every unit's pending or terminal status, value, and

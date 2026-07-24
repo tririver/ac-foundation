@@ -836,6 +836,12 @@ class RunEngine:
                     ),
                 )
             except UnsafeEffectRecoveryError as exc:
+                details = {
+                    "code": "unsafe_effect_recovery",
+                    "message": str(exc)[:300],
+                }
+                if exc.effect_id is not None:
+                    details["effect_id"] = exc.effect_id
                 next_snapshot = replace(
                     snapshot,
                     revision=snapshot.revision + 1,
@@ -845,10 +851,7 @@ class RunEngine:
                         ResumeReason.SUPERVISION_REQUIRED,
                         f"effect-{snapshot.attempt}",
                         False,
-                        details={
-                            "code": "unsafe_effect_recovery",
-                            "message": str(exc)[:300],
-                        },
+                        details=details,
                     ),
                 )
             except Exception as exc:
