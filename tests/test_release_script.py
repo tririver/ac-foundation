@@ -40,6 +40,7 @@ def _write_minimal_arc_repo(work: Path) -> None:
     (work / "packages/arc-companion/src/arc_companion").mkdir(parents=True)
     (work / "packages/arc-paper/src/arc_paper").mkdir(parents=True)
     (work / "packages/arc-paper/tests").mkdir(parents=True)
+    (work / "VERSION").write_text("0.1.0\n", encoding="utf-8")
 
     for plugin in ("arc", "arc-mcp"):
         for host in ("codex", "claude"):
@@ -75,6 +76,10 @@ def _write_minimal_arc_repo(work: Path) -> None:
     package_dependencies = {
         "arc-llm": [],
         "arc-jobs": [],
+        "arc-proposer-reviewer": [
+            '"arc-jobs>=0.1,<0.2"',
+            '"arc-llm>=0.1,<0.2"',
+        ],
         "arc-paper": ['"arc-llm>=0.1,<0.2"'],
         "arc-domain": ['"arc-llm>=0.1,<0.2"', '"arc-paper>=0.1,<0.2"'],
         "arc-typeset": ['"arc-llm>=0.1,<0.2"'],
@@ -173,6 +178,7 @@ def _commit_release_bump(work: Path, version: str = "0.2.0") -> None:
 
 
 def _apply_release_bump(work: Path, version: str = "0.2.0") -> None:
+    (work / "VERSION").write_text(version + "\n", encoding="utf-8")
     for plugin in ("arc", "arc-mcp"):
         _replace(
             work / f"plugins/{plugin}/.codex-plugin/plugin.json",
@@ -233,6 +239,8 @@ def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_pat
     result = _run_script(work)
 
     assert result.returncode == 0, result.stderr
+    assert (work / "VERSION").read_text(encoding="utf-8").strip() == "0.2.0"
+    assert 'version = "0.2.0"' in (work / "packages/arc-proposer-reviewer/pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "0.2.0"' in (work / "packages/arc-mcp/pyproject.toml").read_text(encoding="utf-8")
     assert '"arc-llm>=0.2,<0.3"' in (work / "packages/arc-paper/pyproject.toml").read_text(encoding="utf-8")
     assert '__version__ = "0.2.0"' in (work / "packages/arc-mcp/src/arc_mcp/__init__.py").read_text(encoding="utf-8")

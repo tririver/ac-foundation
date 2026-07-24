@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arc-jobs"
-version = "1.0.0"
-description = "Protocol-neutral persistent job execution for ARC CLIs."
+version = "1.0.1"
+description = "Durable, protocol-neutral run kernel for ARC packages."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "ARC" }]

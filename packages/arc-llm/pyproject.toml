@@ -4,13 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arc-llm"
-version = "1.0.0"
+version = "1.0.1"
 description = "Reusable host LLM execution helpers for ARC tools."
-readme = "../../README.md"
+readme = "README.md"
 license = "MIT"
 authors = [{ name = "ARC" }]
 requires-python = ">=3.11"
-dependencies = ["json-repair>=0.59,<1", "jsonschema>=4.0"]
+dependencies = [
+  "arc-jobs>=1.0.1,<1.1",
+  "json-repair>=0.59,<1",
+  "jsonschema>=4,<5",
+]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
@@ -24,7 +28,7 @@ Repository = "https://github.com/tririver/arc"
 Issues = "https://github.com/tririver/arc/issues"
 
 [project.optional-dependencies]
-test = ["pytest>=8.0", "sympy>=1.12"]
+test = ["pytest>=8.0"]
 
 [project.scripts]
 arc-llm = "arc_llm.cli:main"

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "arc-proposer-reviewer"
+version = "1.0.1"
+description = "Typed proposer-reviewer orchestration for ARC."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "ARC" }]
+requires-python = ">=3.11"
+dependencies = [
+  "arc-jobs>=1.0.1,<1.1",
+  "arc-llm>=1.0.1,<1.1",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/tririver/arc"
+Repository = "https://github.com/tririver/arc"
+Issues = "https://github.com/tririver/arc/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+arc-proposer-reviewer = "arc_proposer_reviewer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/arc_proposer_reviewer"]

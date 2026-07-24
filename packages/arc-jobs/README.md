@@ -1,58 +1,56 @@
 # arc-jobs
 
-`arc-jobs` provides protocol-neutral persistent execution for ARC command-line
-tools. It stores job state and output on disk and exposes `submit`, `list`,
-`status`, `watch`, `result`, and `cancel` commands.
+`arc-jobs` is ARC's zero-dependency durable run kernel. It owns atomic state,
+immutable artifacts, cooperative cancellation, pause/resume, effect recovery,
+joined work groups, and the shared command JSON codec.
 
-Only ARC console scripts installed in the same Python runtime are accepted.
-Commands are passed as an argument vector and are never evaluated by a shell.
+It deliberately does **not** own detached processes, provider selection,
+arbitrary command execution, daemons, watchdogs, or domain workflows. Agent
+hosts that need background execution should launch an ordinary blocking ARC
+command in the host's background-job facility.
 
-```bash
-arc-jobs submit --json -- arc-paper get-title 0911.3380 --json
-arc-jobs watch JOB_ID --json
-arc-jobs watch JOB_ID --until-review --after-review-sequence 0 --json
+## Library
+
+```python
+from arc_jobs import RunEngine, RunRepository, RunSpec, Succeeded
+
+class Handler:
+    name = "example.v1"
+
+    def execute(self, context):
+        result = context.artifacts.publish_json("result", {"answer": 42})
+        return Succeeded(result)
+
+repository = RunRepository("/explicit/run/root")
+snapshot = RunEngine(repository).execute(
+    RunSpec("run-001", "example.v1", {"question": "life"}),
+    Handler(),
+)
 ```
 
-LLM progress events are persisted while a command runs. `status` exposes the
-latest substantive excerpt and job-level review sequence. Start long-running
-jobs with `--after-review-sequence 0`; after meaningful progress, pass the
-returned `review_sequence` as the next cursor and watch again. `watch
---until-review` returns successfully at the next 30-minute review checkpoint
-without cancelling the job. Use `cancel` when activity is repetitive, stalled,
-or off task; a terminal result returns normally and ends the watch loop.
+`RunSpec.semantic_input` is the stable business identity. Runtime controls such
+as concurrency, retry, deadlines, credentials, timestamps, and paths do not
+belong in it. The repository derives the semantic key; callers never submit a
+digest.
 
-Companion jobs may finish at the controlled, resumable `first_chapter_ready` or
-`needs_supervision` states. Chapter progress uses the
-`arc.companion.progress.v1` side-channel schema and retains chapter, segment,
-lane, generation, and accepted-block status in job state.
+The same run ID and semantic input replays. The same run ID with different
+semantic input raises `IdempotencyConflictError`. Artifact identity, execution
+fingerprints, operational policy, effect-request digests, and resume-input
+digests are separate concepts and must not be substituted for one another.
+See the canonical
+[`identity-and-reuse.md`](../../docs/architecture/identity-and-reuse.md)
+policy.
 
-Successful submit, status, cancel, and list operations return `ok: true`.
-Failed/cancelled job status and result commands use a nonzero process exit code
-so shell callers do not mistake a terminal command failure for success.
+## CLI
 
-Set `ARC_JOBS_CACHE` to override the job-state directory and
-`ARC_JOBS_WORKER_MODE=thread` only when embedding a cooperative in-process
-runner. Normal CLI jobs use isolated worker processes.
+The CLI is intentionally limited to read/control operations:
 
-Embedded Controllers may provide both a deterministic `job_id` and a complete
-`full_identity` to `JobManager.start`. Exact concurrent submissions reuse the
-same persisted job; any identity, payload, argv, working-directory, or
-environment mismatch fails closed. Existing callers that omit these arguments
-continue to receive random job IDs. Workers add internal `ARC_JOB_ID` and
-`ARC_JOB_TYPE` values only after restoring the persisted allowlisted
-environment.
+```text
+arc-jobs status   --run-root DIR --run-id ID
+arc-jobs cancel   --run-root DIR --run-id ID [--reason TEXT]
+arc-jobs validate --run-root DIR --run-id ID
+```
 
-Composing packages should import durable job primitives from the public
-`arc_jobs` package namespace. The supported helpers are `read_job`,
-`read_json`, `write_json`, `append_event`, `record_progress`, and
-`is_cancel_requested`; callers must not import implementation details from
-`arc_jobs.jobs`. `JobManager.cancel(..., condition=...)` runs the optional
-condition under the deterministic submission lock, allowing a composing
-package to make an atomic last-subscriber cancellation decision.
-
-Job directories are private (`0700`) and state, result, event, lock, log, and
-SQLite files are private (`0600`). Recovery leases use both the worker PID and
-the operating-system process start identity, rather than expiring a healthy
-silent worker by heartbeat age. A process job is restarted only when its ARC
-command was never launched; loss of a worker after command launch terminates
-the orphaned process group and records a terminal failure.
+stdout contains exactly one `arc.command_result.v1` object. A successfully
+recorded cancellation is a terminal outcome and uses exit code 0; failure to
+request cancellation uses exit code 1.

@@ -59,6 +59,7 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
 version_paths=(
+  "VERSION"
   "plugins/arc/.codex-plugin/plugin.json"
   "plugins/arc/.claude-plugin/plugin.json"
   "plugins/arc/skills/arc/.arc-install-ref"
@@ -69,12 +70,15 @@ version_paths=(
   "plugins/arc-mcp/scripts/runtime-constraints.txt"
   "packages/arc-llm/pyproject.toml"
   "packages/arc-jobs/pyproject.toml"
+  "packages/arc-proposer-reviewer/pyproject.toml"
   "packages/arc-paper/pyproject.toml"
   "packages/arc-domain/pyproject.toml"
   "packages/arc-typeset/pyproject.toml"
   "packages/arc-companion/pyproject.toml"
   "packages/arc-mcp/pyproject.toml"
+  "packages/arc-llm/src/arc_llm/__init__.py"
   "packages/arc-jobs/src/arc_jobs/__init__.py"
+  "packages/arc-proposer-reviewer/src/arc_proposer_reviewer/__init__.py"
   "packages/arc-companion/src/arc_companion/__init__.py"
   "packages/arc-paper/src/arc_paper/__init__.py"
   "packages/arc-mcp/src/arc_mcp/__init__.py"
@@ -211,7 +215,7 @@ version = sys.argv[1]
 internal_range = sys.argv[2]
 paths = [Path(item) for item in sys.argv[3:]]
 
-internal_dep_re = re.compile(r"(arc-(?:llm|jobs|paper|domain|typeset|companion|mcp))>=\d+\.\d+,<\d+\.\d+")
+internal_dep_re = re.compile(r"(arc-[a-z0-9-]+)>=\d+\.\d+(?:\.\d+)?,<\d+\.\d+")
 
 
 def replace_once(path: Path, pattern: str, replacement: str) -> None:
@@ -229,7 +233,9 @@ def replace_all(path: Path, pattern: re.Pattern[str], replacement: str) -> None:
 
 
 for path in paths:
-    if path.name == ".arc-install-ref":
+    if path.name == "VERSION":
+        path.write_text(version + "\n", encoding="utf-8")
+    elif path.name == ".arc-install-ref":
         replace_once(path, r"^v\d+\.\d+\.\d+$", f"v{version}")
     elif path.name == "runtime-constraints.txt":
         replace_once(
@@ -276,7 +282,19 @@ from pathlib import Path
 version = sys.argv[1]
 internal_range = sys.argv[2]
 root = Path(sys.argv[3])
-packages = ["arc-llm", "arc-jobs", "arc-paper", "arc-domain", "arc-typeset", "arc-companion", "arc-mcp"]
+packages = [
+    "arc-llm",
+    "arc-jobs",
+    "arc-proposer-reviewer",
+    "arc-paper",
+    "arc-domain",
+    "arc-typeset",
+    "arc-companion",
+    "arc-mcp",
+]
+
+if (root / "VERSION").read_text(encoding="utf-8").strip() != version:
+    raise SystemExit("root VERSION mismatch")
 
 for manifest in [
     root / "plugins/arc/.codex-plugin/plugin.json",

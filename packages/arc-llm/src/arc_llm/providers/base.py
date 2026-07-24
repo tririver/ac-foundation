@@ -1,182 +1,143 @@
+"""Provider boundary types.
+
+Adapters normalize their private wire protocols into these values.  They do
+not own run state, retry policy, or artifact publication.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
+
+from ..errors import ProviderFailure
+from ..output import CandidateMaterial
 
 
-class LLMFailureCategory(StrEnum):
-    UNKNOWN = "unknown"
-    RATE_LIMIT = "rate_limit"
-    QUOTA = "quota"
-    AUTHENTICATION = "authentication"
-    PERMISSION = "permission"
-    INVALID_REQUEST = "invalid_request"
-    SCHEMA = "schema"
-    TRANSPORT = "transport"
-    TIMEOUT = "timeout"
+class StructuredOutputMode(StrEnum):
+    NATIVE = "native"
+    PROMPT = "prompt"
+    NONE = "none"
+
+
+class UsageAvailability(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    UNAVAILABLE = "unavailable"
+
+
+class IsolationMode(StrEnum):
+    ISOLATED = "isolated"
+    EXPLICIT = "explicit"
+    INHERITED = "inherited"
+
+
+class ProviderTerminalKind(StrEnum):
+    COMPLETED = "completed"
+    FAILED = "failed"
     CANCELLED = "cancelled"
-    OUTPUT_INVALID = "output_invalid"
-    LOCAL_IO = "local_io"
-    PROVIDER_INTERNAL = "provider_internal"
-
-
-class LLMAbortScope(StrEnum):
-    CALL = "call"
-    BATCH = "batch"
-    PROVIDER = "provider"
-
-
-class LLMSubmissionState(StrEnum):
-    NOT_SUBMITTED = "not_submitted"
-    SUBMITTED = "submitted"
-    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
-class LLMFailureDisposition:
-    category: LLMFailureCategory
-    abort_scope: LLMAbortScope
-    submission_state: LLMSubmissionState
-    retryable: bool
-    retry_after_seconds: float | None = None
+class ProviderCapabilities:
+    native_resume: bool
+    structured_output: StructuredOutputMode
+    usage: UsageAvailability
+    config_isolation: IsolationMode
+    tool_isolation: IsolationMode
+    cooperative_cancel: bool
+    provider_persistence: bool
 
 
-class LLMWorkerError(RuntimeError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        retryable: bool = False,
-        abort_batch: bool = False,
-        category: LLMFailureCategory | str = LLMFailureCategory.UNKNOWN,
-        abort_scope: LLMAbortScope | str | None = None,
-        submission_state: LLMSubmissionState | str = LLMSubmissionState.UNKNOWN,
-        retry_after_seconds: float | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.retryable = bool(retryable)
-        self.category = LLMFailureCategory(category)
-        self.abort_scope = LLMAbortScope(
-            abort_scope if abort_scope is not None else (LLMAbortScope.BATCH if abort_batch else LLMAbortScope.CALL)
-        )
-        # Keep the historical public flag synchronized with the richer scope.
-        self.submission_state = LLMSubmissionState(submission_state)
-        self.retry_after_seconds = retry_after_seconds
-
-    @property
-    def abort_batch(self) -> bool:
-        return self.abort_scope in {LLMAbortScope.BATCH, LLMAbortScope.PROVIDER}
-
-    @abort_batch.setter
-    def abort_batch(self, value: bool) -> None:
-        # Historical providers mutate this flag after constructing an error.
-        # Keep that behavior while preventing the typed scope from going stale.
-        if value and self.abort_scope == LLMAbortScope.CALL:
-            self.abort_scope = LLMAbortScope.BATCH
-        elif not value:
-            self.abort_scope = LLMAbortScope.CALL
-
-    @property
-    def disposition(self) -> LLMFailureDisposition:
-        return LLMFailureDisposition(
-            category=self.category,
-            abort_scope=self.abort_scope,
-            submission_state=self.submission_state,
-            retryable=self.retryable,
-            retry_after_seconds=self.retry_after_seconds,
-        )
+@dataclass(frozen=True)
+class ProviderDiagnostic:
+    provider: str
+    available: bool
+    executable: str | None
+    details: Mapping[str, Any] = field(default_factory=dict)
 
 
-class LLMWorkerTimeout(LLMWorkerError):
-    """The provider produced no meaningful activity before its idle deadline."""
-
-    def __init__(self, message: str, **kwargs: Any) -> None:
-        kwargs.setdefault("category", LLMFailureCategory.TIMEOUT)
-        kwargs.setdefault("submission_state", LLMSubmissionState.UNKNOWN)
-        super().__init__(message, **kwargs)
+@dataclass(frozen=True)
+class NativeResumeHandle:
+    provider: str
+    value: str
 
 
-class LLMWorkerCancelled(LLMWorkerError):
-    """The caller requested worker-call cancellation."""
-
-    def __init__(self, message: str, **kwargs: Any) -> None:
-        kwargs.setdefault("category", LLMFailureCategory.CANCELLED)
-        super().__init__(message, **kwargs)
-
-
-class LLMConfigurationError(LLMWorkerError):
-    """Local LLM configuration is invalid before provider submission."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(
-            message,
-            retryable=False,
-            category=LLMFailureCategory.INVALID_REQUEST,
-            abort_scope=LLMAbortScope.BATCH,
-            submission_state=LLMSubmissionState.NOT_SUBMITTED,
-        )
+@dataclass(frozen=True)
+class ProviderUsage:
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_input_tokens: int | None = None
 
 
-class LLMSchemaError(LLMWorkerError):
-    """The provider-facing output schema is invalid."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(
-            message,
-            retryable=False,
-            category=LLMFailureCategory.SCHEMA,
-            abort_scope=LLMAbortScope.BATCH,
-            submission_state=LLMSubmissionState.NOT_SUBMITTED,
-        )
+@dataclass(frozen=True)
+class ProviderRequest:
+    prompt: str
+    model: str
+    output_schema: Mapping[str, Any] | None
+    capabilities: Mapping[str, Any]
+    idle_timeout_seconds: float
 
 
-def failure_disposition(exc: BaseException) -> LLMFailureDisposition | None:
-    """Return the strongest typed LLM failure in an exception chain.
-
-    Wrapping layers should use this instead of inspecting only the outer
-    exception, so provider-wide failures cannot accidentally become retries or
-    deterministic fallbacks.
-    """
-    pending: list[BaseException] = [exc]
-    seen: set[int] = set()
-    dispositions: list[LLMFailureDisposition] = []
-    while pending:
-        current = pending.pop(0)
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        if isinstance(current, LLMWorkerError):
-            dispositions.append(current.disposition)
-        cause = current.__cause__
-        context = current.__context__
-        if cause is not None:
-            pending.append(cause)
-        if context is not None and context is not cause:
-            pending.append(context)
-    if not dispositions:
-        return None
-    scope_weight = {LLMAbortScope.CALL: 0, LLMAbortScope.BATCH: 1, LLMAbortScope.PROVIDER: 2}
-    return max(
-        dispositions,
-        key=lambda item: (
-            scope_weight[item.abort_scope],
-            item.category != LLMFailureCategory.UNKNOWN,
-        ),
-    )
+@dataclass(frozen=True)
+class ProviderResumeRequest:
+    prompt: str
+    output_schema: Mapping[str, Any] | None
+    capabilities: Mapping[str, Any]
+    idle_timeout_seconds: float
 
 
-class PromptProvider(Protocol):
+@dataclass(frozen=True)
+class ProviderExecution:
+    terminal_kind: ProviderTerminalKind
+    candidates: tuple[CandidateMaterial, ...] = ()
+    native_handle: NativeResumeHandle | None = None
+    usage: ProviderUsage | None = None
+    failure: ProviderFailure | None = None
+    diagnostics: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.terminal_kind is ProviderTerminalKind.FAILED and self.failure is None:
+            raise ValueError("A failed provider execution requires a normalized failure.")
+        if self.terminal_kind is ProviderTerminalKind.COMPLETED and self.failure is not None:
+            raise ValueError("A completed provider execution cannot contain a failure.")
+
+
+class ProviderObserver(Protocol):
+    def before_delivery(self) -> None: ...
+
+    def native_handle(self, handle: NativeResumeHandle) -> None: ...
+
+    def raw_event(self, event: Mapping[str, Any] | str) -> None: ...
+
+    def progress(self, kind: str, data: Mapping[str, Any]) -> None: ...
+
+    def response_saved(self, ref: Any) -> None: ...
+
+
+class CancelToken(Protocol):
+    def raise_if_requested(self) -> None: ...
+
+
+class ProviderAdapter(Protocol):
     name: str
+    compatibility_version: str
 
-    def generate_json(
+    def capabilities(self) -> ProviderCapabilities: ...
+
+    def doctor(self) -> ProviderDiagnostic: ...
+
+    def start(
         self,
-        prompt: str,
-        *,
-        schema: dict[str, Any] | None = None,
-        model: str | None = None,
-    ) -> dict[str, Any]:
-        ...
+        request: ProviderRequest,
+        observer: ProviderObserver,
+        cancel: CancelToken,
+    ) -> ProviderExecution: ...
 
-    def generate_text(self, prompt: str, *, model: str | None = None) -> str:
-        ...
+    def resume(
+        self,
+        handle: NativeResumeHandle,
+        request: ProviderResumeRequest,
+        observer: ProviderObserver,
+        cancel: CancelToken,
+    ) -> ProviderExecution: ...
