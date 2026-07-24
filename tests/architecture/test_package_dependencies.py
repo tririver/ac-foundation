@@ -14,7 +14,7 @@ ALLOWED = {
     "arc_llm": {"arc_jobs"},
     "arc_proposer_reviewer": {"arc_jobs", "arc_llm"},
     "arc_paper": {"arc_jobs", "arc_llm"},
-    "arc_domain": {"arc_llm", "arc_paper"},
+    "arc_domain": {"arc_jobs", "arc_llm", "arc_paper"},
     "arc_companion": {"arc_domain", "arc_llm", "arc_paper"},
     "arc_mcp": {
         "arc_domain",
