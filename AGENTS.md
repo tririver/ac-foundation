@@ -132,6 +132,8 @@ service commands it names.
   repo-local git config.
 - After completing and verifying each functional change, agents must create a
   git commit unless the user explicitly asks not to commit.
+- Agents must not create, move, or push Git tags. Release tags are created only
+  by an explicitly authorized human release operation.
 
 ## Agent Host Portability
 
@@ -183,6 +185,12 @@ another.
   LLM work.
 - `plugins/arc/skills/arc`, `prompts/`, `schemas/`, and plugin manifests
   should describe or wrap package behavior rather than reimplementing it.
+- Package source under `packages/` must not import, read, discover, execute, or
+  derive runtime behavior or configuration from ARC Skill, plugin, or workflow
+  files. Each package must remain usable from its installed distribution
+  without an agent host or ARC Skill checkout. The dependency direction is
+  one-way: Skills, plugin launchers, and workflow adapters may invoke documented
+  package CLIs or public Python APIs; packages must not require them.
 
 ## Long-Running Terminal Work
 

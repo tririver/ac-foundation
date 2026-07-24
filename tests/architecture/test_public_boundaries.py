@@ -153,7 +153,14 @@ def test_arc_domain_owns_no_process_thread_or_file_lock_implementation():
 
 
 def test_core_does_not_import_plugin_or_test_code():
-    for package in ("arc-jobs", "arc-llm", "arc-proposer-reviewer"):
+    for package in (
+        "arc-jobs",
+        "arc-llm",
+        "arc-proposer-reviewer",
+        "arc-paper",
+        "arc-domain",
+        "arc-companion",
+    ):
         for path in _python_files(package):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
@@ -169,6 +176,38 @@ def test_core_does_not_import_plugin_or_test_code():
                     or name.startswith("tests.")
                     for name in names
                 ), path
+
+
+def test_package_source_does_not_depend_on_arc_skill_or_plugin_files():
+    """Published packages must be runnable without a source checkout or Skill."""
+
+    forbidden_fragments = (
+        "plugins/arc",
+        "plugins\\arc",
+        "skills/arc",
+        "skills\\arc",
+        ".arc-install-ref",
+    )
+    for package in (
+        "arc-jobs",
+        "arc-llm",
+        "arc-proposer-reviewer",
+        "arc-paper",
+        "arc-domain",
+        "arc-companion",
+    ):
+        for path in _python_files(package):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                    continue
+                normalized = node.value.casefold()
+                assert not any(
+                    fragment in normalized for fragment in forbidden_fragments
+                ), (
+                    f"{path.relative_to(ROOT)} contains a runtime reference to "
+                    "ARC Skill or plugin files"
+                )
 
 
 def test_arc_jobs_public_facade_has_no_raw_filesystem_helpers():
