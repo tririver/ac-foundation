@@ -105,6 +105,19 @@ tools it names.
   edits unless the user explicitly approves a revised instruction. Explain the
   disagreement and leave files unchanged.
 
+## Complexity Review Gate
+
+- Before implementing a new capability, assess whether it would materially
+  increase ARC's architectural, state-machine, dependency, operational, or
+  maintenance complexity.
+- If it would, stop before implementation and discuss the design with the user.
+  Explain the essential need, simpler alternatives, affected package
+  boundaries, durable-state implications, and expected verification burden.
+- Approval of a high-level capability does not imply approval of an
+  unexpectedly more complex implementation. Routine work within an explicitly
+  approved design may proceed unless its complexity materially exceeds that
+  design.
+
 ## Agent Host Portability
 
 - Keep skills, prompts, scripts, MCP adapters, package behavior, and
