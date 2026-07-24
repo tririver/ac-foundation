@@ -13,9 +13,12 @@ from arc_jobs import (
     CommandResult,
     CommandRun,
     CommandStatus,
+    EventWriter,
+    ProgressEvent,
     RunRepository,
     command_result_from_snapshot,
     command_result_json,
+    encode_progress_event,
 )
 
 from .api import LLMClient
@@ -181,6 +184,29 @@ def main(
             client=client or LLMClient(registry=providers),
             registry=providers,
         )
+        if args.command in {"generate", "resume"} and result.run is not None:
+            repository = RunRepository(args.run_root)
+            events = EventWriter(
+                repository.run_directory(result.run.id) / "events.jsonl",
+                run_id=result.run.id,
+            ).tail()
+            for event in events:
+                progress = ProgressEvent(
+                    result.run.id,
+                    int(event["sequence"]),
+                    str(event["event"]),
+                    dict(event["data"]),
+                    str(event["emitted_at"]),
+                )
+                sys.stderr.write(
+                    json.dumps(
+                        encode_progress_event(progress),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
         exit_code = 1 if result.status is CommandStatus.FAILED else 0
     except _UsageError as exc:
         result = _failure(exc)

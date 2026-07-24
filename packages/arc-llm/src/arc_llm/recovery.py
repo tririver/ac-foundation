@@ -19,7 +19,7 @@ from arc_jobs import (
 )
 
 TASK_SCHEMA_VERSION = "arc.llm.task.v1"
-SESSION_SCHEMA_VERSION = "arc.llm.session.v1"
+SESSION_SCHEMA_VERSION = "arc.llm.session.v2"
 
 
 class AcceptedOrigin(StrEnum):
@@ -86,6 +86,13 @@ class LLMTaskState:
 
 
 @dataclass(frozen=True)
+class AcceptedSessionTurn:
+    task_semantic_key_sha256: str
+    artifact_sha256: str
+    result_prefix_sha256: str
+
+
+@dataclass(frozen=True)
 class LLMSessionState:
     revision: int
     session_key: str
@@ -96,6 +103,7 @@ class LLMSessionState:
     native_handle: str | None
     accepted_turns: int
     accepted_prefix_sha256: str
+    accepted_turn_records: tuple[AcceptedSessionTurn, ...]
 
 
 class RecoveryAction(StrEnum):
@@ -270,6 +278,14 @@ class SessionStateContract:
             "native_handle": value.native_handle,
             "accepted_turns": value.accepted_turns,
             "accepted_prefix_sha256": value.accepted_prefix_sha256,
+            "accepted_turn_records": [
+                {
+                    "task_semantic_key_sha256": item.task_semantic_key_sha256,
+                    "artifact_sha256": item.artifact_sha256,
+                    "result_prefix_sha256": item.result_prefix_sha256,
+                }
+                for item in value.accepted_turn_records
+            ],
         }
 
     def decode(self, document: Mapping[str, JsonValue]) -> LLMSessionState:
@@ -284,9 +300,13 @@ class SessionStateContract:
             "native_handle",
             "accepted_turns",
             "accepted_prefix_sha256",
+            "accepted_turn_records",
         }
         _exact(document, required)
-        return LLMSessionState(
+        records = document["accepted_turn_records"]
+        if not isinstance(records, list):
+            raise CorruptStateError("accepted turn records must be an array")
+        state = LLMSessionState(
             _int(document["revision"], "revision"),
             _str(document["session_key"], "session key"),
             _int(document["generation"], "generation"),
@@ -299,11 +319,15 @@ class SessionStateContract:
             _nullable_str(document["native_handle"], "native handle"),
             _int(document["accepted_turns"], "accepted turns"),
             _str(document["accepted_prefix_sha256"], "accepted prefix"),
+            tuple(_accepted_session_turn(item) for item in records),
         )
+        _validate_session(state)
+        return state
 
     def validate_transition(
         self, previous: LLMSessionState | None, next: LLMSessionState
     ) -> None:
+        _validate_session(next)
         if previous is None:
             if next.revision != 0 or next.accepted_turns != 0:
                 raise ValueError("Initial session starts at revision and turn zero.")
@@ -312,14 +336,51 @@ class SessionStateContract:
             raise ValueError("Session revision must increase by one.")
         if next.session_key != previous.session_key:
             raise ValueError("Session key is immutable.")
-        if next.accepted_turns not in {previous.accepted_turns, previous.accepted_turns + 1}:
-            raise ValueError("Accepted session turns may increase by one.")
+        if next.accepted_turns != previous.accepted_turns + 1:
+            raise ValueError("A session transition accepts exactly one turn.")
+        if (
+            next.accepted_turn_records[:-1] != previous.accepted_turn_records
+            or len(next.accepted_turn_records)
+            != len(previous.accepted_turn_records) + 1
+        ):
+            raise ValueError("Accepted session turn history is append-only.")
         if previous.accepted_turns > 0 and (
             next.provider != previous.provider
             or next.model != previous.model
             or next.session_compatibility != previous.session_compatibility
         ):
             raise ValueError("An accepted session cannot be rebound.")
+
+
+def _accepted_session_turn(value: JsonValue) -> AcceptedSessionTurn:
+    if not isinstance(value, dict):
+        raise CorruptStateError("accepted session turn must be an object")
+    _exact(
+        value,
+        {
+            "task_semantic_key_sha256",
+            "artifact_sha256",
+            "result_prefix_sha256",
+        },
+    )
+    return AcceptedSessionTurn(
+        _str(value["task_semantic_key_sha256"], "task semantic key"),
+        _str(value["artifact_sha256"], "accepted artifact digest"),
+        _str(value["result_prefix_sha256"], "result prefix"),
+    )
+
+
+def _validate_session(state: LLMSessionState) -> None:
+    if state.accepted_turns != len(state.accepted_turn_records):
+        raise CorruptStateError("accepted turn count and history differ")
+    keys = [item.task_semantic_key_sha256 for item in state.accepted_turn_records]
+    if len(keys) != len(set(keys)):
+        raise CorruptStateError("duplicate accepted task in session history")
+    if state.accepted_turn_records and (
+        state.accepted_turn_records[-1].result_prefix_sha256
+        != state.accepted_prefix_sha256
+    ):
+        raise CorruptStateError("session prefix differs from accepted turn history")
 
 
 def _validate_task(state: LLMTaskState) -> None:

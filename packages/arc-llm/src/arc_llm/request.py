@@ -118,9 +118,53 @@ class InteractionResolver(Protocol):
 
 
 @dataclass(frozen=True)
+class ProviderGateOptions:
+    enabled: bool = True
+    global_limit: int = 24
+    provider_limits: Mapping[str, int] = field(default_factory=dict)
+    circuit_failure_threshold: int = 3
+    circuit_cooldown_seconds: float = 900.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.enabled, bool):
+            raise InvalidRequestError("gate.enabled must be a boolean.")
+        for name in ("global_limit", "circuit_failure_threshold"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not 1 <= value <= 24
+            ):
+                raise InvalidRequestError(f"gate.{name} must be between 1 and 24.")
+        if (
+            isinstance(self.circuit_cooldown_seconds, bool)
+            or not isinstance(self.circuit_cooldown_seconds, (int, float))
+            or self.circuit_cooldown_seconds <= 0
+        ):
+            raise InvalidRequestError(
+                "gate.circuit_cooldown_seconds must be positive."
+            )
+        limits = dict(self.provider_limits)
+        for provider, limit in limits.items():
+            if (
+                not isinstance(provider, str)
+                or not provider
+                or isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or not 1 <= limit <= self.global_limit
+            ):
+                raise InvalidRequestError(
+                    "gate.provider_limits must map provider names to limits "
+                    "between 1 and global_limit."
+                )
+        object.__setattr__(self, "provider_limits", MappingProxyType(limits))
+
+
+@dataclass(frozen=True)
 class LLMExecutionOptions:
     limits: ExecutionLimits = field(default_factory=ExecutionLimits)
     interaction_resolver: InteractionResolver | None = None
+    gate: ProviderGateOptions = field(default_factory=ProviderGateOptions)
 
 
 @dataclass(frozen=True)

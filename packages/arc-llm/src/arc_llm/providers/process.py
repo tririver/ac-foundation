@@ -66,8 +66,11 @@ class ProcessRunner:
 
         def read_stream(name: str, stream: object) -> None:
             try:
+                read = getattr(stream, "read1", None)
+                if read is None:
+                    read = stream.read  # type: ignore[attr-defined]
                 while True:
-                    data = stream.read(65536)  # type: ignore[attr-defined]
+                    data = read(65536)
                     if not data:
                         break
                     chunks.put((name, data))
@@ -153,17 +156,38 @@ class ProcessRunner:
 
     @staticmethod
     def _terminate(process: subprocess.Popen[bytes]) -> None:
+        if os.name == "posix":
+            ProcessRunner._terminate_posix_group(process)
+            return
         try:
-            if os.name == "posix":
-                os.killpg(process.pid, signal.SIGTERM)
-            else:
-                process.terminate()
+            process.terminate()
             try:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                if os.name == "posix":
-                    os.killpg(process.pid, signal.SIGKILL)
-                else:
-                    process.kill()
+                process.kill()
         except ProcessLookupError:
             return
+
+    @staticmethod
+    def _terminate_posix_group(process: subprocess.Popen[bytes]) -> None:
+        group_id = process.pid
+        try:
+            os.killpg(group_id, signal.SIGTERM)
+        except ProcessLookupError:
+            process.wait()
+            return
+
+        deadline = time.monotonic() + 0.25
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(group_id, 0)
+            except ProcessLookupError:
+                process.wait()
+                return
+            time.sleep(0.01)
+
+        try:
+            os.killpg(group_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()

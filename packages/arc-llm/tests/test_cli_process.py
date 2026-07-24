@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
+import pytest
+
 from arc_llm import (
+    DeliveryState,
+    FailureCategory,
     LLMRequest,
     ModelSelection,
     NativeResumeHandle,
@@ -13,6 +20,7 @@ from arc_llm import (
     TextOutput,
     request_to_document,
 )
+from arc_llm.errors import ProviderFailure
 from arc_llm.cli import main
 from arc_llm.output import CandidateMaterial
 from arc_llm.providers.process import ProcessRunner
@@ -65,6 +73,59 @@ def test_cli_emits_one_shared_envelope_and_query_status(
     assert code == 0
     assert queried["status"] == "completed"
     assert queried["data"]["run"]["status"] == "succeeded"
+
+
+def test_cli_stderr_progress_and_stdout_final_result(
+    tmp_path: Path, adapter, registry, capsys, monkeypatch
+) -> None:
+    original = adapter.start
+
+    def start_with_progress(request, observer, cancel):
+        observer.progress("provider_phase", {"phase": "requesting"})
+        return original(request, observer, cancel)
+
+    monkeypatch.setattr(adapter, "start", start_with_progress)
+    adapter.steps.append(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (CandidateMaterial(text="done", terminal=True),),
+            NativeResumeHandle("codex", "thread"),
+        )
+    )
+    request_path = tmp_path / "request.json"
+    request_path.write_text(
+        json.dumps(
+            request_to_document(
+                LLMRequest(
+                    "cli-progress",
+                    "Do it.",
+                    TextOutput(),
+                    ModelSelection("codex"),
+                )
+            )
+        )
+    )
+    assert (
+        main(
+            [
+                "generate",
+                "--request",
+                str(request_path),
+                "--run-root",
+                str(tmp_path / "runs"),
+            ],
+            registry=registry,
+        )
+        == 0
+    )
+    captured = capsys.readouterr()
+    final_lines = captured.out.splitlines()
+    assert len(final_lines) == 1
+    assert json.loads(final_lines[0])["schema_version"] == "arc.command_result.v1"
+    progress = [json.loads(line) for line in captured.err.splitlines()]
+    assert progress
+    assert all(item["schema_version"] == "arc.progress_event.v1" for item in progress)
+    assert any(item["event"] == "provider_phase" for item in progress)
 
 
 def test_cli_usage_error_is_same_envelope_with_exit_two(capsys) -> None:
@@ -143,3 +204,193 @@ def test_process_runner_drains_both_streams_and_calls_delivery_barrier() -> None
     assert result.stdout == b"payload"
     assert result.stderr == b"diagnostic"
     assert barrier == ["before"]
+
+
+def test_process_creation_failure_is_not_delivered_and_unavailable(
+    monkeypatch,
+) -> None:
+    def fail_popen(*args, **kwargs):
+        raise OSError("missing executable")
+
+    monkeypatch.setattr(subprocess, "Popen", fail_popen)
+    try:
+        ProcessRunner().run(
+            ["missing-provider"],
+            stdin=b"",
+            env={},
+            idle_timeout_seconds=1,
+            before_stdin=lambda: None,
+            cancel_check=lambda: None,
+        )
+    except ProviderFailure as failure:
+        assert failure.category is FailureCategory.UNAVAILABLE
+        assert failure.delivery is DeliveryState.NOT_DELIVERED
+    else:
+        raise AssertionError("process creation failure was not normalized")
+
+
+def test_process_idle_timeout_terminates_and_reaps_provider() -> None:
+    try:
+        ProcessRunner().run(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdin=b"",
+            env=None,
+            idle_timeout_seconds=0.05,
+            before_stdin=lambda: None,
+            cancel_check=lambda: None,
+        )
+    except ProviderFailure as failure:
+        assert failure.category is FailureCategory.TIMEOUT
+        assert failure.delivery is DeliveryState.MAY_HAVE_RUN
+    else:
+        raise AssertionError("idle provider was not terminated")
+
+
+def test_process_allows_long_runtime_when_small_chunks_stay_active() -> None:
+    stdout_chunks: list[bytes] = []
+    stderr_chunks: list[bytes] = []
+    result = ProcessRunner().run(
+        [
+            sys.executable,
+            "-c",
+            "import sys,time\n"
+            "for i in range(6):\n"
+            " sys.stdout.write(str(i)); sys.stdout.flush()\n"
+            " sys.stderr.write('.'); sys.stderr.flush()\n"
+            " time.sleep(0.03)\n",
+        ],
+        stdin=b"",
+        env=None,
+        idle_timeout_seconds=0.08,
+        before_stdin=lambda: None,
+        cancel_check=lambda: None,
+        on_stdout=stdout_chunks.append,
+        on_stderr=stderr_chunks.append,
+    )
+    assert result.returncode == 0
+    assert result.stdout == b"012345"
+    assert result.stderr == b"......"
+    assert len(stdout_chunks) > 1
+    assert len(stderr_chunks) > 1
+
+
+def test_process_idle_timeout_covers_blocked_stdin_delivery() -> None:
+    started = time.monotonic()
+    with pytest.raises(ProviderFailure) as caught:
+        ProcessRunner().run(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdin=b"x" * (2 * 1024 * 1024),
+            env=None,
+            idle_timeout_seconds=0.05,
+            before_stdin=lambda: None,
+            cancel_check=lambda: None,
+        )
+    assert caught.value.category is FailureCategory.TIMEOUT
+    assert time.monotonic() - started < 3
+
+
+def test_process_cancellation_remains_active_after_delivery() -> None:
+    checks = 0
+
+    def cancel() -> None:
+        nonlocal checks
+        checks += 1
+        if checks >= 2:
+            raise ProviderFailure(
+                "cancelled",
+                category=FailureCategory.CANCELLED,
+                delivery=DeliveryState.MAY_HAVE_RUN,
+            )
+
+    with pytest.raises(ProviderFailure) as caught:
+        ProcessRunner().run(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdin=b"delivered",
+            env=None,
+            idle_timeout_seconds=5,
+            before_stdin=lambda: None,
+            cancel_check=cancel,
+        )
+    assert caught.value.category is FailureCategory.CANCELLED
+    assert caught.value.delivery is DeliveryState.MAY_HAVE_RUN
+    assert checks >= 2
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
+def test_timeout_terminates_descendant_after_group_leader_exits(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "descendant"
+    child = (
+        "import signal,sys,time\n"
+        "from pathlib import Path\n"
+        "base=Path(sys.argv[1])\n"
+        "def stop(*_args):\n"
+        " base.with_suffix('.terminated').write_text('term')\n"
+        " raise SystemExit(0)\n"
+        "signal.signal(signal.SIGTERM, stop)\n"
+        "base.with_suffix('.ready').write_text('ready')\n"
+        "time.sleep(60)\n"
+    )
+    leader = (
+        "import subprocess,sys,time\n"
+        "from pathlib import Path\n"
+        "base=Path(sys.argv[1])\n"
+        "process=subprocess.Popen([sys.executable,'-c',sys.argv[2],str(base)])\n"
+        "deadline=time.monotonic()+2\n"
+        "while not base.with_suffix('.ready').exists():\n"
+        " assert time.monotonic()<deadline\n"
+        " time.sleep(0.005)\n"
+        "print(process.pid,flush=True)\n"
+    )
+
+    with pytest.raises(ProviderFailure) as caught:
+        ProcessRunner().run(
+            [sys.executable, "-c", leader, str(marker), child],
+            stdin=b"",
+            env=None,
+            idle_timeout_seconds=0.05,
+            before_stdin=lambda: None,
+            cancel_check=lambda: None,
+        )
+    assert caught.value.category is FailureCategory.TIMEOUT
+    assert marker.with_suffix(".terminated").read_text() == "term"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
+def test_timeout_force_kills_term_ignoring_descendant_after_leader_exit(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "stubborn-descendant"
+    child = (
+        "import signal,sys,time\n"
+        "from pathlib import Path\n"
+        "base=Path(sys.argv[1])\n"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "base.with_suffix('.ready').write_text('ready')\n"
+        "time.sleep(3)\n"
+    )
+    leader = (
+        "import subprocess,sys,time\n"
+        "from pathlib import Path\n"
+        "base=Path(sys.argv[1])\n"
+        "process=subprocess.Popen([sys.executable,'-c',sys.argv[2],str(base)])\n"
+        "deadline=time.monotonic()+2\n"
+        "while not base.with_suffix('.ready').exists():\n"
+        " assert time.monotonic()<deadline\n"
+        " time.sleep(0.005)\n"
+        "print(process.pid,flush=True)\n"
+    )
+
+    started = time.monotonic()
+    with pytest.raises(ProviderFailure) as caught:
+        ProcessRunner().run(
+            [sys.executable, "-c", leader, str(marker), child],
+            stdin=b"",
+            env=None,
+            idle_timeout_seconds=0.05,
+            before_stdin=lambda: None,
+            cancel_check=lambda: None,
+        )
+    assert caught.value.category is FailureCategory.TIMEOUT
+    assert time.monotonic() - started < 1.5

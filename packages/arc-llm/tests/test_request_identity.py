@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import subprocess
+import sys
 
 import pytest
 
@@ -12,6 +14,7 @@ from arc_llm import (
     LLMExecutionOptions,
     LLMRequest,
     ModelSelection,
+    ProviderGateOptions,
     ResumeAction,
     ResumeInput,
     decode_request,
@@ -19,7 +22,12 @@ from arc_llm import (
     request_to_document,
     resume_input_to_document,
 )
-from arc_llm.identity import semantic_document, semantic_key
+from arc_llm.identity import (
+    execution_document,
+    execution_fingerprint,
+    semantic_document,
+    semantic_key,
+)
 
 
 def test_request_and_resume_codecs_are_closed_round_trips() -> None:
@@ -57,6 +65,21 @@ def test_operational_limits_do_not_change_semantic_key() -> None:
     assert first != second
 
 
+def test_provider_gate_defaults_and_overrides_are_typed_operational_policy() -> None:
+    defaults = ProviderGateOptions()
+    assert defaults.enabled
+    assert defaults.global_limit == 24
+    configured = ProviderGateOptions(
+        global_limit=8,
+        provider_limits={"codex": 2},
+        circuit_failure_threshold=2,
+        circuit_cooldown_seconds=30,
+    )
+    assert configured.provider_limits["codex"] == 2
+    with pytest.raises(InvalidRequestError):
+        ProviderGateOptions(global_limit=2, provider_limits={"codex": 3})
+
+
 def test_semantic_capability_and_prompt_changes_are_detected() -> None:
     request = LLMRequest("task", "prompt", JsonOutput({"type": "object"}))
     assert semantic_key(request) != semantic_key(replace(request, prompt="other"))
@@ -71,3 +94,75 @@ def test_semantic_identity_uses_explicit_task_vocabulary() -> None:
     )
     assert document["task_id"] == "task"
     assert "logical_key" not in document
+
+
+def test_public_api_import_is_lightweight_and_excludes_retired_surfaces() -> None:
+    script = (
+        "import json,sys,arc_llm; "
+        "print(json.dumps({'exports': sorted(arc_llm.__all__), "
+        "'loaded': sorted(k for k in sys.modules if k.startswith('arc_'))}))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    document = __import__("json").loads(result.stdout)
+    assert "LLMClient" in document["exports"]
+    assert "LLMTaskService" in document["exports"]
+    assert all(
+        not name.startswith(("arc_domain", "arc_mcp", "arc_proposer_reviewer"))
+        for name in document["loaded"]
+    )
+    assert not {
+        "run_json",
+        "run_text",
+        "schema_format",
+        "ProposerReviewerRunner",
+    } & set(document["exports"])
+
+
+def test_semantic_execution_and_operational_identity_matrix() -> None:
+    request = LLMRequest(
+        "identity",
+        "prompt",
+        JsonOutput({"type": "object"}),
+        ModelSelection("codex", "model-a"),
+        capabilities=CapabilityPolicy(internet=False),
+    )
+    base_semantic = semantic_key(request)
+    assert semantic_key(replace(request, prompt="changed")) != base_semantic
+    assert semantic_key(
+        replace(request, capabilities=CapabilityPolicy(internet=True))
+    ) != base_semantic
+
+    recipe = execution_document(
+        provider="codex",
+        model="model-a",
+        capabilities={"internet": False, "effective_config": {"reasoning": "high"}},
+        adapter_compatibility_version="v1",
+    )
+    fingerprint = execution_fingerprint(recipe)
+    assert execution_fingerprint({**recipe, "model": "model-b"}) != fingerprint
+    assert execution_fingerprint(
+        {**recipe, "adapter_compatibility_version": "v2"}
+    ) != fingerprint
+    assert execution_fingerprint(
+        {
+            **recipe,
+            "capabilities": {
+                "internet": False,
+                "effective_config": {"reasoning": "low"},
+            },
+        }
+    ) != fingerprint
+
+    options = LLMExecutionOptions()
+    changed_policy = replace(
+        options,
+        limits=ExecutionLimits(idle_timeout_seconds=1),
+        gate=ProviderGateOptions(global_limit=1),
+    )
+    assert changed_policy != options
+    assert semantic_key(request) == base_semantic

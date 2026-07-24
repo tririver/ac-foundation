@@ -144,9 +144,10 @@ def _values(material: CandidateMaterial, *, allow_repair: bool) -> tuple[Any, ..
         parsed_complete = True
     except (json.JSONDecodeError, ValueError):
         pass
-    if not parsed_complete:
+    has_json_root = _has_json_root(material.text)
+    if not parsed_complete and not has_json_root:
         result.extend(_complete_json_values(material.text))
-    if not result and allow_repair:
+    if not parsed_complete and allow_repair and has_json_root:
         try:
             repaired = repair_json(material.text, return_objects=True)
         except Exception:
@@ -163,21 +164,74 @@ def _values(material: CandidateMaterial, *, allow_repair: bool) -> tuple[Any, ..
     return tuple(unique.values())
 
 
+def _has_json_root(text: str) -> bool:
+    candidate = text.lstrip()
+    if candidate.startswith("```"):
+        newline = candidate.find("\n")
+        if newline < 0:
+            return False
+        candidate = candidate[newline + 1 :].lstrip()
+    return candidate.startswith(("{", "["))
+
+
 def _complete_json_values(text: str) -> tuple[Any, ...]:
-    decoder = json.JSONDecoder()
     values: list[Any] = []
-    covered_until = 0
+    start: int | None = None
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    in_prose_string = False
+    prose_escaped = False
     for index, char in enumerate(text):
-        if index < covered_until:
+        if start is None:
+            if in_prose_string:
+                if prose_escaped:
+                    prose_escaped = False
+                elif char == "\\":
+                    prose_escaped = True
+                elif char == '"':
+                    in_prose_string = False
+                continue
+            if char == '"':
+                in_prose_string = True
+                continue
+            if char not in "[{":
+                continue
+            start = index
+            stack.append(char)
             continue
-        if char not in "[{":
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char in "[{":
+            stack.append(char)
+            continue
+        if char not in "]}":
+            continue
+        expected = "[" if char == "]" else "{"
+        if not stack or stack[-1] != expected:
+            # A mismatched closer does not make a nested opener top-level.
+            # Keep the conservative outer boundary until its typed stack
+            # actually closes, or discard it as unfinished at end of input.
+            continue
+        stack.pop()
+        if stack:
             continue
         try:
-            value, end = decoder.raw_decode(text[index:])
+            value = json.loads(text[start : index + 1])
         except (json.JSONDecodeError, ValueError):
-            continue
-        values.append(value)
-        covered_until = index + end
+            pass
+        else:
+            values.append(value)
+        start = None
     return tuple(values)
 
 

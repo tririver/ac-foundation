@@ -10,10 +10,13 @@ from typing import Any, Mapping
 from arc_jobs import (
     ArtifactRef,
     ArtifactSourceRef,
+    BoundedLeasePool,
     EffectRequestDigest,
     EffectStage,
     ResumeReason,
+    RevisionConflictError,
     SemanticKeyDigest,
+    StateConflictError,
 )
 
 from .config import resolve_model_selection
@@ -39,6 +42,7 @@ from .identity import (
     semantic_document,
     semantic_key,
 )
+from .gate import ProviderCallGate
 from .interaction import (
     decode_interactive_turn,
     encode_interactive_turn,
@@ -72,6 +76,7 @@ from .providers import (
 from .recovery import (
     AcceptedOrigin,
     AcceptedRecord,
+    AcceptedSessionTurn,
     GenerationRecord,
     LLMTaskState,
     LLMSessionState,
@@ -120,6 +125,51 @@ class LLMTaskExecutor:
                 return self._replay(context, request, state)
             if state.pause is not None:
                 return self._paused_outcome(state.pause)
+        session_key = (
+            state.session_key
+            if state is not None and state.session_key is not None
+            else request.session.session_key
+            if request.session is not None
+            else request.task_id
+        )
+        try:
+            lease = self._session_lineage_pool(context, session_key).acquire(
+                checkpoint=context.checkpoint
+            )
+        except Exception as exc:
+            return LLMFailed(
+                ProviderFailure(
+                    f"LLM session lineage lock failed: {exc}",
+                    category=FailureCategory.LOCAL_IO,
+                    delivery=DeliveryState.NOT_DELIVERED,
+                )
+            )
+        try:
+            return self._execute_locked(context, request, options=options)
+        finally:
+            lease.release()
+
+    def _execute_locked(
+        self,
+        context: Any,
+        request: LLMRequest,
+        *,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        key = semantic_key(request)
+        store = self._task_store(context, request.task_id)
+        state = store.read()
+        if state is not None:
+            if state.semantic_key.sha256 != key.sha256:
+                return LLMFailed(IdempotencyConflictError())
+            if state.accepted is not None:
+                return self._replay(context, request, state)
+            if state.pause is not None:
+                return self._paused_outcome(state.pause)
+            try:
+                self._validate_session_lineage(context, request, state)
+            except ArcLLMError as exc:
+                return LLMFailed(exc)
             return self._drive(context, request, state, store, options)
         try:
             resolved = resolve_model_selection(
@@ -188,12 +238,50 @@ class LLMTaskExecutor:
             return LLMFailed(InvalidRequestError("Unknown LLM task_id."))
         if state.pause is None:
             return LLMFailed(InvalidRequestError("The selected LLM task is not paused."))
+        session_key = state.session_key or state.task_id
+        try:
+            lease = self._session_lineage_pool(context, session_key).acquire(
+                checkpoint=context.checkpoint
+            )
+        except Exception as exc:
+            return LLMFailed(
+                ProviderFailure(
+                    f"LLM session lineage lock failed: {exc}",
+                    category=FailureCategory.LOCAL_IO,
+                    delivery=DeliveryState.NOT_DELIVERED,
+                )
+            )
+        try:
+            return self._resume_locked(
+                context,
+                task_id,
+                input=input,
+                options=options,
+            )
+        finally:
+            lease.release()
+
+    def _resume_locked(
+        self,
+        context: Any,
+        task_id: str,
+        *,
+        input: ResumeInput | None,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        store = self._task_store(context, task_id)
+        state = store.read()
+        if state is None:
+            return LLMFailed(InvalidRequestError("Unknown LLM task_id."))
+        if state.pause is None:
+            return LLMFailed(InvalidRequestError("The selected LLM task is not paused."))
         if state.pause.input_required and input is None:
             return LLMFailed(InvalidRequestError("This pause requires resume input."))
         if input is not None and input.resume_key != state.pause.resume_key:
             return LLMFailed(ResumeKeyMismatchError())
         try:
             request = self._load_request(context, state)
+            self._validate_session_lineage(context, request, state)
         except ArcLLMError as exc:
             return LLMFailed(exc)
         if input is not None and input.action is ResumeAction.CANCEL:
@@ -443,17 +531,26 @@ class LLMTaskExecutor:
         self, context: Any, request: LLMRequest, state: LLMTaskState, store: Any, adapter: Any, options: LLMExecutionOptions
     ) -> ProviderExecution:
         observer = self._observer(context, state, store)
-        return adapter.start(
-            ProviderRequest(
-                request.prompt,
-                state.resolved_model or "",
-                provider_schema(request.output),
-                self._capability_document(request),
-                options.limits.idle_timeout_seconds,
-            ),
-            observer,
-            context.cancel,
-        )
+        gate = self._provider_gate(context, options)
+        with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
+            try:
+                execution = adapter.start(
+                    ProviderRequest(
+                        request.prompt,
+                        state.resolved_model or "",
+                        provider_schema(request.output),
+                        self._capability_document(request),
+                        options.limits.idle_timeout_seconds,
+                    ),
+                    observer,
+                    context.cancel,
+                )
+            except ProviderFailure as exc:
+                permit.record_failure(exc)
+                self._emit_gate_record_warning(context, permit)
+                raise
+            self._record_gate_execution(context, permit, execution)
+            return execution
 
     def _call_resume(
         self,
@@ -476,17 +573,26 @@ class LLMTaskExecutor:
                 state, native_resumes=state.current.native_resumes + 1
             )
             store.compare_and_swap(state.revision, next_state)
-        return adapter.resume(
-            NativeResumeHandle(adapter.name, handle),
-            ProviderResumeRequest(
-                request.prompt if prompt is None else prompt,
-                provider_schema(request.output),
-                self._capability_document(request),
-                options.limits.idle_timeout_seconds,
-            ),
-            observer,
-            context.cancel,
-        )
+        gate = self._provider_gate(context, options)
+        with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
+            try:
+                execution = adapter.resume(
+                    NativeResumeHandle(adapter.name, handle),
+                    ProviderResumeRequest(
+                        request.prompt if prompt is None else prompt,
+                        provider_schema(request.output),
+                        self._capability_document(request),
+                        options.limits.idle_timeout_seconds,
+                    ),
+                    observer,
+                    context.cancel,
+                )
+            except ProviderFailure as exc:
+                permit.record_failure(exc)
+                self._emit_gate_record_warning(context, permit)
+                raise
+            self._record_gate_execution(context, permit, execution)
+            return execution
 
     def _observer(self, context: Any, state: LLMTaskState, store: Any) -> DurableProviderObserver:
         def save_handle(handle: NativeResumeHandle) -> None:
@@ -501,6 +607,37 @@ class LLMTaskExecutor:
             effect_id=state.current.effect_id,
             on_handle=save_handle,
         )
+
+    @staticmethod
+    def _provider_gate(context: Any, options: LLMExecutionOptions) -> ProviderCallGate:
+        return ProviderCallGate(
+            context.repository.root / "operational" / "llm",
+            options.gate,
+        )
+
+    def _record_gate_execution(
+        self, context: Any, permit: Any, execution: ProviderExecution
+    ) -> None:
+        if execution.terminal_kind is ProviderTerminalKind.FAILED:
+            assert execution.failure is not None
+            permit.record_failure(execution.failure)
+        else:
+            permit.record_success()
+        self._emit_gate_record_warning(context, permit)
+
+    @staticmethod
+    def _emit_gate_record_warning(context: Any, permit: Any) -> None:
+        if permit.record_error is None:
+            return
+        try:
+            context.events.emit(
+                "llm_gate_state_warning",
+                {"code": "provider_gate_state_write_failed"},
+            )
+        except Exception:
+            # Provider results remain authoritative even if both the
+            # best-effort circuit write and its bounded warning fail.
+            pass
 
     def _consume_execution(
         self,
@@ -694,7 +831,8 @@ class LLMTaskExecutor:
                 next_state,
                 ResumeReason.EXECUTION_BUDGET_EXHAUSTED,
                 "interaction_limit_reached",
-                input_required=False,
+                input_required=True,
+                request_ref=turn_ref,
             )
         resolver = options.interaction_resolver
         if resolver is None:
@@ -876,6 +1014,11 @@ class LLMTaskExecutor:
             current.resolved_provider,
             current.resolved_model,
         )
+        # The validated immutable artifact plus the accepted-turn record is
+        # the durable acceptance commit. Recording the lineage first prevents
+        # an old-prefix sibling from reaching the provider if this process
+        # stops before the task-local accepted field is repaired.
+        session = self._advance_session(context, request, current, ref)
         next_state = replace(
             current,
             revision=current.revision + 1,
@@ -885,7 +1028,6 @@ class LLMTaskExecutor:
         )
         store.compare_and_swap(current.revision, next_state)
         context.effects.commit(current.current.effect_id)
-        session = self._advance_session(context, request, next_state, ref)
         return LLMCompleted(
             value,
             next_state.resolved_provider,
@@ -934,14 +1076,16 @@ class LLMTaskExecutor:
                 if not isinstance(request.output, InteractiveJsonOutput)
                 else _result_contract(request.output),
             )
+            if state.accepted.origin is AcceptedOrigin.PROVIDER:
+                context.effects.commit(state.current.effect_id)
             session = None
             if state.session_key is not None:
-                session_state = self._session_store(context, state.session_key).read()
-                if session_state is not None:
-                    session = SessionRef(
-                        session_state.session_key,
-                        session_state.accepted_prefix_sha256,
-                    )
+                session = self._advance_session(
+                    context,
+                    request,
+                    state,
+                    state.accepted.artifact_ref,
+                )
             return LLMCompleted(
                 value,
                 state.accepted.provider,
@@ -1055,6 +1199,57 @@ class LLMTaskExecutor:
         return context.state(self._session_namespace(session_key), SessionStateContract())
 
     @staticmethod
+    def _session_lineage_pool(context: Any, session_key: str) -> BoundedLeasePool:
+        namespace = hashlib.sha256(session_key.encode("utf-8")).hexdigest()
+        return BoundedLeasePool(
+            context.repository.root
+            / "operational"
+            / "llm"
+            / "sessions"
+            / namespace,
+            1,
+        )
+
+    def _validate_session_lineage(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+    ) -> None:
+        if request.session is None:
+            return
+        adapter = self.registry.create(state.resolved_provider or "")
+        execution = execution_fingerprint(
+            self._execution_document(
+                adapter,
+                state.resolved_model or "",
+                request,
+            )
+        )
+        session = self._session_store(
+            context, request.session.session_key
+        ).read()
+        if session is None:
+            raise InvalidRequestError("The requested LLM session does not exist.")
+        if (
+            session.provider != (state.resolved_provider or "")
+            or session.model != (state.resolved_model or "")
+            or session.session_compatibility != execution
+        ):
+            raise InvalidRequestError("The requested session is execution-incompatible.")
+        if session.accepted_prefix_sha256 == request.session.accepted_prefix_sha256:
+            return
+        if any(
+            turn.task_semantic_key_sha256 == state.semantic_key.sha256
+            for turn in session.accepted_turn_records
+        ):
+            # The session record is the durable acceptance commit. A crash may
+            # leave this task-local state awaiting recovery of the already
+            # saved raw response and immutable accepted artifact.
+            return
+        raise InvalidRequestError("The session accepted prefix changed.")
+
+    @staticmethod
     def _artifacts(context: Any, key: Any) -> Any:
         digest = key.sha256
         return context.artifacts.scoped(f"llm/tasks/{digest}")
@@ -1109,7 +1304,6 @@ class LLMTaskExecutor:
         if state.session_key is None:
             return None
         store = self._session_store(context, state.session_key)
-        current = store.read()
         prefix = (
             request.session.accepted_prefix_sha256
             if request.session is not None
@@ -1118,30 +1312,60 @@ class LLMTaskExecutor:
         next_prefix = hashlib.sha256(
             f"{prefix}\0{accepted_ref.digest.value}".encode()
         ).hexdigest()
-        if current is None:
-            initial = LLMSessionState(
-                0,
-                state.session_key,
-                state.current_generation,
-                state.resolved_provider or "",
-                state.resolved_model or "",
-                state.current.execution,
-                state.current.native_handle,
-                0,
-                prefix,
+        while True:
+            current = store.read()
+            if current is None:
+                initial = LLMSessionState(
+                    0,
+                    state.session_key,
+                    state.current_generation,
+                    state.resolved_provider or "",
+                    state.resolved_model or "",
+                    state.current.execution,
+                    state.current.native_handle,
+                    0,
+                    prefix,
+                    (),
+                )
+                try:
+                    store.create(initial)
+                    current = initial
+                except StateConflictError:
+                    continue
+            for turn in current.accepted_turn_records:
+                if turn.task_semantic_key_sha256 != state.semantic_key.sha256:
+                    continue
+                if turn.artifact_sha256 != accepted_ref.digest.value:
+                    raise InvalidRequestError(
+                        "The accepted task is bound to a different session artifact."
+                    )
+                return SessionRef(current.session_key, turn.result_prefix_sha256)
+            if current.accepted_prefix_sha256 != prefix:
+                raise InvalidRequestError("The session accepted prefix changed.")
+            next_state = replace(
+                current,
+                revision=current.revision + 1,
+                generation=state.current_generation,
+                native_handle=state.current.native_handle,
+                accepted_turns=current.accepted_turns + 1,
+                accepted_prefix_sha256=next_prefix,
+                accepted_turn_records=current.accepted_turn_records
+                + (
+                    AcceptedSessionTurn(
+                        state.semantic_key.sha256,
+                        accepted_ref.digest.value,
+                        next_prefix,
+                    ),
+                ),
             )
-            store.create(initial)
-            current = initial
-        next_state = replace(
-            current,
-            revision=current.revision + 1,
-            generation=state.current_generation,
-            native_handle=state.current.native_handle,
-            accepted_turns=current.accepted_turns + 1,
-            accepted_prefix_sha256=next_prefix,
-        )
-        store.compare_and_swap(current.revision, next_state)
-        return SessionRef(next_state.session_key, next_state.accepted_prefix_sha256)
+            try:
+                store.compare_and_swap(current.revision, next_state)
+                return SessionRef(
+                    next_state.session_key,
+                    next_state.accepted_prefix_sha256,
+                )
+            except RevisionConflictError:
+                continue
 
     @staticmethod
     def _publish_policy(scoped: Any, generation: int, options: LLMExecutionOptions) -> None:
@@ -1152,6 +1376,13 @@ class LLMTaskExecutor:
                 "safe_retry_limit": options.limits.safe_retry_limit,
                 "native_resume_limit": options.limits.native_resume_limit,
                 "automatic_replacement_limit": options.limits.automatic_replacement_limit,
+            },
+            "gate": {
+                "enabled": options.gate.enabled,
+                "global_limit": options.gate.global_limit,
+                "provider_limits": dict(sorted(options.gate.provider_limits.items())),
+                "circuit_failure_threshold": options.gate.circuit_failure_threshold,
+                "circuit_cooldown_seconds": options.gate.circuit_cooldown_seconds,
             },
         }
         digest = document_sha256(document)

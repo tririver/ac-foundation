@@ -20,6 +20,13 @@ from arc_llm import (
 )
 
 
+def pytest_configure(config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "live_provider_smoke: bounded opt-in smoke against a real provider",
+    )
+
+
 class ScriptedAdapter:
     name = "codex"
     compatibility_version = "fake-v1"

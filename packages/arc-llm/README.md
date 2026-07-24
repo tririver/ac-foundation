@@ -56,3 +56,23 @@ are never copied to stdout or stderr.
 Semantic reuse, execution compatibility, explicit adoption, and the distinction
 between logical keys and content digests follow the repository-wide
 [identity and reuse architecture](../../docs/architecture/identity-and-reuse.md).
+
+## Optional live smoke
+
+The normal test suite skips the real-provider smoke. Run it explicitly with an
+ignored output directory below `arc-tests/`:
+
+```bash
+ARC_RUN_NET_TESTS=1 \
+ARC_RUN_LIVE_PROVIDER_SMOKE=1 \
+ARC_LLM_SMOKE_PROVIDER=codex \
+ARC_LLM_SMOKE_ROOT="$PWD/arc-tests/live-provider-smoke/manual-$(date -u +%Y%m%d-%H%M%S)" \
+packages/arc-paper/.venv/bin/python -m pytest -q -m live_provider_smoke \
+  packages/arc-llm/tests/live/test_provider_smoke.py
+```
+
+Confirm `ARC_LLM_SMOKE_ROOT` is ignored before running. The smoke is
+single-threaded and makes at most two provider calls: strict JSON start and
+an explicit session continuation, followed by a zero-call local replay. The
+root must be new or empty. It uses a 120-second idle timeout with automatic
+retry, recovery resume, and replacement disabled.

@@ -42,10 +42,27 @@ class EventAccumulator:
             line, self.buffer = self.buffer.split(b"\n", 1)
             self._line(line)
 
-    def finish(self) -> None:
+    def finish(self, *, validate_terminal: bool = True) -> None:
         if self.buffer.strip():
             self._line(self.buffer)
         self.buffer = b""
+        if not validate_terminal:
+            return
+        terminal = [item for item in self.candidates if item.terminal]
+        if len(terminal) > 1:
+            raise ProviderFailure(
+                "Provider event stream has multiple terminal responses.",
+                category=FailureCategory.SCHEMA,
+                delivery=DeliveryState.MAY_HAVE_RUN,
+                details={"code": "invalid_terminal_closure"},
+            )
+        if self.candidates and not terminal:
+            raise ProviderFailure(
+                "Provider event stream ended without terminal material.",
+                category=FailureCategory.SCHEMA,
+                delivery=DeliveryState.MAY_HAVE_RUN,
+                details={"code": "incomplete_terminal_closure"},
+            )
 
     def _line(self, raw: bytes) -> None:
         text = raw.decode("utf-8", "replace").strip()
@@ -113,7 +130,10 @@ def run_cli(
         cancel_check=cancel.raise_if_requested,
         on_stdout=accumulator.feed,
     )
-    accumulator.finish()
+    # A process exit failure is authoritative. Still consume a final
+    # non-newline event for diagnostics, but terminal-shape validation must
+    # not replace the typed nonzero-exit failure.
+    accumulator.finish(validate_terminal=result.returncode == 0)
     if result.returncode != 0:
         failure = classify_cli_failure(result.stderr.decode("utf-8", "replace"))
         return ProviderExecution(
@@ -157,11 +177,19 @@ def classify_cli_failure(stderr: str) -> ProviderFailure:
         category = FailureCategory.INVALID_REQUEST
     else:
         category = FailureCategory.TRANSPORT
+    retry_after = None
+    match = re.search(
+        r"(?i)retry[- ]after\s*[:=]?\s*(\d+(?:\.\d+)?)",
+        stderr,
+    )
+    if match is not None:
+        retry_after = float(match.group(1))
     return ProviderFailure(
         "Provider command failed.",
         category=category,
         delivery=DeliveryState.MAY_HAVE_RUN,
         retryable=category in {FailureCategory.RATE_LIMIT, FailureCategory.TRANSPORT},
+        retry_after_seconds=retry_after,
         details={"diagnostic": _redact_text(stderr[:4096])},
     )
 

@@ -150,4 +150,8 @@ def _parse_event(
 
 
 def _integer(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    return (
+        value
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else None
+    )

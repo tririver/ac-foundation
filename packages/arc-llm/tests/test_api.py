@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import threading
 
 from arc_jobs import ArtifactSourceRef, RunContext, RunRepository, RunSpec, RunStatus
+from arc_jobs import EffectStage
 from arc_llm import (
     AdoptionAuthorization,
     InteractiveJsonOutput,
@@ -102,6 +105,85 @@ def test_service_supports_multiple_tasks_in_one_parent_run_without_effect_collis
     effect_files = tuple((tmp_path / "runs" / "parent" / "effects").glob("*.json"))
     assert len(effect_files) == 2
     assert effect_files[0].name != effect_files[1].name
+
+
+def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.append(_completed({"answer": 1}, handle="thread-root"))
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("parent", "test.parent", {"case": "session-siblings"})
+    )
+    context = RunContext(
+        repository,
+        snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    service = LLMTaskService(registry=registry)
+    root = service.execute(context, _request("root"))
+    assert isinstance(root, LLMCompleted)
+    assert root.session is not None
+
+    provider_entered = threading.Event()
+    release_provider = threading.Event()
+
+    def blocking_resume(handle, request, observer, cancel):
+        adapter.resume_calls += 1
+        adapter.requests.append(request)
+        observer.before_delivery()
+        provider_entered.set()
+        assert release_provider.wait(timeout=5)
+        result = _completed({"answer": 2}, handle="thread-child")
+        observer.native_handle(result.native_handle)
+        return result
+
+    adapter.resume = blocking_resume
+    sibling_a = LLMRequest(
+        "sibling-a",
+        "Return an object.",
+        _request().output,
+        ModelSelection("codex"),
+        session=root.session,
+    )
+    sibling_b = LLMRequest(
+        "sibling-b",
+        "Return an object.",
+        _request().output,
+        ModelSelection("codex"),
+        session=root.session,
+    )
+
+    worker_label = threading.local()
+    sibling_b_waiting = threading.Event()
+    original_checkpoint = context.checkpoint
+
+    def checkpoint() -> None:
+        if getattr(worker_label, "value", None) == "b":
+            sibling_b_waiting.set()
+        original_checkpoint()
+
+    context.checkpoint = checkpoint
+
+    def execute_sibling(label: str, request: LLMRequest):
+        worker_label.value = label
+        return service.execute(context, request)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(execute_sibling, "a", sibling_a)
+        assert provider_entered.wait(timeout=5)
+        second = pool.submit(execute_sibling, "b", sibling_b)
+        assert sibling_b_waiting.wait(timeout=5)
+        assert adapter.resume_calls == 1
+        release_provider.set()
+        outcomes = (first.result(timeout=5), second.result(timeout=5))
+
+    assert sum(isinstance(item, LLMCompleted) for item in outcomes) == 1
+    conflicts = [item for item in outcomes if isinstance(item, LLMFailed)]
+    assert len(conflicts) == 1
+    assert conflicts[0].error.code.value == "invalid_request"
+    assert adapter.resume_calls == 1
 
 
 def test_host_driven_interaction_pauses_and_resumes_same_native_session(
@@ -252,7 +334,7 @@ def test_adoption_proves_source_identity_and_requires_cross_semantic_authorizati
     assert accepted.outcome.value == {"answer": 42}
 
 
-def test_session_advances_only_after_acceptance_and_next_task_uses_native_resume(
+def test_validated_artifact_and_session_record_commit_acceptance_before_native_resume(
     tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.extend(
@@ -287,6 +369,169 @@ def test_session_advances_only_after_acceptance_and_next_task_uses_native_resume
     assert adapter.resume_calls == 1
     assert second.session is not None
     assert second.session.accepted_prefix_sha256 != first.session.accepted_prefix_sha256
+    replayed_first = service.execute(context, _request("first"))
+    assert isinstance(replayed_first, LLMCompleted)
+    assert replayed_first.session == first.session
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+    session = service._executor._session_store(context, "first").read()
+    assert session is not None
+    assert session.accepted_turns == 2
+    assert len(session.accepted_turn_records) == 2
+
+
+def test_session_commit_closes_hard_crash_window_before_task_accepted_cas(
+    tmp_path: Path, adapter, registry, monkeypatch
+) -> None:
+    adapter.steps.extend(
+        [
+            _completed({"answer": 1}, handle="thread"),
+            _completed({"answer": 2}, handle="thread"),
+        ]
+    )
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("parent", "test.parent", {"case": "session-repair"})
+    )
+    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    service = LLMTaskService(registry=registry)
+    executor = service._executor
+    root = service.execute(context, _request("root-before-crash"))
+    assert isinstance(root, LLMCompleted)
+    assert root.session is not None
+
+    original = executor._advance_session
+    calls = 0
+
+    def crash_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        committed_session = original(*args, **kwargs)
+        if calls == 1:
+            raise OSError("simulated crash after session acceptance commit")
+        return committed_session
+
+    monkeypatch.setattr(executor, "_advance_session", crash_once)
+    crashing_request = LLMRequest(
+        "crash-after-session-commit",
+        "Return another object.",
+        _request().output,
+        ModelSelection("codex"),
+        session=root.session,
+    )
+    failed = service.execute(context, crashing_request)
+    assert isinstance(failed, LLMFailed)
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+
+    task = executor._task_store(context, crashing_request.task_id).read()
+    assert task is not None
+    assert task.accepted is None
+    session_after_crash = executor._session_store(
+        context, root.session.session_key
+    ).read()
+    assert session_after_crash is not None
+    assert session_after_crash.accepted_turns == 2
+
+    sibling = service.execute(
+        context,
+        LLMRequest(
+            "old-prefix-sibling",
+            "Return a sibling object.",
+            _request().output,
+            ModelSelection("codex"),
+            session=root.session,
+        ),
+    )
+    assert isinstance(sibling, LLMFailed)
+    assert sibling.error.code.value == "invalid_request"
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+
+    replayed = service.execute(context, crashing_request)
+    assert isinstance(replayed, LLMCompleted)
+    assert replayed.session is not None
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+
+    replayed_again = service.execute(context, crashing_request)
+    assert isinstance(replayed_again, LLMCompleted)
+    assert replayed_again.session == replayed.session
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+    session = executor._session_store(context, root.session.session_key).read()
+    assert session is not None
+    assert session.accepted_turns == 2
+    task = executor._task_store(context, crashing_request.task_id).read()
+    assert task is not None
+    assert task.accepted is not None
+    effect = context.effects.read(task.current.effect_id)
+    assert effect is not None
+    assert effect.stage is EffectStage.COMMITTED
+
+
+def test_interaction_limit_pause_carries_request_and_can_resume(
+    tmp_path: Path, adapter, registry
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+        max_interaction_turns=1,
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "req-limit",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                }
+            ),
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "complete",
+                    "result": {"answer": 8},
+                    "requests": [],
+                }
+            ),
+        ]
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(
+        LLMRequest("interaction-limit", "Solve.", contract, ModelSelection("codex")),
+        run_root=tmp_path,
+    )
+    assert isinstance(paused.outcome, LLMPaused)
+    assert paused.outcome.reason.value == "execution_budget_exhausted"
+    assert paused.outcome.input_required
+    assert paused.outcome.request_ref is not None
+    assert paused.outcome.response_contract == "arc.llm.resume_input.v1"
+
+    resumed = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(
+            paused.outcome.resume_key,
+            ResumeAction.CONTINUE,
+            (InteractionResponse("req-limit", result={"value": "found"}),),
+        ),
+    )
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": 8}
+    assert adapter.resume_calls == 1
 
 
 def test_uncertain_delivery_with_saved_handle_uses_one_native_resume(

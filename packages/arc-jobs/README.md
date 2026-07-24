@@ -41,6 +41,26 @@ See the canonical
 [`identity-and-reuse.md`](../../docs/architecture/identity-and-reuse.md)
 policy.
 
+For a small cross-process concurrency limit, use an explicit-root lease pool:
+
+```python
+from arc_jobs import BoundedLeasePool
+
+pool = BoundedLeasePool("/explicit/run/root/provider-slots", capacity=2)
+with pool.acquire(limit=current_limit, checkpoint=cancel.raise_if_requested):
+    call_provider()
+```
+
+The first opener durably binds the capacity to the pool root; another process
+cannot silently reopen the same root with a different capacity. Acquisition
+uses a short cross-process mutex while it counts holders across every capacity
+slot. A call may supply a current `limit`, where `1 <= limit <= capacity`,
+without changing the persisted pool contract. Lowering that limit does not
+revoke existing leases, but no new lease is granted until the total active
+holder count is below the new limit. The optional checkpoint keeps blocking
+waits cooperatively cancellable. The pool does not create a daemon, detached
+worker, or implicit global path.
+
 ## CLI
 
 The CLI is intentionally limited to read/control operations:

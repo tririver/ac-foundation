@@ -23,6 +23,7 @@ from .errors import (
     UnsupportedSchemaError,
 )
 from .events import EventWriter
+from .lease_pool import BoundedLease, BoundedLeasePool
 from .identity import (
     canonical_json_bytes,
     semantic_key,
@@ -93,6 +94,8 @@ __all__ = [
     "ArtifactSourceRef",
     "AtomicStateStore",
     "Awaiting",
+    "BoundedLease",
+    "BoundedLeasePool",
     "CancellationToken",
     "CancelledError",
     "CommandArtifact",

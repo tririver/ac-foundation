@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from arc_jobs import (
     ArtifactDigest,
     ArtifactRef,
@@ -10,13 +12,16 @@ from arc_jobs import (
 )
 
 from arc_llm.recovery import (
+    AcceptedSessionTurn,
     AcceptedOrigin,
     AcceptedRecord,
     GenerationRecord,
     LLMTaskState,
+    LLMSessionState,
     RecoveryAction,
     TaskPause,
     TaskStateContract,
+    SessionStateContract,
     decide_recovery,
     effect_id_for,
     replace_current,
@@ -84,6 +89,70 @@ def test_recovery_decision_is_bounded_and_delivery_aware() -> None:
     assert replacement.current.possible_duplicate_execution
 
 
+@pytest.mark.parametrize(
+    ("stage", "handle", "safe_retries", "native_resumes", "replacements", "expected"),
+    [
+        (EffectStage.OUTPUT_SAVED, None, 0, 0, 0, RecoveryAction.RECOVER_SAVED_OUTPUT),
+        (EffectStage.COMMITTED, None, 0, 0, 0, RecoveryAction.RECOVER_SAVED_OUTPUT),
+        (EffectStage.PREPARED, None, 0, 0, 0, RecoveryAction.START),
+        (EffectStage.PREPARED, None, 2, 0, 0, RecoveryAction.PAUSE_UNCERTAIN),
+        (EffectStage.MAY_HAVE_RUN, "thread", 0, 0, 0, RecoveryAction.NATIVE_RESUME),
+        (EffectStage.MAY_HAVE_RUN, "thread", 0, 1, 0, RecoveryAction.REPLACE),
+        (EffectStage.MAY_HAVE_RUN, None, 0, 0, 0, RecoveryAction.REPLACE),
+        (EffectStage.MAY_HAVE_RUN, None, 0, 0, 1, RecoveryAction.PAUSE_UNCERTAIN),
+    ],
+)
+def test_recovery_action_matrix(
+    stage,
+    handle,
+    safe_retries,
+    native_resumes,
+    replacements,
+    expected,
+) -> None:
+    state = _state()
+    current = GenerationRecord(
+        1,
+        state.current.effect_id,
+        state.current.execution,
+        native_handle=handle,
+        safe_retries=safe_retries,
+        native_resumes=native_resumes,
+    )
+    generations = (current,)
+    current_generation = 1
+    if replacements:
+        replacement = GenerationRecord(
+            2,
+            effect_id_for("task", 2),
+            state.current.execution,
+            replacement_of=1,
+            replacement_reason="uncertain",
+            possible_duplicate_execution=True,
+        )
+        generations += (replacement,)
+        current_generation = 2
+    state = LLMTaskState(
+        **{
+            **state.__dict__,
+            "current_generation": current_generation,
+            "generations": generations,
+        }
+    )
+    assert (
+        decide_recovery(
+            state,
+            stage,
+            execution=state.current.execution,
+            supports_native_resume=True,
+            safe_retry_limit=1,
+            native_resume_limit=1,
+            automatic_replacement_limit=1,
+        )
+        is expected
+    )
+
+
 def test_task_state_contract_rejects_mutating_accepted_result() -> None:
     state = _state()
     accepted = LLMTaskState(
@@ -119,3 +188,76 @@ def test_task_state_contract_rejects_mutating_accepted_result() -> None:
         pass
     else:
         raise AssertionError("accepted result mutation was allowed")
+
+
+def test_session_v2_history_is_append_only_unique_and_runtime_bound() -> None:
+    fingerprint = ExecutionFingerprint("arc.llm.execution_recipe.v1", "b" * 64)
+    empty_prefix = "0" * 64
+    initial = LLMSessionState(
+        0,
+        "session",
+        1,
+        "codex",
+        "model",
+        fingerprint,
+        None,
+        0,
+        empty_prefix,
+        (),
+    )
+    contract = SessionStateContract()
+    contract.validate_transition(None, initial)
+    first_turn = AcceptedSessionTurn("1" * 64, "2" * 64, "3" * 64)
+    first = LLMSessionState(
+        1,
+        "session",
+        1,
+        "codex",
+        "model",
+        fingerprint,
+        "thread",
+        1,
+        first_turn.result_prefix_sha256,
+        (first_turn,),
+    )
+    contract.validate_transition(initial, first)
+    assert contract.decode(contract.encode(first)) == first
+
+    second_turn = AcceptedSessionTurn("1" * 64, "4" * 64, "5" * 64)
+    duplicate = LLMSessionState(
+        2,
+        "session",
+        2,
+        "codex",
+        "model",
+        fingerprint,
+        "thread",
+        2,
+        second_turn.result_prefix_sha256,
+        (first_turn, second_turn),
+    )
+    try:
+        contract.validate_transition(first, duplicate)
+    except Exception:
+        pass
+    else:
+        raise AssertionError("one task semantic key was accepted twice")
+
+    rebound = LLMSessionState(
+        2,
+        "session",
+        2,
+        "codex",
+        "other-model",
+        fingerprint,
+        "thread",
+        2,
+        "6" * 64,
+        (first_turn, AcceptedSessionTurn("7" * 64, "8" * 64, "6" * 64)),
+    )
+    try:
+        contract.validate_transition(first, rebound)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("accepted session runtime was rebound")
