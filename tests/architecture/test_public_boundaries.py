@@ -93,6 +93,36 @@ def test_arc_domain_only_uses_public_dependency_facades():
                 )
 
 
+def test_arc_companion_only_uses_public_dependency_facades():
+    dependencies = {"arc_jobs", "arc_llm", "arc_paper"}
+    exports = {
+        package: _public_exports(package.replace("_", "-"))
+        for package in dependencies
+    }
+    for path in _python_files("arc-companion"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                aliases = node.names
+                modules = [(alias.name, None) for alias in aliases]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules = [(node.module, node.names)]
+            else:
+                continue
+            for module, names in modules:
+                root = module.split(".", 1)[0]
+                if root not in dependencies:
+                    continue
+                assert module == root, (
+                    f"{path.relative_to(ROOT)} imports private dependency module {module}"
+                )
+                if names is not None:
+                    assert all(alias.name in exports[root] for alias in names), (
+                        f"{path.relative_to(ROOT)} imports non-facade symbols from {root}: "
+                        f"{[alias.name for alias in names if alias.name not in exports[root]]}"
+                    )
+
+
 def test_arc_domain_owns_no_process_thread_or_file_lock_implementation():
     forbidden = {
         "threading",

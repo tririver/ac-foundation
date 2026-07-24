@@ -71,6 +71,12 @@ def test_proposer_reviewer_uses_core_concurrency_and_provider_boundaries():
                 )
 
 
+def test_companion_uses_arc_jobs_concurrency_and_has_no_domain_dependency():
+    forbidden = {"threading", "concurrent", "fcntl", "arc_domain"}
+    for path, tree in _trees("arc-companion"):
+        assert not (_import_roots(tree) & forbidden), path.relative_to(ROOT)
+
+
 def test_removed_schema_namespace_never_returns():
     for package in ("arc-jobs", "arc-llm", "arc-proposer-reviewer"):
         for path in (ROOT / "packages" / package / "src").glob("**/*.py"):
