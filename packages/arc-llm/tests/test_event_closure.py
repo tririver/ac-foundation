@@ -5,6 +5,7 @@ import json
 import pytest
 
 from arc_llm import DeliveryState, FailureCategory, ProviderFailure
+from arc_llm.output import CandidateMaterial
 from arc_llm.providers._cli import EventAccumulator, run_cli
 from arc_llm.providers.base import ProviderTerminalKind
 from arc_llm.providers.codex import _parse_event as parse_codex_event
@@ -32,12 +33,21 @@ def _encoded(*events: dict[str, object]) -> bytes:
 
 
 def test_event_stream_requires_exactly_one_terminal_candidate() -> None:
-    incomplete = EventAccumulator("codex", _Observer(), parse_codex_event)
+    def parse_terminal(event):
+        text = event.get("text")
+        return (
+            CandidateMaterial(text=text, terminal=bool(event.get("terminal")))
+            if isinstance(text, str)
+            else None,
+            None,
+            None,
+        )
+
+    incomplete = EventAccumulator("test", _Observer(), parse_terminal)
     incomplete.feed(
         _encoded(
             {
-                "type": "item.updated",
-                "item": {"type": "agent_message", "text": "draft"},
+                "text": "draft",
             }
         )
     )
@@ -47,8 +57,37 @@ def test_event_stream_requires_exactly_one_terminal_candidate() -> None:
     assert missing.value.delivery is DeliveryState.MAY_HAVE_RUN
     assert missing.value.details["code"] == "incomplete_terminal_closure"
 
-    duplicate = EventAccumulator("codex", _Observer(), parse_codex_event)
+    duplicate = EventAccumulator("test", _Observer(), parse_terminal)
     duplicate.feed(
+        _encoded(
+            {
+                "text": "one",
+                "terminal": True,
+            },
+            {
+                "text": "two",
+                "terminal": True,
+            },
+        )
+    )
+    with pytest.raises(ProviderFailure) as multiple:
+        duplicate.finish()
+    assert multiple.value.details["code"] == "invalid_terminal_closure"
+
+    complete = EventAccumulator("test", _Observer(), parse_terminal)
+    complete.feed(
+        _encoded(
+            {"text": "done", "terminal": True},
+        )
+    )
+    complete.finish()
+    assert len(complete.candidates) == 1
+    assert complete.candidates[0].terminal
+
+
+def test_codex_events_are_not_terminal_candidates() -> None:
+    accumulator = EventAccumulator("codex", _Observer(), parse_codex_event)
+    accumulator.feed(
         _encoded(
             {
                 "type": "item.completed",
@@ -60,24 +99,8 @@ def test_event_stream_requires_exactly_one_terminal_candidate() -> None:
             },
         )
     )
-    with pytest.raises(ProviderFailure) as multiple:
-        duplicate.finish()
-    assert multiple.value.details["code"] == "invalid_terminal_closure"
-
-    complete = EventAccumulator("codex", _Observer(), parse_codex_event)
-    complete.feed(
-        _encoded(
-            {"type": "thread.started", "thread_id": "thread"},
-            {
-                "type": "item.completed",
-                "item": {"type": "agent_message", "text": "done"},
-            },
-            {"type": "turn.completed", "usage": {"input_tokens": 1}},
-        )
-    )
-    complete.finish()
-    assert len(complete.candidates) == 1
-    assert complete.candidates[0].terminal
+    accumulator.finish()
+    assert accumulator.candidates == []
 
 
 @pytest.mark.parametrize(

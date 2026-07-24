@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,7 +14,13 @@ from arc_jobs import CancelledError
 from arc_llm import (
     DeliveryState,
     ErrorCode,
+    ExecutionLimits,
     FailureCategory,
+    JsonOutput,
+    LLMClient,
+    LLMExecutionOptions,
+    LLMPaused,
+    LLMRequest,
     ModelSelection,
     NativeResumeHandle,
     ProviderExecution,
@@ -21,8 +28,9 @@ from arc_llm import (
     ProviderRequest,
     ProviderResumeRequest,
     ProviderTerminalKind,
+    OutputInvalidError,
 )
-from arc_llm.output import CandidateMaterial
+from arc_llm.output import CandidateMaterial, select_output
 from arc_llm.config import detect_host, resolve_model_selection
 from arc_llm.errors import ProviderFailure
 from arc_llm.progress import DurableProviderObserver
@@ -37,7 +45,7 @@ from arc_llm.providers.kimi import KimiAdapter
 from arc_llm.providers._cli import classify_cli_failure, run_cli
 from arc_llm.providers.base import UsageAvailability
 from arc_llm.providers.process import ProcessResult
-from arc_llm.providers.registry import default_registry
+from arc_llm.providers.registry import ProviderRegistry, default_registry
 
 
 class Observer:
@@ -68,8 +76,18 @@ class Cancel:
 
 
 class FakeRunner:
-    def __init__(self, stdout: bytes) -> None:
+    def __init__(
+        self,
+        stdout: bytes,
+        *,
+        last_message: bytes | None = None,
+        returncode: int = 0,
+        stderr: bytes = b"",
+    ) -> None:
         self.stdout = stdout
+        self.last_message = last_message
+        self.returncode = returncode
+        self.stderr = stderr
         self.calls: list[dict[str, Any]] = []
         self.output_schemas: list[Any] = []
 
@@ -79,9 +97,12 @@ class FakeRunner:
         if "--output-schema" in argv:
             schema_path = Path(argv[argv.index("--output-schema") + 1])
             self.output_schemas.append(json.loads(schema_path.read_text()))
+        if "--output-last-message" in argv and self.last_message is not None:
+            output_path = Path(argv[argv.index("--output-last-message") + 1])
+            output_path.write_bytes(self.last_message)
         self.calls.append({"argv": argv, **kwargs})
         kwargs["on_stdout"](self.stdout)
-        return ProcessResult(0, self.stdout, b"")
+        return ProcessResult(self.returncode, self.stdout, self.stderr)
 
 
 class FakeACPRunner:
@@ -219,7 +240,8 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
     runner = FakeRunner(
         b'{"type":"thread.started","thread_id":"thread-1"}\n'
         b'{"type":"item.completed","item":'
-        b'{"type":"agent_message","text":"{\\"ok\\":true}"}}\n'
+        b'{"type":"agent_message","text":"{\\"ok\\":true}"}}\n',
+        last_message=b'{"ok":true}',
     )
     adapter = CodexAdapter(binary="fake-codex", runner=runner, env={"PATH": "/tools"})
 
@@ -230,6 +252,7 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
     )
     start_argv = runner.calls[0]["argv"]
     schema_path = start_argv[start_argv.index("--output-schema") + 1]
+    output_path = start_argv[start_argv.index("--output-last-message") + 1]
     assert start_argv == [
         "fake-codex",
         "exec",
@@ -242,6 +265,8 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
         "gpt-test",
         "--output-schema",
         schema_path,
+        "--output-last-message",
+        output_path,
         "-",
     ]
     assert runner.calls[0]["stdin"] == b"large private prompt"
@@ -250,6 +275,7 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
     assert runner.calls[0]["idle_timeout_seconds"] == 17
     assert runner.output_schemas == [schema]
     assert not Path(schema_path).exists()
+    assert not Path(output_path).exists()
     assert started.native_handle == NativeResumeHandle("codex", "thread-1")
 
     adapter.resume(
@@ -260,6 +286,9 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
     )
     resume_argv = runner.calls[1]["argv"]
     resume_schema_path = resume_argv[resume_argv.index("--output-schema") + 1]
+    resume_output_path = resume_argv[
+        resume_argv.index("--output-last-message") + 1
+    ]
     assert resume_argv == [
         "fake-codex",
         "exec",
@@ -272,12 +301,169 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
         "thread-1",
         "--output-schema",
         resume_schema_path,
+        "--output-last-message",
+        resume_output_path,
         "-",
     ]
     assert runner.calls[1]["stdin"] == b"delta"
     assert runner.calls[1]["idle_timeout_seconds"] == 19
     assert runner.output_schemas == [schema, schema]
     assert not Path(resume_schema_path).exists()
+    assert not Path(resume_output_path).exists()
+
+
+def test_codex_uses_last_message_as_its_only_terminal_candidate() -> None:
+    stdout = (
+        b'{"type":"thread.started","thread_id":"thread-1"}\n'
+        b'{"type":"item.completed","item":'
+        b'{"type":"agent_message","text":"{\\"ok\\":false}"}}\n'
+        b'{"type":"item.completed","item":'
+        b'{"type":"agent_message","text":"{\\"ok\\":false}"}}\n'
+        b'{"type":"turn.completed","usage":'
+        b'{"input_tokens":7,"output_tokens":3,"cached_input_tokens":2}}\n'
+    )
+    runner = FakeRunner(stdout, last_message=b'{"ok":true}')
+    observer = Observer()
+
+    result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
+        observer,
+        Cancel(),
+    )
+
+    assert CodexAdapter.compatibility_version == "codex-jsonl.v2"
+    assert result.native_handle == NativeResumeHandle("codex", "thread-1")
+    assert result.usage is not None
+    assert result.usage.input_tokens == 7
+    assert result.candidates == (CandidateMaterial(text='{"ok":true}', terminal=True),)
+    assert result.diagnostics["last_message"] == "present"
+    assert len(result.diagnostics["raw_events"]) == 4
+    assert len(observer.raw) == 4
+    assert select_output(result.candidates, JsonOutput({"type": "object"})) == {
+        "ok": True
+    }
+
+
+@pytest.mark.parametrize(
+    ("last_message", "diagnostic"),
+    (
+        (None, "empty"),
+        (b'{"other":true}', "present"),
+        (b"\xff", "unavailable"),
+    ),
+)
+def test_codex_missing_or_invalid_last_message_uses_output_invalid_path(
+    last_message: bytes | None,
+    diagnostic: str,
+) -> None:
+    runner = FakeRunner(
+        b'{"type":"item.completed","item":'
+        b'{"type":"agent_message","text":"{\\"ok\\":true}"}}\n',
+        last_message=last_message,
+    )
+
+    result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
+        Observer(),
+        Cancel(),
+    )
+
+    assert result.terminal_kind is ProviderTerminalKind.COMPLETED
+    assert result.diagnostics["last_message"] == diagnostic
+    with pytest.raises(OutputInvalidError):
+        select_output(
+            result.candidates,
+            JsonOutput(
+                {
+                    "type": "object",
+                    "required": ["ok"],
+                    "properties": {"ok": {"type": "boolean"}},
+                    "additionalProperties": False,
+                }
+            ),
+        )
+
+
+def test_codex_nonzero_exit_wins_over_last_message_file() -> None:
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n',
+        last_message=b'{"ok":true}',
+        returncode=17,
+        stderr=b"connection reset",
+    )
+
+    result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
+        Observer(),
+        Cancel(),
+    )
+
+    assert result.terminal_kind is ProviderTerminalKind.FAILED
+    assert result.failure is not None
+    assert result.failure.category is FailureCategory.TRANSPORT
+    assert result.diagnostics["returncode"] == 17
+    assert result.candidates == ()
+
+
+def test_codex_invalid_last_message_is_durable_before_output_recovery(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n'
+        b'{"type":"turn.completed","usage":'
+        b'{"input_tokens":7,"output_tokens":3,"cached_input_tokens":2}}\n'
+    )
+    adapter = CodexAdapter(binary=sys.executable, runner=runner, env={})
+    registry = ProviderRegistry()
+    registry.register("codex", lambda: adapter)
+    request = LLMRequest(
+        "durable-invalid-last-message",
+        "prompt",
+        JsonOutput(
+            {
+                "type": "object",
+                "required": ["ok"],
+                "properties": {"ok": {"type": "boolean"}},
+                "additionalProperties": False,
+            }
+        ),
+        ModelSelection("codex"),
+    )
+
+    result = LLMClient(registry=registry).generate(
+        request,
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(automatic_replacement_limit=0)
+        ),
+    )
+
+    assert isinstance(result.outcome, LLMPaused)
+    assert result.outcome.details["code"] == "output_invalid"
+    raw_documents = []
+    for path in tmp_path.rglob("*"):
+        if not path.is_file() or path.name.endswith(".lock"):
+            continue
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(document, dict)
+            and document.get("schema_version") == "arc.llm.provider_material.v1"
+        ):
+            raw_documents.append(document)
+    assert len(raw_documents) == 1
+    raw = raw_documents[0]
+    assert raw["candidates"] == []
+    assert raw["native_handle"] == {"provider": "codex", "value": "thread-1"}
+    assert raw["usage"] == {
+        "input_tokens": 7,
+        "output_tokens": 3,
+        "cached_input_tokens": 2,
+    }
+    assert raw["diagnostics"]["last_message"] == "empty"
+    assert len(raw["diagnostics"]["raw_events"]) == 2
 
 
 def test_codex_start_and_resume_deliver_native_image_and_read_context(
@@ -1130,7 +1316,7 @@ def test_provider_nonzero_exit_wins_over_structured_terminal_material() -> None:
     assert result.terminal_kind is ProviderTerminalKind.FAILED
     assert result.failure is not None
     assert result.diagnostics["returncode"] == 17
-    assert result.candidates
+    assert result.candidates == ()
 
 
 def test_provider_usage_normalization_is_explicit() -> None:

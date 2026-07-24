@@ -119,6 +119,8 @@ def run_cli(
     parse_event: Callable[[Mapping[str, Any]], tuple[CandidateMaterial | None, str | None, ProviderUsage | None]],
     runner: ProcessRunner,
     env: Mapping[str, str] | None,
+    validate_terminal: bool = True,
+    fallback_stdout_candidate: bool = True,
 ) -> ProviderExecution:
     accumulator = EventAccumulator(provider, observer, parse_event)
     result = runner.run(
@@ -133,7 +135,9 @@ def run_cli(
     # A process exit failure is authoritative. Still consume a final
     # non-newline event for diagnostics, but terminal-shape validation must
     # not replace the typed nonzero-exit failure.
-    accumulator.finish(validate_terminal=result.returncode == 0)
+    accumulator.finish(
+        validate_terminal=validate_terminal and result.returncode == 0
+    )
     if result.returncode != 0:
         failure = classify_cli_failure(result.stderr.decode("utf-8", "replace"))
         return ProviderExecution(
@@ -147,7 +151,7 @@ def run_cli(
                 **accumulator.diagnostics(),
             },
         )
-    if not accumulator.candidates and result.stdout.strip():
+    if fallback_stdout_candidate and not accumulator.candidates and result.stdout.strip():
         accumulator.candidates.append(
             CandidateMaterial(text=result.stdout.decode("utf-8", "replace"), terminal=True)
         )

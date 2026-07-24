@@ -258,28 +258,6 @@ class _EventObserver:
 def test_provider_event_normalization_matrix_preserves_terminal_material() -> None:
     cases = (
         (
-            "codex",
-            parse_codex_event,
-            (
-                {"type": "thread.started", "thread_id": "codex-session"},
-                {
-                    "type": "item.completed",
-                    "item": {"type": "agent_message", "text": '{"ok":true}'},
-                },
-                {
-                    "type": "turn.completed",
-                    "usage": {
-                        "input_tokens": 7,
-                        "output_tokens": 3,
-                        "cached_input_tokens": 2,
-                    },
-                },
-            ),
-            "codex-session",
-            '{"ok":true}',
-            ProviderUsage(7, 3, 2),
-        ),
-        (
             "claude",
             parse_claude_event,
             (
@@ -317,6 +295,33 @@ def test_provider_event_normalization_matrix_preserves_terminal_material() -> No
         assert (candidate.value if candidate.has_value else candidate.text) == value
         assert accumulator.usage == usage
         assert len(accumulator.raw_events) == len(events)
+
+
+def test_codex_jsonl_events_preserve_diagnostics_without_candidates() -> None:
+    observer = _EventObserver()
+    accumulator = EventAccumulator("codex", observer, parse_codex_event)
+    events = (
+        {"type": "thread.started", "thread_id": "codex-session"},
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": '{"ok":true}'},
+        },
+        {
+            "type": "turn.completed",
+            "usage": {
+                "input_tokens": 7,
+                "output_tokens": 3,
+                "cached_input_tokens": 2,
+            },
+        },
+    )
+    accumulator.feed(b"\n".join(json.dumps(event).encode() for event in events))
+    accumulator.finish(validate_terminal=False)
+
+    assert observer.handles == [NativeResumeHandle("codex", "codex-session")]
+    assert accumulator.candidates == []
+    assert accumulator.usage == ProviderUsage(7, 3, 2)
+    assert len(accumulator.raw_events) == len(events)
 
 
 def test_output_candidate_matrix_is_complete_schema_only_and_conflict_safe() -> None:
@@ -751,7 +756,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
         provider="codex",
         model="gpt",
         capabilities={"internet": False, "allowed_tools": ["read"]},
-        adapter_compatibility_version="codex-jsonl.v1",
+        adapter_compatibility_version="codex-jsonl.v2",
         session_compatibility={"native": True},
     )
     recipe_fingerprint = execution_fingerprint(recipe)
@@ -759,7 +764,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
         {**recipe, "provider": "claude"},
         {**recipe, "model": "other"},
         {**recipe, "capabilities": {"internet": True, "allowed_tools": ["read"]}},
-        {**recipe, "adapter_compatibility_version": "codex-jsonl.v2"},
+        {**recipe, "adapter_compatibility_version": "codex-jsonl.v1"},
         {**recipe, "session_compatibility": {"native": False}},
     )
     assert all(
@@ -768,7 +773,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
     )
     reordered = {
         "session_compatibility": {"native": True},
-        "adapter_compatibility_version": "codex-jsonl.v1",
+        "adapter_compatibility_version": "codex-jsonl.v2",
         "capabilities": {"allowed_tools": ["read"], "internet": False},
         "model": "gpt",
         "provider": "codex",

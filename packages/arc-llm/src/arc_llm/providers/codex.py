@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -17,6 +18,7 @@ from .base import (
     ProviderExecution,
     ProviderRequest,
     ProviderResumeRequest,
+    ProviderTerminalKind,
     ProviderUsage,
     StructuredOutputMode,
     UsageAvailability,
@@ -26,7 +28,7 @@ from .process import ProcessRunner
 
 class CodexAdapter:
     name = "codex"
-    compatibility_version = "codex-jsonl.v1"
+    compatibility_version = "codex-jsonl.v2"
 
     def __init__(
         self,
@@ -87,6 +89,7 @@ class CodexAdapter:
         cancel: Any,
     ) -> ProviderExecution:
         schema_path: Path | None = None
+        output_path: Path | None = None
         if output_schema is not None:
             with tempfile.NamedTemporaryFile(
                 mode="w",
@@ -98,8 +101,16 @@ class CodexAdapter:
                 handle.flush()
                 schema_path = Path(handle.name)
             argv = [*argv[:-1], "--output-schema", str(schema_path), argv[-1]]
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as handle:
+            output_path = Path(handle.name)
+        argv = [
+            *argv[:-1],
+            "--output-last-message",
+            str(output_path),
+            argv[-1],
+        ]
         try:
-            return run_cli(
+            execution = run_cli(
                 provider=self.name,
                 argv=argv,
                 prompt=prompt,
@@ -109,10 +120,32 @@ class CodexAdapter:
                 parse_event=_parse_event,
                 runner=self.runner,
                 env=self.env,
+                validate_terminal=False,
+                fallback_stdout_candidate=False,
             )
+            # Codex JSONL may contain several completed agent-message items.
+            # They are progress/diagnostic material rather than an unambiguous
+            # final response.  `--output-last-message` is the CLI's stable
+            # final-response contract, so only its content participates in
+            # output selection.
+            if execution.terminal_kind is not ProviderTerminalKind.COMPLETED:
+                return execution
+            final_message = _read_last_message(output_path)
+            diagnostics = {
+                **execution.diagnostics,
+                "last_message": final_message[1],
+            }
+            candidates = (
+                ()
+                if final_message[0] is None
+                else (CandidateMaterial(text=final_message[0], terminal=True),)
+            )
+            return replace(execution, candidates=candidates, diagnostics=diagnostics)
         finally:
             if schema_path is not None:
                 schema_path.unlink(missing_ok=True)
+            if output_path is not None:
+                output_path.unlink(missing_ok=True)
 
     def resume(
         self,
@@ -143,14 +176,6 @@ def _parse_event(
 ) -> tuple[CandidateMaterial | None, str | None, ProviderUsage | None]:
     kind = event.get("type")
     handle = event.get("thread_id") if kind in {"thread.started", "thread_started"} else None
-    candidate = None
-    item = event.get("item")
-    if isinstance(item, Mapping) and item.get("type") in {"agent_message", "message"}:
-        text = item.get("text") or item.get("content")
-        if isinstance(text, str):
-            candidate = CandidateMaterial(text=text, terminal=kind == "item.completed")
-    if kind in {"message", "assistant"} and isinstance(event.get("text"), str):
-        candidate = CandidateMaterial(text=event["text"], terminal=bool(event.get("terminal")))
     usage_doc = event.get("usage")
     usage = None
     if isinstance(usage_doc, Mapping):
@@ -159,7 +184,20 @@ def _parse_event(
             _integer(usage_doc.get("output_tokens")),
             _integer(usage_doc.get("cached_input_tokens")),
         )
-    return candidate, handle if isinstance(handle, str) else None, usage
+    # Agent-message JSONL entries are intentionally not candidates.  Codex
+    # can emit several completed items in one turn; the final-message file is
+    # the sole terminal response used for output selection.
+    return None, handle if isinstance(handle, str) else None, usage
+
+
+def _read_last_message(path: Path) -> tuple[str | None, str]:
+    try:
+        message = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None, "unavailable"
+    if not message.strip():
+        return None, "empty"
+    return message, "present"
 
 
 def _integer(value: Any) -> int | None:
