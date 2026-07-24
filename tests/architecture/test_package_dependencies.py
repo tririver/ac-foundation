@@ -16,12 +16,6 @@ ALLOWED = {
     "arc_paper": {"arc_jobs", "arc_llm"},
     "arc_domain": {"arc_jobs", "arc_llm", "arc_paper"},
     "arc_companion": {"arc_jobs", "arc_llm", "arc_paper"},
-    "arc_mcp": {
-        "arc_domain",
-        "arc_jobs",
-        "arc_llm",
-        "arc_paper",
-    },
 }
 
 DIST_TO_MODULE = {name.replace("_", "-"): name for name in ALLOWED}
@@ -103,6 +97,18 @@ def test_all_packages_use_root_release_and_known_dependency_rows():
     assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == RELEASE
     for module, (_, project) in projects.items():
         assert project["version"] == RELEASE, module
+
+
+def test_retired_arc_mcp_surfaces_stay_absent():
+    package = PACKAGES / "arc-mcp"
+    assert not (package / "pyproject.toml").exists()
+    assert not list((package / "src").rglob("*.py"))
+    assert not list((package / "tests").rglob("*.py"))
+    assert not [
+        path
+        for path in (ROOT / "plugins/arc-mcp").rglob("*")
+        if path.is_file()
+    ]
 
 
 def test_all_packages_publish_complete_distribution_metadata():

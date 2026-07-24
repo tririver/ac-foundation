@@ -64,23 +64,17 @@ version_paths=(
   "plugins/arc/.claude-plugin/plugin.json"
   "plugins/arc/skills/arc/.arc-install-ref"
   "plugins/arc/skills/arc/scripts/runtime-constraints.txt"
-  "plugins/arc-mcp/.codex-plugin/plugin.json"
-  "plugins/arc-mcp/.claude-plugin/plugin.json"
-  "plugins/arc-mcp/.arc-install-ref"
-  "plugins/arc-mcp/scripts/runtime-constraints.txt"
   "packages/arc-llm/pyproject.toml"
   "packages/arc-jobs/pyproject.toml"
   "packages/arc-proposer-reviewer/pyproject.toml"
   "packages/arc-paper/pyproject.toml"
   "packages/arc-domain/pyproject.toml"
   "packages/arc-companion/pyproject.toml"
-  "packages/arc-mcp/pyproject.toml"
   "packages/arc-llm/src/arc_llm/__init__.py"
   "packages/arc-jobs/src/arc_jobs/__init__.py"
   "packages/arc-proposer-reviewer/src/arc_proposer_reviewer/__init__.py"
   "packages/arc-companion/src/arc_companion/__init__.py"
   "packages/arc-paper/src/arc_paper/__init__.py"
-  "packages/arc-mcp/src/arc_mcp/__init__.py"
   "packages/arc-paper/tests/test_import.py"
   "packages/arc-paper/tests/test_package_metadata.py"
 )
@@ -288,7 +282,6 @@ packages = [
     "arc-paper",
     "arc-domain",
     "arc-companion",
-    "arc-mcp",
 ]
 
 if (root / "VERSION").read_text(encoding="utf-8").strip() != version:
@@ -297,8 +290,6 @@ if (root / "VERSION").read_text(encoding="utf-8").strip() != version:
 for manifest in [
     root / "plugins/arc/.codex-plugin/plugin.json",
     root / "plugins/arc/.claude-plugin/plugin.json",
-    root / "plugins/arc-mcp/.codex-plugin/plugin.json",
-    root / "plugins/arc-mcp/.claude-plugin/plugin.json",
 ]:
     data = json.loads(manifest.read_text(encoding="utf-8"))
     if data.get("version") != version:
@@ -306,14 +297,12 @@ for manifest in [
 
 for install_ref in [
     root / "plugins/arc/skills/arc/.arc-install-ref",
-    root / "plugins/arc-mcp/.arc-install-ref",
 ]:
     if install_ref.read_text(encoding="utf-8").strip() != f"v{version}":
         raise SystemExit(f"{install_ref} version mismatch")
 
 for constraints in [
     root / "plugins/arc/skills/arc/scripts/runtime-constraints.txt",
-    root / "plugins/arc-mcp/scripts/runtime-constraints.txt",
 ]:
     expected = f"# Direct external dependencies tested for ARC v{version}."
     first_line = constraints.read_text(encoding="utf-8").splitlines()[0]
@@ -333,7 +322,6 @@ PY
 run git diff --check -- "${existing_version_paths[@]}"
 if command -v claude >/dev/null 2>&1; then
   run claude plugin validate plugins/arc
-  run claude plugin validate plugins/arc-mcp
 else
   printf 'SKIP: claude not found on PATH; using built-in manifest checks.\n'
 fi

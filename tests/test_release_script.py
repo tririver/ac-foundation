@@ -32,46 +32,34 @@ def _write_minimal_arc_repo(work: Path) -> None:
     (work / "plugins/arc/.codex-plugin").mkdir(parents=True)
     (work / "plugins/arc/.claude-plugin").mkdir(parents=True)
     (work / "plugins/arc/skills/arc/scripts").mkdir(parents=True)
-    (work / "plugins/arc-mcp/.codex-plugin").mkdir(parents=True)
-    (work / "plugins/arc-mcp/.claude-plugin").mkdir(parents=True)
-    (work / "plugins/arc-mcp/scripts").mkdir(parents=True)
-    (work / "packages/arc-mcp/src/arc_mcp").mkdir(parents=True)
     (work / "packages/arc-jobs/src/arc_jobs").mkdir(parents=True)
     (work / "packages/arc-companion/src/arc_companion").mkdir(parents=True)
     (work / "packages/arc-paper/src/arc_paper").mkdir(parents=True)
     (work / "packages/arc-paper/tests").mkdir(parents=True)
     (work / "VERSION").write_text("0.1.0\n", encoding="utf-8")
 
-    for plugin in ("arc", "arc-mcp"):
-        for host in ("codex", "claude"):
-            (work / f"plugins/{plugin}/.{host}-plugin/plugin.json").write_text(
-                json.dumps(
-                    {
-                        "name": plugin,
-                        "version": "0.1.0",
-                        "description": plugin,
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
+    for host in ("codex", "claude"):
+        (work / f"plugins/arc/.{host}-plugin/plugin.json").write_text(
+            json.dumps(
+                {
+                    "name": "arc",
+                    "version": "0.1.0",
+                    "description": "arc",
+                },
+                indent=2,
             )
+            + "\n",
+            encoding="utf-8",
+        )
 
     (work / "plugins/arc/skills/arc/.arc-install-ref").write_text(
         "v0.1.0\n", encoding="utf-8"
     )
-    (work / "plugins/arc-mcp/.arc-install-ref").write_text(
-        "v0.1.0\n", encoding="utf-8"
+    (work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt").write_text(
+        "# Direct external dependencies tested for ARC v0.1.0.\n"
+        "jsonschema==4.26.0\n",
+        encoding="utf-8",
     )
-    for constraints in (
-        work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt",
-        work / "plugins/arc-mcp/scripts/runtime-constraints.txt",
-    ):
-        constraints.write_text(
-            "# Direct external dependencies tested for ARC v0.1.0.\n"
-            "jsonschema==4.26.0\n",
-            encoding="utf-8",
-        )
 
     package_dependencies = {
         "arc-llm": [],
@@ -83,12 +71,6 @@ def _write_minimal_arc_repo(work: Path) -> None:
         "arc-paper": ['"arc-llm>=0.1,<0.2"'],
         "arc-domain": ['"arc-llm>=0.1,<0.2"', '"arc-paper>=0.1,<0.2"'],
         "arc-companion": ['"arc-llm>=0.1,<0.2"', '"arc-paper>=0.1,<0.2"'],
-        "arc-mcp": [
-            '"arc-domain>=0.1,<0.2"',
-            '"arc-jobs>=0.1,<0.2"',
-            '"arc-llm>=0.1,<0.2"',
-            '"arc-paper>=0.1,<0.2"',
-        ],
     }
     for package, dependencies in package_dependencies.items():
         package_dir = work / "packages" / package
@@ -113,10 +95,6 @@ def _write_minimal_arc_repo(work: Path) -> None:
             encoding="utf-8",
         )
 
-    (work / "packages/arc-mcp/src/arc_mcp/__init__.py").write_text(
-        '__version__ = "0.1.0"\n',
-        encoding="utf-8",
-    )
     (work / "packages/arc-jobs/src/arc_jobs/__init__.py").write_text(
         '__version__ = "0.1.0"\n',
         encoding="utf-8",
@@ -177,26 +155,15 @@ def _commit_release_bump(work: Path, version: str = "0.2.0") -> None:
 
 def _apply_release_bump(work: Path, version: str = "0.2.0") -> None:
     (work / "VERSION").write_text(version + "\n", encoding="utf-8")
-    for plugin in ("arc", "arc-mcp"):
+    for host in ("codex", "claude"):
         _replace(
-            work / f"plugins/{plugin}/.codex-plugin/plugin.json",
-            '"version": "0.1.0"',
-            f'"version": "{version}"',
-        )
-        _replace(
-            work / f"plugins/{plugin}/.claude-plugin/plugin.json",
+            work / f"plugins/arc/.{host}-plugin/plugin.json",
             '"version": "0.1.0"',
             f'"version": "{version}"',
         )
     _replace(work / "plugins/arc/skills/arc/.arc-install-ref", "v0.1.0", f"v{version}")
-    _replace(work / "plugins/arc-mcp/.arc-install-ref", "v0.1.0", f"v{version}")
     _replace(
         work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt",
-        "ARC v0.1.0",
-        f"ARC v{version}",
-    )
-    _replace(
-        work / "plugins/arc-mcp/scripts/runtime-constraints.txt",
         "ARC v0.1.0",
         f"ARC v{version}",
     )
@@ -205,7 +172,6 @@ def _apply_release_bump(work: Path, version: str = "0.2.0") -> None:
         text = pyproject.read_text(encoding="utf-8")
         text = text.replace(">=0.1,<0.2", ">=0.2,<0.3")
         pyproject.write_text(text, encoding="utf-8")
-    _replace(work / "packages/arc-mcp/src/arc_mcp/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-jobs/src/arc_jobs/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-companion/src/arc_companion/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-paper/src/arc_paper/__init__.py", '0.1.0', version)
@@ -231,6 +197,12 @@ def _run_script(
     )
 
 
+def test_release_script_does_not_reference_retired_arc_mcp() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "arc-mcp" not in source
+    assert "arc_mcp" not in source
+
+
 def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_path: Path) -> None:
     work, origin = _init_release_repo(tmp_path)
 
@@ -239,26 +211,20 @@ def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_pat
     assert result.returncode == 0, result.stderr
     assert (work / "VERSION").read_text(encoding="utf-8").strip() == "0.2.0"
     assert 'version = "0.2.0"' in (work / "packages/arc-proposer-reviewer/pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.2.0"' in (work / "packages/arc-mcp/pyproject.toml").read_text(encoding="utf-8")
     assert '"arc-llm>=0.2,<0.3"' in (work / "packages/arc-paper/pyproject.toml").read_text(encoding="utf-8")
-    assert '__version__ = "0.2.0"' in (work / "packages/arc-mcp/src/arc_mcp/__init__.py").read_text(encoding="utf-8")
     assert '__version__ = "0.2.0"' in (work / "packages/arc-jobs/src/arc_jobs/__init__.py").read_text(encoding="utf-8")
     assert '__version__ = "0.2.0"' in (work / "packages/arc-companion/src/arc_companion/__init__.py").read_text(encoding="utf-8")
     assert 'assert __version__ == "0.2.0"' in (work / "packages/arc-paper/tests/test_import.py").read_text(encoding="utf-8")
     assert "arc-llm>=0.2,<0.3" in (work / "packages/arc-paper/tests/test_package_metadata.py").read_text(encoding="utf-8")
     assert json.loads((work / "plugins/arc/.codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
     assert json.loads((work / "plugins/arc/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
-    assert json.loads((work / "plugins/arc-mcp/.codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
-    assert json.loads((work / "plugins/arc-mcp/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
     assert (work / "plugins/arc/skills/arc/.arc-install-ref").read_text(encoding="utf-8").strip() == "v0.2.0"
-    assert (work / "plugins/arc-mcp/.arc-install-ref").read_text(encoding="utf-8").strip() == "v0.2.0"
-    for constraints in (
-        work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt",
-        work / "plugins/arc-mcp/scripts/runtime-constraints.txt",
-    ):
-        assert constraints.read_text(encoding="utf-8").splitlines()[0].endswith(
-            "ARC v0.2.0."
-        )
+    constraints = work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt"
+    assert constraints.read_text(encoding="utf-8").splitlines()[0].endswith(
+        "ARC v0.2.0."
+    )
+    assert not (work / "packages/arc-mcp").exists()
+    assert not (work / "plugins/arc-mcp").exists()
 
     refs = _git(origin, "show-ref").stdout
     assert "refs/heads/main" in refs
@@ -305,7 +271,7 @@ def test_release_script_validates_claude_manifest_without_claude_tag(tmp_path: P
     assert result.returncode == 0, result.stderr
     call_text = calls.read_text(encoding="utf-8")
     assert "plugin validate plugins/arc" in call_text
-    assert "plugin validate plugins/arc-mcp" in call_text
+    assert "plugin validate plugins/arc-mcp" not in call_text
     assert "plugin tag" not in call_text
 
 

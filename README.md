@@ -2,8 +2,7 @@
 
 Agent Research Copilot (ARC) is an angentic research toolkit for theoretical physics knowledge domain construction, idea generation and calculation workflows. It works as a plugin of coding agents such as Codex / Claude Code, with the strength of bringing coding agents into a research context, and generating publication-level ideas in theoretical research.
 
-ARC is CLI-first. Its workflow Skill uses six core Python commands; a seventh,
-separately installed adapter exposes the same services through optional MCP:
+ARC is CLI-first. Its workflow Skill uses the supported package CLIs:
 
 - `arc-paper`: content-addressed paper sources, INSPIRE metadata, unified
   HTML/Markdown/TeX/PDF parsing, reconciliation, and durable paper workflows.
@@ -15,8 +14,6 @@ separately installed adapter exposes the same services through optional MCP:
   original/translation/commentary readers for papers, lecture notes, and books
   from a paired rich source and PDF.
 - `arc-jobs`: protocol-neutral persistent background execution for ARC CLIs.
-- `arc-mcp` (optional): exposes ARC services to MCP clients; it delegates
-  background work to `arc-jobs`.
 - `plugins/arc/skills/arc`: agent-facing workflow instructions for domain
   building, idea generation, and research calculations.
 
@@ -139,23 +136,6 @@ the ARC commands are not on `PATH`, use:
 There is intentionally no install-time hook: the first real CLI call performs
 the audited, isolated setup.
 
-### Optional MCP Companion
-
-Install MCP only when it is explicitly needed. The separate `arc-mcp` plugin is
-self-contained and is not a dependency of the base plugin:
-
-```bash
-codex plugin add arc-mcp@arc
-```
-
-```text
-/plugin install arc-mcp
-```
-
-It owns the MCP manifest and an isolated `mcp` runtime profile. MCP startup or
-configuration failures therefore cannot affect the default Skill/CLI install.
-Prewarm it with `plugins/arc-mcp/bin/arc-runtime setup --profile mcp`.
-
 Development benchmarks that must not fall back to an installed or cached ARC
 copy can set `ARC_REQUIRE_REPO_ROOT` to the checkout root. Workflow scripts then
 prepend that checkout's package sources, verify module origins, and fail before
@@ -226,8 +206,6 @@ python -m pip install -e packages/arc-llm[test]
 python -m pip install -e packages/arc-paper[test]
 python -m pip install -e packages/arc-domain[test]
 python -m pip install -e packages/arc-companion[test]
-# Optional MCP development only:
-python -m pip install -e packages/arc-mcp[test]
 ```
 
 Check the installed commands:
@@ -238,8 +216,6 @@ arc-domain --help
 arc-llm --help
 arc-companion --help
 arc-jobs --help
-# Optional:
-arc-mcp --help
 ```
 
 Run a deterministic smoke test:
@@ -442,10 +418,7 @@ records it as `output_run_pdf` and `output_run_pdf_sha256`.
 contains both plus every manifest-declared local web asset is generated only by
 an explicit `arc-companion package` request.
 
-Run slow conversion through `arc-jobs` when the caller should not block. The
-optional MCP adapter exposes the same `md2pdf`, `translate`, and
-`batch_translate` operations and delegates their background work to
-`arc-jobs`.
+Run slow conversion through `arc-jobs` when the caller should not block.
 
 ## Configure LLM Providers
 
@@ -496,9 +469,7 @@ this ACP integration, so usage fields remain null.
 
 Codex and Claude Code can install the CLI-first repository plugin directly with
 the marketplace commands in the install section. It loads the ARC Skill and
-invokes CLI commands without registering an MCP server. Install the separate
-`arc-mcp` marketplace entry only for hosts or workflows that explicitly need
-MCP discovery.
+invokes CLI commands without registering an MCP server.
 
 When using the ARC skill, ask the agent in research terms. Examples:
 
@@ -527,7 +498,7 @@ error-recovery gates.
 ## Use ARC From The CLI
 
 The CLI is useful for direct paper checks, scripting, debugging, and working
-without an MCP host.
+outside an agent host.
 
 ### Paper Metadata And Sources
 
@@ -627,8 +598,7 @@ treated as legacy/stateless by design.
 ## Background Jobs
 
 Use `arc-jobs` for long-running CLI commands. It persists state and output,
-executes an allowlisted ARC argv without a shell, and works whether or not MCP
-is installed:
+and executes an allowlisted ARC argv without a shell:
 
 ```bash
 arc-domain build <seed-paper> --intent "<intent>"
@@ -638,72 +608,6 @@ arc-domain resume <run-id>
 
 `arc-domain build` owns its durable run and should not be wrapped in a second
 `arc-jobs submit` job.
-
-## Optional MCP Tools
-
-The separately installed ARC MCP companion exposes paper tools, domain tools,
-job tools, and doctor tools. Tools
-that may invoke a host LLM use the `llm_` prefix.
-
-Paper tools:
-
-```text
-extract_paper_ids
-paper_ids_safe_dir_name
-llm_infer_main_references
-get_title
-get_abstract
-get_authors
-get_metadata
-get_references
-get_citers
-get_citer_count
-get_toc
-get_section
-search_full_text
-get_equation_context
-llm_get_summary
-llm_generate_summary
-store_llm_summary
-summary_batch_create
-summary_batch_prefetch
-llm_summary_batch_run
-summary_batch_status
-summary_batch_export
-summary_batch_retry_failed
-```
-
-Domain MCP tools are intentionally not listed here: `arc-mcp` still depends on
-the previous domain service/cache surface and is not migrated with the durable
-domain CLI. Use `arc-domain` directly until that later migration.
-
-Job and doctor tools:
-
-```text
-job_status
-job_result
-list_jobs
-cancel_job
-doctor_host
-doctor_provider
-doctor_cache
-```
-
-Long-running MCP calls can return a `job_id`. Use `arc-jobs` to block
-until a terminal result. Prefer the returned `next.cli_command`:
-
-```bash
-arc-jobs watch <job_id> --json
-arc-jobs watch <job_id> --progress-jsonl
-arc-jobs status <job_id> --json
-arc-jobs result <job_id> --json
-arc-jobs list --json
-arc-jobs cancel <job_id> --json
-```
-
-For slow tools or large launches, pass `background=true` from MCP so the tool
-returns immediately with a job ID. Do not cancel jobs unless you explicitly no
-longer want the result.
 
 ## End-To-End Research Workflows
 
@@ -850,9 +754,6 @@ ARC_INSTALL_REF                   Override with a full commit SHA or immutable v
 ARC_INSTALL_REPO_ROOT             Select a local development checkout.
 ARC_INSTALL_SOURCE                Select auto, local, or git package installation.
 XDG_CACHE_HOME                    Base cache directory when ARC-specific cache vars are unset.
-ARC_MCP_INLINE_WAIT_SEC           Inline MCP wait before returning a background job.
-ARC_MCP_TOOL_TIMEOUT_SEC          Host MCP tool timeout used to derive inline wait.
-ARC_MCP_BACKGROUND_MARGIN_SEC     Safety margin subtracted from the MCP tool timeout.
 ```
 
 ## Troubleshooting
@@ -870,15 +771,6 @@ If LLM generation is unavailable:
 arc-llm doctor host --json
 arc-llm doctor provider --json
 ```
-
-If an MCP call returns a job ID:
-
-```bash
-arc-jobs watch <job_id> --json
-```
-
-When using optional MCP, prefer its returned `next.cli_command`; job ownership
-and persistence remain protocol-neutral.
 
 If a domain summary or graph is missing:
 
@@ -928,8 +820,6 @@ Package boundaries:
   document and asset caches from `arc-paper` and LLM calls from `arc-llm`.
 - `packages/arc-jobs` owns protocol-neutral persistent CLI execution, status,
   cancellation, output capture, and ETA. It has no core package dependency.
-- `packages/arc-mcp` stays a thin MCP adapter over package service functions
-  and `arc-jobs`.
 - `plugins/arc/skills/arc`, prompts, schemas, and plugin manifests describe or
   wrap package behavior; they should not reimplement package internals.
 
@@ -938,7 +828,7 @@ Development rules:
 - Keep ARC general-purpose across theoretical-physics domains. Do not hard-code
   seed papers, author names, subfield labels, or field-specific keyword lists.
 - Apply the instruction review gate before changing ARC instructions,
-  workflows, prompts, schemas, tests, package behavior, MCP tools, packaging
+  workflows, prompts, schemas, tests, package behavior, packaging
   metadata, or durable documentation. Changes should be portable across
   supported hosts and compatible with ARC's general-purpose research goals.
 - Keep agent instructions portable across Codex, Claude Code, Cursor, GitHub
@@ -960,8 +850,7 @@ python -m pytest \
   packages/arc-llm/tests \
   packages/arc-paper/tests \
   packages/arc-domain/tests \
-  packages/arc-companion/tests \
-  packages/arc-mcp/tests
+  packages/arc-companion/tests
 ```
 
 Full local suite used by this checkout:
@@ -973,7 +862,6 @@ python -m pytest \
   packages/arc-paper/tests \
   packages/arc-domain/tests \
   packages/arc-companion/tests \
-  packages/arc-mcp/tests \
   tests -q
 ```
 

@@ -7,8 +7,8 @@ thin agent adapters.
 
 ARC is an agent-skill layer in `plugins/arc/skills/arc/` backed by reusable
 Python packages in `packages/`; when the ARC skill is unavailable, agents
-should read the relevant workflow file directly and call the package CLI or MCP
-tools it names.
+should read the relevant workflow file directly and call the package CLI or
+service commands it names.
 
 - `plugins/arc/skills/arc/workflows/domain.md`: Use this workflow to build
   project-local research-domain artifacts from seed papers, including domain
@@ -156,9 +156,9 @@ tools it names.
   steps: `Phase 1`, `Step 1`, `Step 2`, then `Phase 2`, and so on.
 - Put detailed examples, troubleshooting, and longer workflows in focused
   reference files. Keep `SKILL.md` as the readable entry point.
-- Prefer commands, MCP tool names, and expected outputs over prose-heavy
+- Prefer commands and expected outputs over prose-heavy
   instructions. Avoid repeating implementation details already owned by
-  `arc-paper`, `arc-domain`, `arc-llm`, or `arc-mcp`.
+  `arc-paper`, `arc-domain`, or `arc-llm`.
 
 ## Package Boundaries
 
@@ -181,8 +181,6 @@ another.
   evidence packs, HTML rendering, and domain summaries. It should call
   `arc-paper` for single-paper operations and `arc-llm` for host
   LLM work.
-- `packages/arc-mcp` should stay a thin MCP adapter over `arc_paper`,
-  `arc_domain`, and batch service functions.
 - `plugins/arc/skills/arc`, `prompts/`, `schemas/`, and plugin manifests
   should describe or wrap package behavior rather than reimplementing it.
 
@@ -209,8 +207,7 @@ another.
   packages/arc-paper/.venv/bin/python -m pytest \
     packages/arc-llm/tests \
     packages/arc-paper/tests \
-    packages/arc-domain/tests \
-    packages/arc-mcp/tests
+    packages/arc-domain/tests
   ```
 
 - Unit tests must not require network access. Network integration tests should
