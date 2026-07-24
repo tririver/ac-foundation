@@ -70,10 +70,11 @@ def test_batch_request_round_trips_without_losing_typed_llm_options() -> None:
 
 
 def test_unknown_request_field_is_rejected() -> None:
-    document = encode_batch_request(request())
-    document["surprise"] = True
-    with pytest.raises(RequestValidationError, match="unknown field"):
-        decode_batch_request(document)
+    for field in ("surprise", "total_timeout"):
+        document = encode_batch_request(request())
+        document[field] = True
+        with pytest.raises(RequestValidationError, match="unknown field"):
+            decode_batch_request(document)
 
 
 def test_string_boolean_is_rejected() -> None:

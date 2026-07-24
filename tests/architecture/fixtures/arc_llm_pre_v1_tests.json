@@ -1,0 +1,2661 @@
+{
+  "schema_version": "arc.legacy_test_manifest.v1",
+  "source_revision": "f7b4424f427a11f40cd3dea61cb56e90067685dd",
+  "package": "arc-llm",
+  "source_files": [
+    "packages/arc-llm/tests/test_attempt_diagnostics.py",
+    "packages/arc-llm/tests/test_budget.py",
+    "packages/arc-llm/tests/test_cache_audit.py",
+    "packages/arc-llm/tests/test_call_checkpoint.py",
+    "packages/arc-llm/tests/test_cancellation.py",
+    "packages/arc-llm/tests/test_cli.py",
+    "packages/arc-llm/tests/test_cli_smoke_integration.py",
+    "packages/arc-llm/tests/test_evidence.py",
+    "packages/arc-llm/tests/test_evidence_journal.py",
+    "packages/arc-llm/tests/test_failure_classification.py",
+    "packages/arc-llm/tests/test_host.py",
+    "packages/arc-llm/tests/test_idempotency.py",
+    "packages/arc-llm/tests/test_import.py",
+    "packages/arc-llm/tests/test_kimi_cli_smoke_integration.py",
+    "packages/arc-llm/tests/test_kimi_code_cli.py",
+    "packages/arc-llm/tests/test_kimi_safety.py",
+    "packages/arc-llm/tests/test_lifecycle_regressions.py",
+    "packages/arc-llm/tests/test_model.py",
+    "packages/arc-llm/tests/test_nested_shell_capability.py",
+    "packages/arc-llm/tests/test_package_boundaries.py",
+    "packages/arc-llm/tests/test_paper_access_policy.py",
+    "packages/arc-llm/tests/test_paths.py",
+    "packages/arc-llm/tests/test_progress_journal.py",
+    "packages/arc-llm/tests/test_progress_prompt.py",
+    "packages/arc-llm/tests/test_provider_activity.py",
+    "packages/arc-llm/tests/test_providers.py",
+    "packages/arc-llm/tests/test_raw_completion.py",
+    "packages/arc-llm/tests/test_recovery_context.py",
+    "packages/arc-llm/tests/test_response_candidates.py",
+    "packages/arc-llm/tests/test_retryable_output.py",
+    "packages/arc-llm/tests/test_runner.py",
+    "packages/arc-llm/tests/test_safety.py",
+    "packages/arc-llm/tests/test_schema_canary.py",
+    "packages/arc-llm/tests/test_schema_formatter.py",
+    "packages/arc-llm/tests/test_select.py",
+    "packages/arc-llm/tests/test_sessions.py",
+    "packages/arc-llm/tests/test_structured_recovery.py",
+    "packages/arc-llm/tests/test_usage.py"
+  ],
+  "family_count": 581,
+  "families": [
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_attempt_record_binds_exact_checkpoint_and_immutable_sources",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_attempt_checkpoint_binding_rejects_relabel_or_outside_path",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_attempt_record_redacts_bounds_compresses_and_finalizes_once",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_attempt_directories_are_independent_and_never_overwritten",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_retry_and_fallback_attempts_each_keep_an_independent_record",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_terminal_retry_error_carries_all_ordered_immutable_attempt_refs",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_identity_fields_and_oversized_timeline_details_are_sanitized_and_bounded",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_mapping_keys_are_redacted_without_losing_colliding_entries",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_candidate_metadata_and_source_fields_have_hard_caps",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_compression_expansion_falls_back_without_exceeding_disk_cap",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_inherited_environment_is_redacted_when_runner_env_is_none",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_finalize_reports_failure_when_immutability_cannot_be_enforced",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_streaming_timeout_captures_partial_output_stderr_and_kill_timeline",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_call_record_references_attempt_record_without_inlining_streams",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_diagnostic_finalize_failure_never_discards_a_paid_success",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_diagnostic_creation_failure_is_nonretryable_and_precedes_provider_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_diagnostic_finalize_failure_never_replaces_original_provider_error",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_attempt_diagnostics.py::test_parsed_candidate_is_retained_when_checkpoint_response_write_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_budget_reserves_and_settles_known_usage",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_reservation_is_idempotent_but_identity_mismatch_is_corrupt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_atomic_contention_admits_only_finite_parent_budget",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_process_contention_admits_only_finite_parent_budget",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_exhaustion_happens_before_any_submission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_unknown_usage_and_ambiguous_failure_charge_full_reservation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_known_usage_overdraw_is_recorded_and_blocks_future_admission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_reconcile_releases_only_proven_unsubmitted_dead_owner",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_binding_atomically_takes_over_dead_unsubmitted_reservation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_release_submitted_charges_instead_of_releasing",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_first_call_admission_transfers_without_second_call_charge",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_reference_permissions_and_context_are_explicit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_open_rejects_changed_reference_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_schema_failure_settles_observed_usage_instead_of_full_reserve",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_runner_replays_persisted_conservative_budget_settlement",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "provider_name",
+            "usage"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_runner_reserves_after_replay_check_and_replay_costs_zero",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_runner_exhaustion_happens_before_controlled_provider_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_budget.py::test_runner_reconciles_crash_reservation_before_supervision",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_cache_audit_summarizes_usage_and_duplicate_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_cache_audit_reads_shared_session_root_from_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_cache_audit_reads_loop_session_root_from_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_cache_audit_reads_workflow_session_roots",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_cache_audit_counts_claude_cache_read_tokens",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_cache_audit_counts_claude_uncached_input_with_cache_fields",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_cache_audit_reports_schema_changes_inside_session",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cache_audit.py::test_first_difference_reports_line_and_column",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_response_received_replays_without_provider_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_stateless_response_does_not_replay_changed_request_digest",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_uncertain_call_never_retries_without_supervision",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_corrupt_checkpoint_fails_closed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_v4_response_checkpoint_upgrades_and_replays",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_v5_malformed_candidate_material_fails_as_checkpoint_error",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_checkpoint_atomic_replace_fsyncs_parent_directory",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_preexisting_checkpoint_lock_symlink_is_rejected_without_target_mutation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_checkpoint_parent_swap_never_writes_external_target",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_checkpoint_leaf_swap_never_overwrites_replacement",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_checkpoint_exchange_rolls_back_late_regular_replacement",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_existing_checkpoint_update_fails_closed_without_atomic_exchange",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_initial_checkpoint_hardlink_never_overwrites_late_appearance",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_checkpoint_lock_swap_never_writes_symlink_target",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_formatter_response_is_replayed_after_outer_checkpoint_crash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_same_identity_is_single_flight_across_concurrent_callers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_not_submitted_failure_does_not_consume_checkpoint_attempt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_unknown_submission_failure_requires_supervision",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_untyped_failure_after_submission_requires_supervision",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_known_submitted_failure_is_terminal_and_never_replayed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_uncertain_checkpoint_exposes_supervision_path_and_disposition",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_prepared_not_submitted_checkpoint_is_safe_to_retry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_prepared_not_submitted_request_change_is_rebuilt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_v2_started_checkpoint_upgrades_without_replaying",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_v3_changed_request_requires_validated_legacy_logical_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_interrupted_submitted_call_records_recovery_metadata",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "failure"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_resumable_submitted_checkpoint_requires_explicit_native_resume",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_supervised_native_resume_preserves_submitted_identity_when_prompt_changes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_recomputation_binding_retains_exact_recipe_and_full_authorization",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_recovered_promotion_rejects_changed_recomputation_binding_before_reading_receipt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_supervised_resume_never_rebinds_unsubmitted_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_persisted_native_resume_authorization_rejects_each_field_mismatch",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "field_index"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_call_checkpoint.py::test_real_process_crash_checkpoint_stage_is_cleaned_on_next_lock",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cancellation.py::test_signal_cancel_chain_combines_parent_check_and_restores_handlers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_main_returns_nonzero_for_error_envelope",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_main_returns_nonzero_for_failed_status",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_terminal_status_exit_code_matrix",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_main_treats_needs_llm_as_successful_handoff",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_main_json_wraps_dispatch_exception",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_main_json_returns_needs_llm_for_auto_manual_without_provider_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_run_text_returns_needs_llm_handoff_without_json_flag",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_job_progress_callback_writes_arc_jobs_compatible_jsonl",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_job_cancel_check_accepts_explicit_and_progress_sibling_files",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_signal_handler_sets_cli_cancellation_flag",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_doctor_provider_and_config_include_kimi_risk_metadata",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_doctor_json_is_accepted_after_each_doctor_subcommand",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_circuit_status_and_reset_cli",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_timeout_help_documents_idle_semantics",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "command"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_runtime_env_merges_cli_llm_options",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_runtime_env_paper_cli_defaults_and_isolation_overrides",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_inherit_host_tools_is_explicit_and_restores_host_surface",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_loop_worker_capability_flags_override_all_workers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_run_text_cli_passes_model_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_prompt_text_is_literal_and_does_not_read_a_file",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_prompt_file_and_legacy_prompt_keep_file_semantics",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_prompt_sources_are_mutually_exclusive",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_run_json_cli_passes_stateful_session_args",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_schema_format_cli_passes_schema_and_model_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_schema_format_cli_idle_timeout_and_cancellation_reach_json_runner",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_removed_total_timeout_cli_flag_fails_before_dispatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_claude_session_persistence_flags_are_consistent",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_run_text_cli_rejects_provider_config_option",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli.py::test_cli_does_not_expose_provider_config_commands",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli_smoke_integration.py::test_stateful_run_json_cli_smoke",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "provider",
+            "binary"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_cli_smoke_integration.py::test_codex_evidence_schema_strict_structured_output_smoke",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_controller_round_preserves_request_order",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_controller_round_is_bounded_to_three_rounds",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_controller_round_requires_exactly_one_response_per_request",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_controller_round_rejects_duplicate_request_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_controller_round_rejects_duplicate_response_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_controller_round_rejects_malformed_response_envelope",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_failed_response_requires_error",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence.py::test_evidence_contract_carries_reason_and_provenance",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_four_state_receipt_replays_and_redelivers_without_execution",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_crash_after_executed_promotes_durable_response_without_reexecution",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_crash_after_prepared_recovers_idempotent_request",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_crash_after_response_persisted_replays_without_reexecution",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_non_idempotent_recovery_requires_transaction_and_callback",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_non_idempotent_transaction_recovery_never_calls_controller",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_same_address_rejects_stale_identity_guards",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "guard"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_reason_is_audit_data_not_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_round_cap_precedes_receipt_and_controller_side_effects",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_worker_isolation_allows_same_request_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_corrupt_receipt_fails_before_controller",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_tampered_persisted_operation_fails_its_guard_before_controller",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_oversized_request_fails_before_receipt_or_controller",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_protocol_payloads_are_exact_and_first_response_equals_replay",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_explicit_credential_fields_fail_closed_before_persistence",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "field"
+          ],
+          "case_count": 5
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_response_and_transaction_credentials_fail_closed_without_leaking",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_response_body_is_stored_once_and_bound_to_execution_and_address",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_response_request_id_is_bound_even_if_digest_is_recomputed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_final_receipt_budget_is_preflighted_before_executed_state",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_concurrent_recovery_executes_controller_once",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_cross_process_recovery_executes_controller_once",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_permissions_and_canonical_hash_are_deterministic",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_evidence_journal.py::test_controller_error_is_bounded_audit_without_fifth_state",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_provider_fatal_diagnostics_are_typed",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "text",
+            "status",
+            "category"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_rate_limit_parses_retry_after_but_quota_remains_persistent",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_http_status_can_be_inferred_from_diagnostic_envelope_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_explicit_retry_after_takes_priority",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_other_client_error_aborts_batch_without_poisoning_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_explicit_provider_schema_rejection_has_contract_category",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_request_specific_invalid_request_is_not_schema_rejection",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_failure_classification.py::test_unrelated_text_is_not_classified_and_kwargs_construct_error",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_host.py::test_env_host_has_priority",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_host.py::test_parent_process_detects_codex",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_host.py::test_parent_process_detects_claude_code",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_host.py::test_kimi_code_host_env_selects_native_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_host.py::test_parent_process_detects_kimi_code_package_and_command",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_host.py::test_provider_selection_ignores_env_provider_override",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_host.py::test_provider_selection_uses_detected_host",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_stateful_idempotency_replays_after_record_turn_crash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_stateful_idempotency_replays_after_response_before_turn",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_stateful_idempotency_replays_after_response_persist_crash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_successful_call_replays_when_caller_checkpoint_was_not_written",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_paid_stateful_logical_key_replays_before_rebuilt_prompt_digest",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_receipt_persisted_before_caller_acceptance_replays_rebuilt_stream",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_session_progress_contract_bootstrap_delta_and_rotate",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_json_result_exposes_receipt_usage_generation_and_prompt_bytes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_submitted_timeout_only_explicitly_resumes_native_session",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_public_resume_refuses_boolean_or_partial_authorization",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "authorization"
+          ],
+          "case_count": 2
+        },
+        {
+          "names": [
+            "entrypoint"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_public_resume_refuses_full_tuple_that_differs_from_initial_authorization",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_text_provider_receives_complete_initial_authorization_contract",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_stateful_runner_creates_missing_session_at_authorized_generation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_idempotency.py::test_stateful_runner_fails_closed_on_authorized_generation_mismatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_import.py::test_arc_llm_import_is_lightweight",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_import.py::test_arc_llm_runner_config_import_is_lightweight",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_import.py::test_arc_llm_lazy_public_exports",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_cli_smoke_integration.py::test_kimi_cli_text_json_stateful_resume_and_auto_detection",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_kimi_idle_timeout_defaults_to_half_hour_when_environment_is_unset",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_removed_kimi_total_timeout_env_fails_before_model_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_text_happy_path_uses_official_wire_order_and_aggregates_chunks",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_stateful_resume_uses_native_session_id_and_does_not_create",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_runner_stateful_second_turn_resumes_provider_session",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_runner_stateless_calls_always_create_new_provider_sessions",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_model_is_set_after_session_creation_and_before_prompt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_large_prompt_only_travels_in_acp_stdin_not_process_argv",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_child_env_forces_safety_switches_and_inherits_kimi_home",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_stderr_is_drained_and_raw_artifacts_are_written",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_json_direct_output_uses_canonical_schema_contract_and_null_usage",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_json_strict_mode_accepts_relaxed_object_extraction",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_json_warn_mode_recovers_plain_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_json_strict_mode_rejects_plain_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_empty_agent_response_is_non_retryable",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "output_recovery"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_runner_does_not_recreate_session_after_batch_aborting_response",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "scenario",
+            "match"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_reverse_permission_request_is_cancelled_without_claiming_sandbox",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_reverse_filesystem_requests_receive_json_rpc_errors",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_error_retryability_classification",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "scenario",
+            "match",
+            "retryable",
+            "abort_batch"
+          ],
+          "case_count": 9
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_kimi_diagnostic_retryability_distinguishes_quota_from_throttling",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "diagnostic",
+            "retryable",
+            "abort_batch"
+          ],
+          "case_count": 7
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_stderr_rate_limit_aborts_hung_acp_immediately",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_missing_binary_is_non_retryable",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_experimental_warning_is_emitted_once_before_execution",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_idle_timeout_sends_cancel_and_kills_process_group",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_code_cli.py::test_idle_timeout_attempt_timeline_records_acp_cancel_and_group_cleanup",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_safety.py::test_kimi_retry_safety_rejects_missing_config_before_launch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_safety.py::test_kimi_retry_safety_rejects_amplifying_config",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "value"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_safety.py::test_kimi_retry_safety_accepts_one_without_copying_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_safety.py::test_kimi_retry_safety_uses_supported_per_call_override",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_kimi_safety.py::test_kimi_retry_safety_escape_hatch_is_explicit_and_warns",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_evidence_schema_is_codex_strict_required",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_recursive_codex_validator_rejects_optional_nested_property",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_codex_validator_rejects_unsupported_one_of_before_provider_submission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_streaming_process_idle_timeout_covers_blocked_stdin_delivery",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_streaming_process_allows_long_total_runtime_with_activity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_streaming_process_cancellation_remains_active",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_terminate_process_group_kills_descendant_after_leader_exits",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_provider_watchdog_reaps_group_after_caller_sigkill",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_auto_manual_fails_before_provider_attempts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_schema_error_type_is_preserved_without_retry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_batch_status_matrix",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "statuses",
+            "expected"
+          ],
+          "case_count": 6
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_auto_manual_batch_returns_needs_llm_before_creating_run",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_batch_idle_timeout_passes_none_for_env_resolution_and_honors_worker_override",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_in_progress_state_updates_while_worker_call_is_still_running",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_partial_proposer_failure_is_degraded_without_fake_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_typed_timeout_is_preserved_in_worker_failure_status",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_reviewer_failure_is_failed_and_progress_is_append_only",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_lifecycle_regressions.py::test_cancel_before_scheduling_is_cancelled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_explicit_model_wins",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_model_env_vars_do_not_select_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_defaults_use_medium_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_model_tier_resolves_provider_specific_model_when_no_exact_model_is_set",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_codex_model_tiers_resolve_requested_reasoning_effort",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_model_tier_aliases_can_be_overridden_by_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_kimi_model_tier_uses_only_explicit_alias_or_default_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_kimi_exact_model_does_not_report_unmapped_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_model_tier_aliases_use_process_env_when_env_not_passed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_explicit_model_tier_is_only_tier_selector",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_unknown_model_tier_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_model.py::test_old_xhigh_model_tier_is_rejected",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_probe_argv_is_fixed_explicit_and_network_disabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_custom_codex_binary_matches_exec_help_and_probe",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "kind"
+          ],
+          "case_count": 5
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_narrow_classifier",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "stderr",
+            "return_code",
+            "expected"
+          ],
+          "case_count": 6
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_success_probe_cache_and_receipt_are_bounded",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_namespace_denial_is_cached_and_does_not_raise",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_timeout_and_corrupt_receipt_reprobe_with_fake_clock",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_recipe_changes_for_cwd_sandbox_and_binary_stat",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_sixteen_threads_share_one_probe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_same_recipe_different_cache_roots_share_one_process_probe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_two_spawn_processes_share_one_persistent_probe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_cache_lock_failure_runs_one_uncached_probe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_receipt_write_failure_keeps_probe_result",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_probe_start_and_local_failures_degrade_stably",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "error",
+            "status"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_probe_does_not_swallow_keyboard_interrupt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_timeout_kills_child_after_leader_exits_on_term",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_unsupported_and_danger_modes_start_no_process",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "provider",
+            "sandbox",
+            "status"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_runtime_fingerprint_uses_semantics_not_cache_metadata",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_prompt_renderer_removes_marker_and_direct_commands_when_false",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_prompt_renderer_true_defers_direct_allowlist_to_broker_catalog",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_raw_event_warning_only_scans_typed_command_execution",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_typed_namespace_failure_keeps_later_provider_result_valid",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_user_env_cannot_assert_true_and_marker_never_reaches_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_controller_route_does_not_probe_or_warn_for_nested_shell",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_nested_shell_capability.py::test_explicit_direct_shell_failure_blocks_before_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_package_boundaries.py::test_arc_llm_does_not_ship_workflow_consensus_module",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_package_boundaries.py::test_arc_llm_source_does_not_depend_on_arc_skill_files",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_package_boundaries.py::test_arc_llm_does_not_ship_openai_compatible_provider_stack",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_package_boundaries.py::test_arc_llm_source_has_no_deepseek_or_provider_config_paths",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_paper_access_policy.py::test_resolve_canonical_default_and_legacy_access",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_paper_access_policy.py::test_resolve_access_rejects_conflict_or_invalid_before_runtime",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "config",
+            "env"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_paper_access_policy.py::test_compatibility_environment_is_a_nonsemantic_equal_mirror",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_paper_access_policy.py::test_runtime_rejects_direct_shell_with_disabled_access_before_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_paths.py::test_arc_home_layout_drives_llm_cache_tmp_schema_and_claude_mcp",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_paths.py::test_arc_llm_specific_paths_override_arc_home",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_paths.py::test_arc_home_falls_back_to_xdg_data_then_system_home",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_progress_journal.py::test_progress_journal_persists_session_and_recovery_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_progress_journal.py::test_submitted_event_crosses_checkpoint_barrier_before_persist",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_progress_prompt.py::test_progress_contract_requires_meaningful_out_of_band_milestones",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_progress_prompt.py::test_progress_contract_injection_is_idempotent",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_progress_prompt.py::test_progress_contract_changes_effective_prompt_without_changing_caller_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_progress_prompt.py::test_worker_prompts_include_contract_once_and_initial_contract_is_static",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_activity_uses_idle_not_total_runtime_and_emits_reviews",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_noise_and_duplicate_progress_do_not_refresh_idle",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_empty_assistant_heartbeat_does_not_refresh_idle",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_repeated_assistant_heartbeat_does_not_refresh_idle",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_progress_persistence_failure_aborts_submitted_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_artifact_progress_requires_an_existing_path",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_idle_timeout_resolution_precedence",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_removed_total_timeout_environment_fails_before_provider_submission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_unsupported_streaming_fails_before_submission",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "preflight",
+            "env"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_codex_and_claude_event_classification",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_codex_tool_progress_never_exposes_arguments_or_queries",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_claude_split_heartbeat_deltas_do_not_refresh_idle",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_session_metadata_is_visible_but_not_substantive",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_claude_terminal_result_is_selected_from_jsonl",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_kimi_acp_forwards_assistant_and_tool_progress",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_kimi_split_heartbeat_and_plan_updates_do_not_refresh_idle",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_provider_activity.py::test_streaming_process_idle_timeout_terminates_process_group",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_generate_json_writes_prompt_to_stdin_and_reads_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_provider_writes_provider_safe_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_invalid_strict_schema_is_typed_nonretryable_before_request",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_generate_json_without_schema_omits_output_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_warn_mode_recovers_plain_text_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_warn_mode_repairs_malformed_json_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_strict_mode_raises_on_plain_text_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_generate_text_reads_last_message",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_stateful_first_call_uses_json_events_and_keeps_history",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_stateful_first_call_requires_thread_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_shared_selection_keeps_completed_event_when_output_last_is_malformed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_stateful_resume_keeps_session_when_schema_probe_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_resume_schema_support_probe_is_memoized",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_resume_schema_support_override_skips_probe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_passes_provider_env_to_subprocess",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_idle_timeout_uses_provider_specific_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_options_can_be_overridden_by_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_can_opt_into_internet_and_selected_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_arc_only_mcp_keeps_user_config_ignored_and_injects_arc_server",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_arc_only_rejects_mcp_server_extra_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_arc_only_allows_non_mcp_extra_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_invalid_mcp_mode_fails_closed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_codex_profile_loads_user_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_generate_json_parses_direct_json",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_generate_json_parses_result_wrapper",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_generate_json_prefers_provider_structured_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_deepseek_auto_uses_prompt_contract_not_json_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_warn_mode_auto_uses_prompt_contract_not_json_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_warn_mode_prompt_override_uses_prompt_contract",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_provider_mode_keeps_json_schema_for_deepseek",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_prompt_transport_overrides_provider_schema_mode",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_natural_language_result_recovered_in_warn_mode",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_warn_mode_repairs_malformed_result_json",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_warn_mode_recovers_top_level_plain_stdout",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_warn_mode_valid_json_has_no_structured_warning",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_warn_mode_preserves_reviewer_marks_from_structured_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_natural_language_result_still_raises_in_strict_mode",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_shared_selection_keeps_completed_event_when_terminal_is_malformed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_warn_mode_recovers_result_json_array",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_strict_mode_raises_on_result_json_array",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_strict_prompt_mode_relaxed_parser_extracts_json_object",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_structured_output_retry_error_is_not_recovered_in_warn_mode",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_nonzero_mcp_failure_still_raises_in_warn_mode",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_generate_text_returns_stdout",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_stateful_text_uses_json_output_and_records_usage",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_text_result_writes_raw_artifacts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_stateful_first_call_uses_session_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_stateful_resume_uses_resume_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_passes_provider_env_to_subprocess",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_idle_timeout_uses_generic_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_options_can_be_overridden_by_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_can_opt_into_internet",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_can_use_selected_mcp_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_arc_only_mcp_generates_strict_arc_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_arc_only_mcp_uses_web_tools_plus_arc_allowlist",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_allowed_tools_can_be_overridden",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_arc_only_rejects_extra_mcp_configs",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_arc_only_always_generates_arc_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_arc_only_mcp_default_does_not_fall_back_to_uvx",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_no_internet_mcp_disables_builtin_tools_and_allows_arc",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_providers.py::test_claude_no_internet_mcp_allows_explicit_tools",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_codex_requires_unique_final_completion",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_claude_requires_one_success_result_at_end",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_kimi_binds_prompt_id_session_chunks_and_end_turn",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_kimi_rejects_malformed_json_rpc_ids",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "invalid_id"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_kimi_boolean_response_id_cannot_alias_integer_request_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_provider_lifecycle_is_closed",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "provider",
+            "events",
+            "message"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_raw_event_count_line_and_aggregate_caps",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_payload_and_request_closure_rejects_unknown_fields_and_open_requests",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_kimi_reverse_denial_marker_closes_request_without_closing_prompt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_kimi_reverse_denial_marker_is_exactly_once_and_ordered",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "mutation"
+          ],
+          "case_count": 5
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_raw_completion.py::test_nested_provider_payloads_and_ordinal_coverage_are_closed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_recovery_context.py::test_recovery_context_combines_checkpoint_progress_and_generation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_recovery_context.py::test_recovery_context_ignores_unrelated_latest_native_session",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_recovery_context.py::test_recovery_context_rejects_symlink_checkpoint_and_external_progress",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_recovery_context.py::test_recovery_context_rejects_oversized_checkpoint",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_recovery_context.py::test_recovery_context_rejects_external_or_symlink_progress",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "external_pointer"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_last_substantive_ignores_later_valid_empty_and_merges_equivalents",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_barthes_section_review_regression_keeps_seven_findings_before_empty",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_all_empty_selects_last_valid_and_invalid_rich_does_not_outrank_it",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_only_complete_objects_enter_selection_in_character_order",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_malformed_open_object_does_not_hide_later_complete_object",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_braces_inside_quoted_prose_are_not_candidates",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_valid_outer_object_suppresses_nested_object_candidate",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_anyof_uses_maximum_mass_across_all_valid_branches",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_nonfinite_json_constants_are_not_complete_candidates",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_large_candidate_stream_fails_before_unbounded_json_parsing",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_non_equivalent_substantive_candidates_require_supervision_hashes_only",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_explicit_protocol_supersession_selects_terminal_value",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_false_and_zero_are_substantive_atoms",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "atom"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_nested_ref_and_oneof_use_validating_branch_for_semantic_mass",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_ref_sibling_required_fields_contribute_semantic_mass",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_is_body_free_equivalent_and_tamper_fails_closed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_publish_is_concurrent_and_ignores_stale_partial_temp",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_publish_failure_never_exposes_final_or_partial_temp",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_baseexception_cut_reconciles_exact_stage",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "cutpoint"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_parent_rename_recreate_fails_without_split_publication",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_parent_symlink_never_writes_external_directory",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_lock_replacement_fails_before_publication",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_staging_leaf_swap_fails_without_touching_target",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_final_swap_uses_exchange_rollback",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_subprocess_cut_after_publish_repairs_link_count",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_receipt_metadata_is_sanitized_and_bounded",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_provider_material_protocol_rules",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_conflict_checkpoint_replays_without_provider_and_remains_response_received",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_sidecar_crash_keeps_atomic_response_for_zero_call_replay",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_post_provider_selection_failure_releases_checkpoint_without_resubmit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_deferred_no_valid_candidate_keeps_strict_error_and_diagnostics",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_response_candidates.py::test_no_schema_valid_candidate_preserves_provider_value_for_existing_recovery",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_retryable_output.py::test_retryable_classifier_flags_short_service_unavailable_reply",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_retryable_output.py::test_retryable_classifier_flags_error_json_status_code",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_retryable_output.py::test_retryable_classifier_ignores_incidental_400_and_overloaded_in_science_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_retryable_output.py::test_retryable_classifier_marks_http_400_as_fatal_provider_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_runner_preserves_checkpoint_supervision_errors",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "error"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_call_record_is_not_added_to_provider_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_strips_arc_llm_call_record_and_required_entry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_makes_nested_objects_strict",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_preserves_explicit_empty_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_overrides_additional_properties_true",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_strips_call_record_from_required_without_properties",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_preserves_absent_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_does_not_mutate_input_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_plan_falls_back_for_nested_open_object",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_without_native_schema_preserves_open_object_semantics",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_claude_native_schema_selection_matches_provider_modes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_invalid_schema_fails_before_provider_or_artifact_creation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_treats_properties_without_type_as_strict_object",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_does_not_normalize_default_annotation_payloads",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_makes_list_valued_items_strict",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_provider_schema_makes_additional_items_schema_strict",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_warn_recovery_does_not_force_unknown_schema_when_validation_disabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_warn_validate_false_valid_object_no_structured_warning",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_warn_validate_false_invalid_object_records_schema_warning",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_valid_schema_output_unchanged_when_validation_enabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_stateful_run_json_self_heals_missing_session_on_native_id_update",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_resolve_llm_config_uses_host_and_default_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_uses_selected_provider_and_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_passes_provider_safe_schema_but_preserves_local_validation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_open_object_uses_prompt_relaxed_parse_and_local_validation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_strict_prompt_fallback_rejects_synthesized_empty_object",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_recovery_warn_valid_json_is_unchanged",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_does_not_replay_provider_failure_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_warn_retries_short_provider_text_without_status_code_policy",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_warn_retries_empty_schema_failure_before_formatter",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_warn_uses_schema_formatter_for_rich_schema_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_warn_can_disable_schema_formatter",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_warn_does_not_replay_when_schema_formatter_requests_retry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_recovery_warn_retries_low_content_natural_language",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_low_content_detection_counts_unicode_letters",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_schema_recovery_prefers_full_model_output_over_excerpt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_without_schema_passes_none_and_adds_call_record",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_call_record_v6_requires_warnings_and_existing_provider_emits_empty_list",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_kimi_config_warnings_propagate_to_call_record",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_kimi_prompt_schema_keeps_open_object_without_fallback_warning",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_claude_default_prompt_mode_keeps_open_schema_without_fallback_warning",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_claude_native_mode_open_schema_uses_prompt_fallback",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_non_retryable_worker_error_stops_after_first_attempt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_worker_error_is_non_retryable_by_default",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_stateful_records_session_usage_and_call_record",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_stateful_records_static_prefix",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_records_provider_prompt_hash_when_prompt_is_rewritten",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_stateful_does_not_retry_after_invalid_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_text_result_returns_usage_and_records_stateful_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_stateful_requires_provider_result_support",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_stateful_requires_session_key_and_manager",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_auto_provider_rejects_exact_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_resolve_llm_config_rejects_auto_provider_with_exact_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_env_model_does_not_override_model_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_uses_model_tier_when_exact_model_is_not_set",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_passes_model_tier_reasoning_effort_to_codex",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_explicit_codex_reasoning_effort_overrides_model_tier_default",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_validates_provider_output_against_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_text_uses_selected_provider_and_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_controller_finalizes_paper_overlay_after_success_and_failure",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "provider",
+            "expected_status",
+            "error_type"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_controller_finalizes_paper_overlay_after_cancel",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_runner_resolves_idle_timeout_before_passing_it_to_provider",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "explicit",
+            "env",
+            "expected"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_invalid_idle_timeout_fails_not_submitted_without_provider_or_checkpoint",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "env"
+          ],
+          "case_count": 6
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_text_does_not_replay_unknown_provider_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_text_does_not_sleep_to_replay_unknown_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_does_not_replay_unknown_provider_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_auto_does_not_replay_selected_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_json_explicit_provider_does_not_replay_without_proof",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_legacy_session_without_capability_metadata_resumes_with_paper_cli_disabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_legacy_checkpoint_without_capability_metadata_resumes_with_paper_cli_disabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_new_call_constructs_shared_paper_overlay_before_submission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_default_full_controller_route_does_not_stage_direct_worker",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_paper_access_policy_is_staged_by_content_hash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_run_text_result_accepts_structured_paper_access_policy",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_stateful_calls_share_paper_overlay_across_artifact_directories",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_stateful_rotated_unused_generation_rebinds_runtime_before_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_new_call_without_artifact_or_session_root_uses_managed_tmp_overlay",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_disabled_paper_cli_hides_inherited_global_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_runner.py::test_controller_finalizer_uses_session_paths_without_local_auth_tokens",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_typed_failure_defaults_nonretryable_and_preserves_legacy_abort_batch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_failure_disposition_walks_wrapped_cause",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_failure_disposition_does_not_let_generic_worker_wrapper_hide_provider_fatal",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_global_concurrency_is_shared_between_controller_instances",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_global_concurrency_is_shared_across_processes_and_reclaims_crash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_concurrency_override_can_only_lower_hard_cap",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "value"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_default_global_concurrency_is_24",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_advisory_lock_treats_eacces_as_contention",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_advisory_lock_windows_branch_uses_one_byte_region",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_provider_limit_does_not_reduce_capacity_for_other_providers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_lower_limit_counts_slots_acquired_at_higher_limit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_provider_circuit_survives_new_controller_only_until_ttl",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "category"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_rate_limit_uses_15_minimum_cooldown_and_one_half_open_probe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_non_circuit_failure_releases_half_open_probe",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "error"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_circuit_record_error_releases_half_open_probe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_endpoint_identity_strips_credentials_and_query_from_status",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_call_permit_releases_slot_and_records_circuit_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_safety.py::test_inflight_success_cannot_clear_newer_rate_limit_circuit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_successful_first_real_task_releases_24_followers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_deterministic_rejection_submits_once_and_blocks_23_followers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_retryable_failure_does_not_prove_or_block_followers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_request_specific_invalid_request_does_not_reject_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_cancelled_follower_is_not_submitted",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_crash_before_commit_leaves_identity_unproven",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_crash_after_commit_keeps_proof_for_followers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_processes_racing_for_same_identity_launch_one_canary",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_rejected_receipt_blocks_after_process_restart",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_hard_killed_owner_releases_lock_without_proof",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_identity_components_invalidate_proof_and_do_not_cross_block",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_runner_passes_t03_transport_mode_to_shared_admission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_proposer_default_and_custom_runners_share_batch_canary_root",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_direct_json_call_with_artifacts_does_not_enable_batch_canary",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_deferred_invalid_terminal_does_not_prove_schema_canary",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_deferred_terminal_with_valid_earlier_candidate_proves_canary",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_schema_formatter_inherits_batch_canary_root",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_canary.py::test_runner_admission_submits_one_of_24_deterministic_rejections",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_formatter.py::test_schema_formatter_preserves_explicit_numbers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_formatter.py::test_schema_formatter_forwards_idle_timeout_and_cancellation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_formatter.py::test_schema_formatter_rejects_numbers_not_present_in_source",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_formatter.py::test_schema_formatter_strips_call_record_before_validation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_formatter.py::test_schema_formatter_decision_formats_valid_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_formatter.py::test_schema_formatter_decision_can_request_retry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_schema_formatter.py::test_schema_formatter_rejects_fabricated_numbers_for_schema_applicators",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "schema"
+          ],
+          "case_count": 5
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_select.py::test_select_provider_explicit_builtin",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_select.py::test_select_provider_auto_uses_agent_host_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_select.py::test_select_provider_auto_falls_back_to_manual",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_select.py::test_kimi_provider_spec_records_experimental_capabilities_and_risks",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_select.py::test_kimi_provider_diagnostic_reports_only_existing_risk_paths",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_select.py::test_non_kimi_provider_diagnostic_has_no_inherited_risk_scan",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_manager_persists_native_id_and_turns",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_manager_rejects_runtime_mismatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_locked_turn_creates_requested_initial_generation_and_requires_exact_match",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_locked_turn_rejects_conflicting_required_and_initial_generations",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_proven_legacy_fingerprint_migrates_started_generation_in_place",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "durable_state"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_legacy_fingerprint_migration_requires_exact_recipe_proof",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_transaction_validated_runtime_identity_migrates_native_session",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_transaction_runtime_identity_rejects_any_field_mismatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_rotated_unused_generation_can_rebind_runtime_fingerprint",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_rotated_generation_with_a_turn_rejects_runtime_rebind",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_rotated_generation_with_native_session_rejects_runtime_rebind",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_started_rotated_generation_rejects_runtime_rebind_without_native_id_or_turn",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_manager_reloads_state_written_by_other_manager",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_manager_refuses_native_id_overwrite_from_other_manager",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_receipt_is_idempotent_and_rotate_starts_generation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_receipt_rejects_same_key_with_different_turn",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_lock_serializes_threads",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_preexisting_session_lock_file_does_not_imply_owner",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_lock_times_out_while_os_lock_is_held",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_advisory_lock_propagates_unexpected_os_error",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_locked_turn_serializes_turn_count_across_manager_instances",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_session_store_preserves_concurrent_process_keys",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_calls_jsonl_preserves_concurrent_process_records",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_runtime_fingerprint_includes_runtime_but_not_prompt_or_run_values",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_runtime_fingerprint_includes_provider_config_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_runtime_manifest_is_provider_specific_and_normalizes_false_defaults",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_runtime_fingerprint_binds_policy_identity_but_not_staged_path",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_kimi_runtime_manifest_ignores_unused_tier_mappings",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_kimi_runtime_fingerprint_includes_runtime_inputs",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "changed_env"
+          ],
+          "case_count": 6
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_kimi_runtime_fingerprint_uses_provider_idle_timeout_before_generic_fallback",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_kimi_runtime_fingerprint_empty_provider_idle_timeout_uses_generic_fallback",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_runtime_fingerprint_includes_claude_mcp_config_file_contents",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_runtime_fingerprint_fail_closes_when_inherited_host_config_changes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_sessions.py::test_generated_claude_arc_mcp_path_does_not_change_fingerprint_when_file_appears",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_recover_json_output_valid_schema_object_is_unchanged",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_recovery_preserves_additional_properties_when_allowed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_recovery_normalizes_additional_properties_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_recovery_still_drops_additional_properties_when_forbidden",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_relaxed_parser_repairs_truncated_fenced_json_object",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_relaxed_parser_repairs_truncated_fenced_json_without_json_repair",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_relaxed_parser_keeps_plain_text_as_unstructured_fallback",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_relaxed_parser_does_not_repair_rootless_json_fragment",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_workflow_action_fallback_prefers_manual_action_over_retry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_workflow_action_fallback_uses_retry_only_when_only_choice",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_structured_recovery.py::test_calculation_recovery_requires_revision_before_continuing",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_usage.py::test_claude_cache_ratio_counts_uncached_input_tokens",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_usage.py::test_codex_cache_ratio_uses_cached_input_tokens",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_usage.py::test_missing_provider_usage_is_explicitly_unknown_not_zero",
+      "parameter_dimensions": []
+    }
+  ]
+}

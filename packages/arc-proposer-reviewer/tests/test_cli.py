@@ -57,11 +57,12 @@ def test_validate_emits_one_command_envelope_and_constructs_no_llm(
     assert captured.err == ""
 
 
-def test_cli_surface_has_no_dry_run_mode(capsys) -> None:
-    assert cli.main(["run", "--dry-run"]) == 2
-    envelope = json.loads(capsys.readouterr().out)
-    assert envelope["status"] == "failed"
-    assert envelope["error"]["code"] == "invalid_request"
+def test_cli_surface_rejects_retired_dry_run_and_consensus_commands(capsys) -> None:
+    for argv in (["run", "--dry-run"], ["consensus"]):
+        assert cli.main(argv) == 2
+        envelope = json.loads(capsys.readouterr().out)
+        assert envelope["status"] == "failed"
+        assert envelope["error"]["code"] == "invalid_request"
 
 
 def test_run_emits_no_synthetic_progress_events(

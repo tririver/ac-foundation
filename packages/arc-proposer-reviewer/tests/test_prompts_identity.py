@@ -40,6 +40,12 @@ def test_initial_prompt_has_fixed_section_order() -> None:
     assert [prompt.index(heading) for heading in headings] == sorted(
         prompt.index(heading) for heading in headings
     )
+    changed = replace(value, context={"question": "different variable context"})
+    changed_prompt = render_initial_proposer_prompt(
+        loop=changed, worker=changed.proposers[0], round_number=1
+    )
+    static_prefix = prompt.split("## Caller context", 1)[0]
+    assert changed_prompt.split("## Caller context", 1)[0] == static_prefix
 
 
 def test_delta_prompt_requires_complete_recomputation_and_targeted_feedback() -> None:
@@ -62,13 +68,15 @@ def test_reviewer_prompt_contains_business_values_not_diagnostics() -> None:
         loop=value,
         round_number=1,
         proposals={"p": {"answer": "candidate"}},
-        previous_review=None,
+        previous_review={"reason": "An earlier review."},
     )
     assert '"answer":"candidate"' in prompt
     assert "provider" not in prompt.lower()
     assert "usage" not in prompt.lower()
     assert "call_record" not in prompt
     assert "complete review" in prompt
+    assert "Independently review all current proposals" in prompt
+    assert "Do not patch or merely endorse the previous review" in prompt
 
 
 def test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops() -> None:

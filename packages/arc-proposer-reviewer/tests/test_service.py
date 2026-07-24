@@ -4,6 +4,8 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
+import pytest
+
 from arc_jobs import (
     ImmutableArtifactStore,
     RunContext,
@@ -13,10 +15,13 @@ from arc_jobs import (
     RunStatus,
 )
 from arc_llm import (
+    CapabilityPolicy,
     InvalidRequestError,
+    JsonOutput,
     LLMCompleted,
     LLMFailed,
     LLMPaused,
+    ModelSelection,
     ResumeReason,
     SessionRef,
 )
@@ -273,6 +278,26 @@ def test_collect_runs_multiple_loops_and_keeps_request_order(tmp_path: Path) -> 
     assert len(fake.calls) == 4
 
 
+def test_collect_keeps_failed_loop_from_corrupting_successful_loop(
+    tmp_path: Path,
+) -> None:
+    fake = FakeLLM()
+    failed = _loop("failed", proposers=(_worker("failed-p", "FAIL"),))
+    successful = _loop("successful")
+    repository, _handler, snapshot = _run(
+        tmp_path,
+        _request(failed, successful),
+        fake,
+        options=ExecutionOptions(max_concurrent_loops=1),
+    )
+    result = _result(repository, snapshot)
+    assert [loop.loop_id for loop in result.loops] == ["failed", "successful"]
+    assert result.loops[0].error is not None
+    assert result.loops[0].final_proposals == {}
+    assert result.loops[1].error is None
+    assert tuple(result.loops[1].final_proposals) == ("successful-p",)
+
+
 def test_invalid_reviewer_value_fails_without_fabricating_review(
     tmp_path: Path,
 ) -> None:
@@ -295,6 +320,46 @@ def test_invalid_reviewer_value_fails_without_fabricating_review(
     assert result.termination.value == "failed"
     assert result.final_review is None
     assert result.error is not None
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [
+        "plain reviewer text",
+        {"action": "stop"},
+        {
+            "schema_version": "arc.proposer_reviewer.review.v1",
+            "action": "stop",
+            "reason": "Too short.",
+            "feedback": {},
+            "payload": {"score": 1},
+        },
+    ],
+)
+def test_invalid_reviewer_shapes_fail_without_retry_or_fabrication(
+    tmp_path: Path,
+    invalid_value,
+) -> None:
+    class InvalidReviewer(FakeLLM):
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            if _is_proposer(request):
+                return _completed(request)
+            return LLMCompleted(
+                invalid_value,
+                "fake",
+                "fake-model",
+                None,
+                None,
+            )
+
+    fake = InvalidReviewer()
+    repository, _handler, snapshot = _run(tmp_path, _request(_loop()), fake)
+    result = _result(repository, snapshot).loops[0]
+    assert result.termination.value == "failed"
+    assert result.final_review is None
+    assert result.error is not None
+    assert len(fake.calls) == 2
 
 
 def test_sessions_continue_only_within_the_same_worker_lineage(
@@ -408,3 +473,179 @@ def test_committed_round_replays_after_outer_unit_interruption(
     )
     assert second == first
     assert len(fake.calls) == 2
+
+
+def test_run_root_and_logical_artifact_ids_are_explicit_and_stable(
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "explicit-runs"
+    repository, _handler, snapshot = _run(
+        run_root,
+        _request(_loop()),
+        FakeLLM(),
+    )
+    assert snapshot.status is RunStatus.SUCCEEDED
+    run_directory = repository.run_directory("run-a")
+    assert run_directory.is_relative_to(run_root)
+    manifests = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in (run_directory / "artifacts" / "manifests").glob("*.json")
+    ]
+    logical_ids = {item["artifact_id"] for item in manifests}
+    assert {
+        "proposer-reviewer/request",
+        "proposer-reviewer/loops/loop-a/rounds/001/proposals/loop-a-p",
+        "proposer-reviewer/loops/loop-a/rounds/001/reviews/loop-a-r",
+        "proposer-reviewer/loops/loop-a/result",
+        "proposer-reviewer/batch/result",
+    } <= logical_ids
+    assert all(not Path(item["relative_path"]).is_absolute() for item in manifests)
+
+
+def test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage(
+    tmp_path: Path,
+) -> None:
+    class RoutingLLM(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.requests = []
+            self.review_calls = 0
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.requests.append(request)
+            if _is_proposer(request):
+                return LLMCompleted(
+                    {"proposal": request.task_id},
+                    "fake",
+                    "fake-model",
+                    SessionRef(
+                        (
+                            "session-p-one"
+                            if "Produce proposal one." in request.prompt
+                            else "session-p-two"
+                        ),
+                        "a" * 64,
+                    ),
+                    None,
+                )
+            self.review_calls += 1
+            completed = _completed(request)
+            value = dict(completed.value)
+            active_ids = tuple(value["feedback"])
+            value["action"] = "continue" if self.review_calls == 1 else "stop"
+            value["reason"] = "Route feedback by worker identity."
+            value["feedback"] = {
+                worker_id: f"feedback-for:{worker_id}"
+                for worker_id in active_ids
+            }
+            value["payload"] = {"score": self.review_calls}
+            return LLMCompleted(
+                value,
+                "fake",
+                "fake-model",
+                SessionRef("reviewer-session", "b" * 64),
+                None,
+            )
+
+    first = WorkerSpec(
+        "p-one",
+        "Produce proposal one.",
+        PROPOSAL_SCHEMA,
+        ModelSelection(provider="codex", model="model-one"),
+        CapabilityPolicy(internet=True, allowed_tools=("search",)),
+    )
+    second = WorkerSpec(
+        "p-two",
+        "Produce proposal two.",
+        PROPOSAL_SCHEMA,
+        ModelSelection(provider="claude", model="model-two"),
+    )
+    fake = RoutingLLM()
+    loop = _loop(
+        proposers=(first, second),
+        max_rounds=2,
+        allow_early_stop=False,
+    )
+    repository, _handler, snapshot = _run(tmp_path, _request(loop), fake)
+    assert snapshot.status is RunStatus.SUCCEEDED
+    assert _result(repository, snapshot).loops[0].rounds_completed == 2
+
+    proposer_requests = [item for item in fake.requests if _is_proposer(item)]
+    assert len(proposer_requests) == 4
+    first_round = proposer_requests[:2]
+    assert {item.model for item in first_round} == {first.model, second.model}
+    assert {item.capabilities for item in first_round} == {
+        first.capabilities,
+        second.capabilities,
+    }
+    assert all(
+        isinstance(item.output, JsonOutput)
+        and item.output.schema == PROPOSAL_SCHEMA
+        for item in proposer_requests
+    )
+    second_round = proposer_requests[2:]
+    assert any(
+        "Produce proposal one." in item.prompt
+        and "feedback-for:p-one" in item.prompt
+        and "feedback-for:p-two" not in item.prompt
+        for item in second_round
+    )
+    assert any(
+        "Produce proposal two." in item.prompt
+        and "feedback-for:p-two" in item.prompt
+        and "feedback-for:p-one" not in item.prompt
+        for item in second_round
+    )
+    assert proposer_requests[2].session is not None
+    assert proposer_requests[3].session is not None
+
+
+def test_invalid_later_review_cannot_reuse_an_earlier_valid_decision(
+    tmp_path: Path,
+) -> None:
+    class InvalidSecondReview(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.review_calls = 0
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            if _is_proposer(request):
+                return _completed(request)
+            self.review_calls += 1
+            if self.review_calls == 2:
+                return LLMCompleted(
+                    {"action": "stop"},
+                    "fake",
+                    "fake-model",
+                    None,
+                    None,
+                )
+            completed = _completed(request)
+            value = dict(completed.value)
+            value["action"] = "continue"
+            value["reason"] = "One more independent round is required."
+            value["feedback"] = {
+                worker_id: "Recompute the complete proposal."
+                for worker_id in value["feedback"]
+            }
+            return LLMCompleted(
+                value,
+                "fake",
+                "fake-model",
+                None,
+                None,
+            )
+
+    fake = InvalidSecondReview()
+    repository, _handler, snapshot = _run(
+        tmp_path,
+        _request(_loop(max_rounds=2, allow_early_stop=False)),
+        fake,
+    )
+    result = _result(repository, snapshot).loops[0]
+    assert fake.review_calls == 2
+    assert result.termination.value == "failed"
+    assert result.final_review is None
+    assert result.error is not None

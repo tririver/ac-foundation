@@ -1,0 +1,1783 @@
+{
+  "schema_version": "arc.legacy_test_closure.v1",
+  "package": "arc-proposer-reviewer",
+  "manifest": "arc_proposer_reviewer_pre_v1_tests.json",
+  "groups": [
+    {
+      "group_id": "audit-0001",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_different_host_lock_is_not_recovered",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0002",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_apply_improvement_edits_restricts_reviewer_changes_by_default",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0003",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_config_accepts_overrides_without_changing_batch_shape",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0004",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_config_defaults_materialize_ten_auto_loops",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0005",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_config_rejects_multiple_loop_templates",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0006",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_defaults_use_flash_tier_for_sample_workers_and_high_tier_for_improver",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0007",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_defaults_use_soft_prompt_optimizer_acceptance_thresholds",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0008",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_improver_context_can_be_path_only",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0009",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_improver_exact_model_requires_explicit_provider",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0010",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_runner_accepts_significant_prompt_improvement",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0011",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_runner_fails_when_no_scores_are_found",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0012",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_runner_rejects_small_improvement_and_stops_on_patience",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0013",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_score_run_uses_final_round_scores_only",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0014",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_max_concurrent_loops_overrides_operational_concurrency",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": the legacy CLI override was removed; v1 exposes concurrency only through typed ExecutionOptions, whose service behavior is covered separately."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0015",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_runs_proposers_reviewer_bench_from_config",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The benchmark, optimizer, scoring, and prompt-tuning subsystem was retired from the production package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0016",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_artifact_options_can_disable_prompt_saving",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0017",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_evidence_capability_cascades_from_batch_loop_and_worker",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0018",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_idle_timeout_config_preserves_unspecified_and_parses_batch_and_worker_overrides",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The legacy environment/config/session-root surface was removed in favor of typed requests and owner-level policy; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0019",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_isolated_worker_env_fail_closes_paper_and_host_tools",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0020",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_runtime_merge_does_not_mutate_input",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The legacy environment/config/session-root surface was removed in favor of typed requests and owner-level policy; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0021",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_session_options_parse_and_loop_overrides_parent",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0022",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_session_scope_rejects_absolute_or_parent_paths",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The legacy environment/config/session-root surface was removed in favor of typed requests and owner-level policy; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0023",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_false_runtime_clears_inherited_permission_flags",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The legacy environment/config/session-root surface was removed in favor of typed requests and owner-level policy; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0024",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_maps_arc_only_mcp_and_codex_filesystem_options",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0025",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_maps_mcp_model_and_provider_options",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0026",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_rejects_invalid_mcp_mode",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0027",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_advertises_controller_without_direct_shell_marker",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0028",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_rewrites_legacy_controller_only_paper_wording",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0029",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_with_paper_cli_disabled_retains_blanket_tool_guard",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0030",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_runtime_can_disable_appended_full_context",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The legacy environment/config/session-root surface was removed in favor of typed requests and owner-level policy; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0031",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_runtime_can_disable_paper_cli_and_rejects_invalid_access",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0032",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_controller_is_never_called_after_three_evidence_rounds",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0033",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_dialogue_searches_back_to_latest_event_for_addressed_worker",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0034",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_disabled_evidence_is_not_advertised_or_resolved",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0035",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_empty_request_list_is_a_no_op",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0036",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_worker_evidence_override_never_reaches_controller",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0037",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_batch_config_defaults_output_recovery_to_warn",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The legacy environment/config/session-root surface was removed in favor of typed requests and owner-level policy; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0038",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_cache_guard_writes_warning_after_warmup",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The legacy environment/config/session-root surface was removed in favor of typed requests and owner-level policy; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0039",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_receives_output_recovery_when_supported",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The custom runner, formatter, and materializer compatibility layers were intentionally retired; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0040",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_receives_process_chain_when_supported",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The custom runner, formatter, and materializer compatibility layers were intentionally retired; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0041",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_that_calls_run_json_does_not_double_record_turns",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The custom runner, formatter, and materializer compatibility layers were intentionally retired; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0042",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_with_var_kwargs_uses_legacy_full_prompts_by_default",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The custom runner, formatter, and materializer compatibility layers were intentionally retired; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0043",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_loop_failure_state_is_not_written_after_lock_loss",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": the former host-qualified loop-lock and lock-loss callback were removed; v1 commits through arc-jobs run-group state and has no equivalent lock-loss transition."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0044",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_loop_session_root_is_used_for_stateful_turn_records",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0045",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_materialize_batch_defaults_to_peer_visible_schema_formatter",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The custom runner, formatter, and materializer compatibility layers were intentionally retired; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0046",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_prefix_concurrency_limiter_caps_threads_per_prefix",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0047",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_prompt_artifacts_can_be_disabled",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0048",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_raw_output_text_prefers_structured_raw_excerpt",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0049",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_ignores_legacy_retry_count_and_fails",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0050",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_validation_artifact_is_not_saved_after_reviewer_fallback_removal",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The tested legacy mode or projection is absent from the accepted v1 contract and no compatibility shim is retained; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0051",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_warn_mode_fatal_mcp_failure_still_raises",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The MCP, paper-policy, and evidence-controller surfaces were removed from this generic package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0052",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_template_materializer.py::test_deep_merge_merges_dicts_and_replaces_lists",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The custom runner, formatter, and materializer compatibility layers were intentionally retired; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0053",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_template_materializer.py::test_replace_placeholders_recurses_through_json_like_values",
+          "preserved_invariant": "No v1 production invariant is retained from this legacy implementation-specific test.",
+          "reason": "Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": Retired pre-v1 behavior \"No v1 production invariant is retained from this legacy implementation-specific test.\": The custom runner, formatter, and materializer compatibility layers were intentionally retired; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0054",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-jobs/tests/test_legacy_contracts.py::test_os_releases_execution_lease_when_owner_exits"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_same_host_dead_pid_lock_is_recovered",
+          "preserved_invariant": "Execution ownership is recoverable after the owning process exits.",
+          "reason": "Retained v1 contract \"Execution ownership is recoverable after the owning process exits.\": test_os_releases_execution_lease_when_owner_exits directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0055",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-jobs/tests/test_legacy_contracts.py::test_state_and_artifact_publication_are_atomic"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_atomic_write_json_and_text_create_complete_files",
+          "preserved_invariant": "Published state and artifacts are complete atomic values rather than partial files.",
+          "reason": "Retained v1 contract \"Published state and artifacts are complete atomic values rather than partial files.\": test_state_and_artifact_publication_are_atomic directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0056",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-jobs/tests/test_lifecycle_contracts.py::test_same_process_file_lease_is_exclusive"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_acquiring_same_lock_twice_fails",
+          "preserved_invariant": "The same execution lease cannot be acquired twice concurrently in one process.",
+          "reason": "Retained v1 contract \"The same execution lease cannot be acquired twice concurrently in one process.\": test_same_process_file_lease_is_exclusive directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0057",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_locked_turn_kind_uses_initial_when_calls_exist_but_native_session_missing",
+          "preserved_invariant": "No v1 invariant infers a continuation kind from legacy call-log presence.",
+          "reason": "Retired pre-v1 behavior \"No v1 invariant infers a continuation kind from legacy call-log presence.\": Retired pre-v1 behavior \"No v1 invariant infers a continuation kind from legacy call-log presence.\": The heuristic was removed; arc-llm now continues only from an explicit accepted SessionRef and native resume handle; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0058",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-llm/tests/test_output_interaction.py::test_interaction_is_operation_opaque_and_binds_exact_response_ids"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_malformed_worker_request_fails_the_loop_deterministically",
+          "preserved_invariant": "A malformed or mismatched host-interaction response fails deterministically instead of being delivered to the wrong worker request.",
+          "reason": "Retained v1 contract \"A malformed or mismatched host-interaction response fails deterministically instead of being delivered to the wrong worker request.\": test_interaction_is_operation_opaque_and_binds_exact_response_ids directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0059",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-llm/tests/test_request_identity.py::test_model_constraints_and_json_booleans_are_strict"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_default_exact_model_requires_explicit_provider",
+          "preserved_invariant": "An exact model requires an explicit provider, and removed model-tier inputs fail validation.",
+          "reason": "Retained v1 contract \"An exact model requires an explicit provider, and removed model-tier inputs fail validation.\": test_model_constraints_and_json_booleans_are_strict directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0060",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-llm/tests/test_request_identity.py::test_model_constraints_and_json_booleans_are_strict"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_invalid_model_tier_fails",
+          "preserved_invariant": "An exact model requires an explicit provider, and removed model-tier inputs fail validation.",
+          "reason": "Retained v1 contract \"An exact model requires an explicit provider, and removed model-tier inputs fail validation.\": test_model_constraints_and_json_booleans_are_strict directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0061",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-llm/tests/test_request_identity.py::test_model_constraints_and_json_booleans_are_strict"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_exact_model_requires_explicit_provider",
+          "preserved_invariant": "An exact model requires an explicit provider, and removed model-tier inputs fail validation.",
+          "reason": "Retained v1 contract \"An exact model requires an explicit provider, and removed model-tier inputs fail validation.\": test_model_constraints_and_json_booleans_are_strict directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0062",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_batch_request_round_trips_without_losing_typed_llm_options",
+        "packages/arc-llm/tests/test_request_identity.py::test_model_constraints_and_json_booleans_are_strict"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_specific_model_tier_overrides_default_model_tier",
+          "preserved_invariant": "Each worker's explicit typed model and capability selection round-trips without an implicit default-override layer.",
+          "reason": "Retained v1 contract \"Each worker's explicit typed model and capability selection round-trips without an implicit default-override layer.\": test_batch_request_round_trips_without_losing_typed_llm_options, test_model_constraints_and_json_booleans_are_strict directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0063",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_batch_request_round_trips_without_losing_typed_llm_options",
+        "packages/arc-llm/tests/test_request_identity.py::test_semantic_capability_and_prompt_changes_are_detected"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_runtime_inherit_host_tools_is_explicit_and_all_or_nothing",
+          "preserved_invariant": "Worker capabilities are explicit typed request data and participate in semantic identity.",
+          "reason": "Retained v1 contract \"Worker capabilities are explicit typed request data and participate in semantic identity.\": test_batch_request_round_trips_without_losing_typed_llm_options, test_semantic_capability_and_prompt_changes_are_detected directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0064",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_unknown_request_field_is_rejected"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_removed_total_timeout_config_fails_fast_with_migration_hint",
+          "preserved_invariant": "The removed total-timeout field is rejected instead of being silently ignored.",
+          "reason": "Retained v1 contract \"The removed total-timeout field is rejected instead of being silently ignored.\": test_unknown_request_field_is_rejected directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0065",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage",
+        "packages/arc-llm/tests/test_provider_contracts.py::test_provider_schema_is_transported_by_each_adapter"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_worker_env_maps_claude_json_schema_runtime_options",
+          "preserved_invariant": "A worker's typed output contract reaches the selected provider's schema transport.",
+          "reason": "Retained v1 contract \"A worker's typed output contract reaches the selected provider's schema transport.\": test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage, test_provider_schema_is_transported_by_each_adapter directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0066",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "tests/architecture/test_hidden_dependencies.py::test_proposer_reviewer_uses_core_concurrency_and_provider_boundaries"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_maps_runtime_without_mutating_base_env",
+          "preserved_invariant": "Proposer-reviewer does not mutate process environment or own provider-runtime construction.",
+          "reason": "Retained v1 contract \"Proposer-reviewer does not mutate process environment or own provider-runtime construction.\": test_proposer_reviewer_uses_core_concurrency_and_provider_boundaries directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0067",
+      "disposition": "move",
+      "status": "closed",
+      "target_nodeids": [
+        "tests/architecture/test_hidden_dependencies.py::test_proposer_reviewer_uses_core_concurrency_and_provider_boundaries"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_worker_envs_are_isolated_and_os_environ_is_not_mutated",
+          "preserved_invariant": "Proposer-reviewer does not mutate process environment or own provider-runtime construction.",
+          "reason": "Retained v1 contract \"Proposer-reviewer does not mutate process environment or own provider-runtime construction.\": test_proposer_reviewer_uses_core_concurrency_and_provider_boundaries directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0068",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_controlled.py::test_controlled_runner_uses_shared_session_and_passes_attempt_artifacts",
+          "preserved_invariant": "No generic proposer-reviewer invariant is retained for domain-controlled attempt-artifact exchange.",
+          "reason": "Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for domain-controlled attempt-artifact exchange.\": Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for domain-controlled attempt-artifact exchange.\": The controlled research runner was deliberately excluded from v1; a future arc-ideas or arc-calculation owner must define that domain protocol separately; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0069",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_controlled.py::test_json_policy_controller_retries_then_accepts_with_locked_outputs",
+          "preserved_invariant": "No generic proposer-reviewer invariant is retained for a domain JSON-policy retry controller.",
+          "reason": "Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for a domain JSON-policy retry controller.\": Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for a domain JSON-policy retry controller.\": Policy-controlled retry and locked-output acceptance were deliberately excluded from v1 and belong in a future domain package; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0070",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_idea_reviewer_rich_format_failure_no_longer_uses_reviewer_formatter",
+          "preserved_invariant": "No generic proposer-reviewer invariant is retained for idea-reviewer rich-format recovery.",
+          "reason": "Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for idea-reviewer rich-format recovery.\": Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for idea-reviewer rich-format recovery.\": Idea-specific formatting was deliberately removed from the generic v1 package and must be owned by a future idea workflow; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0071",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_idea_reviewer_no_longer_fabricates_zero_marks",
+          "preserved_invariant": "No generic proposer-reviewer invariant is retained for idea-specific score synthesis.",
+          "reason": "Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for idea-specific score synthesis.\": Retired pre-v1 behavior \"No generic proposer-reviewer invariant is retained for idea-specific score synthesis.\": The v1 package has no idea-score vocabulary and cannot fabricate or validate zero marks; that contract belongs to a future idea owner; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0072",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_cli.py::test_cli_surface_rejects_retired_dry_run_and_consensus_commands"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_does_not_expose_workflow_consensus_command",
+          "preserved_invariant": "Cli does not expose workflow consensus command.",
+          "reason": "Retained v1 contract \"Cli does not expose workflow consensus command.\": test_cli_surface_rejects_retired_dry_run_and_consensus_commands directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0073",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_delta_prompt_requires_complete_recomputation_and_targeted_feedback"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_proposer_delta_tells_worker_to_recompute_not_patch",
+          "preserved_invariant": "A later-round proposer is instructed to recompute a complete standalone proposal rather than return a patch.",
+          "reason": "Retained v1 contract \"A later-round proposer is instructed to recompute a complete standalone proposal rather than return a patch.\": test_delta_prompt_requires_complete_recomputation_and_targeted_feedback directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0074",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_initial_prompt_has_fixed_section_order"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_initial_prompt_static_prefix_stays_shared_until_variable_context",
+          "preserved_invariant": "Initial prompts share a stable instruction-and-contract prefix before caller-specific context.",
+          "reason": "Retained v1 contract \"Initial prompts share a stable instruction-and-contract prefix before caller-specific context.\": test_initial_prompt_has_fixed_section_order directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0075",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_initial_prompt_has_fixed_section_order"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_prompt_artifacts_put_instructions_before_variable_context_for_cache_reuse",
+          "preserved_invariant": "Worker instructions and the output contract precede variable caller context.",
+          "reason": "Retained v1 contract \"Worker instructions and the output contract precede variable caller context.\": test_initial_prompt_has_fixed_section_order directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0076",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_reviewer_prompt_contains_business_values_not_diagnostics"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_delta_requires_independent_current_review",
+          "preserved_invariant": "Every reviewer turn requires an independent complete review of the current proposals.",
+          "reason": "Retained v1 contract \"Every reviewer turn requires an independent complete review of the current proposals.\": test_reviewer_prompt_contains_business_values_not_diagnostics directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0077",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_batch_identity_and_worker_cardinality_validation"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_duplicate_loop_ids_fail",
+          "preserved_invariant": "Duplicate loop IDs are rejected before execution.",
+          "reason": "Retained v1 contract \"Duplicate loop IDs are rejected before execution.\": test_batch_identity_and_worker_cardinality_validation directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0078",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_batch_identity_and_worker_cardinality_validation"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_duplicate_proposer_ids_fail",
+          "preserved_invariant": "Worker IDs must be unique within a loop.",
+          "reason": "Retained v1 contract \"Worker IDs must be unique within a loop.\": test_batch_identity_and_worker_cardinality_validation directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0079",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_string_boolean_is_rejected"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_invalid_string_boolean_fails",
+          "preserved_invariant": "Boolean request fields reject string values.",
+          "reason": "Retained v1 contract \"Boolean request fields reject string values.\": test_string_boolean_is_rejected directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0080",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_collect_runs_multiple_loops_and_keeps_request_order",
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_collect_keeps_failed_loop_from_corrupting_successful_loop",
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_continue_if_any_excludes_failed_proposer_without_placeholder"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_failed_loop_does_not_corrupt_successful_loop",
+          "preserved_invariant": "Failed loop does not corrupt successful loop.",
+          "reason": "Retained v1 contract \"Failed loop does not corrupt successful loop.\": test_collect_runs_multiple_loops_and_keeps_request_order, test_collect_keeps_failed_loop_from_corrupting_successful_loop, test_continue_if_any_excludes_failed_proposer_without_placeholder directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0081",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_later_review_cannot_reuse_an_earlier_valid_decision"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_stateful_reviewer_validation_failure_is_not_retried",
+          "preserved_invariant": "A later invalid reviewer result is not retried or replaced with an earlier valid decision.",
+          "reason": "Retained v1 contract \"A later invalid reviewer result is not retried or replaced with an earlier valid decision.\": test_invalid_later_review_cannot_reuse_an_earlier_valid_decision directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0082",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_reviewer_envelope_fails_without_retry_or_fabricated_review",
+          "preserved_invariant": "An invalid reviewer envelope fails once without a fabricated review.",
+          "reason": "Retained v1 contract \"An invalid reviewer envelope fails once without a fabricated review.\": test_invalid_reviewer_shapes_fail_without_retry_or_fabrication directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0083",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_reviewer_plain_text_fails_without_retry_or_warning_output",
+          "preserved_invariant": "Plain reviewer text fails once and is never converted into warning-backed review data.",
+          "reason": "Retained v1 contract \"Plain reviewer text fails once and is never converted into warning-backed review data.\": test_invalid_reviewer_shapes_fail_without_retry_or_fabrication directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0084",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_peer_visible_short_reviewer_text_fails_without_fabricated_warning_output",
+          "preserved_invariant": "Short malformed reviewer material cannot become peer-visible fabricated feedback.",
+          "reason": "Retained v1 contract \"Short malformed reviewer material cannot become peer-visible fabricated feedback.\": test_invalid_reviewer_shapes_fail_without_retry_or_fabrication directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0085",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_one_proposer_one_reviewer_one_round_publishes_typed_result"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_early_stop_is_honored_when_enabled",
+          "preserved_invariant": "A reviewer stop decision terminates the loop when early stopping is enabled.",
+          "reason": "Retained v1 contract \"A reviewer stop decision terminates the loop when early stopping is enabled.\": test_one_proposer_one_reviewer_one_round_publishes_typed_result directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0086",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_one_proposer_one_reviewer_one_round_publishes_typed_result"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_valid_schema_does_not_retry_or_recover",
+          "preserved_invariant": "A valid reviewer result is accepted after one call without recovery.",
+          "reason": "Retained v1 contract \"A valid reviewer result is accepted after one call without recovery.\": test_one_proposer_one_reviewer_one_round_publishes_typed_result directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0087",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_stop_is_recorded_but_ignored_when_early_stop_is_disabled"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_early_stop_request_is_recorded_but_ignored_when_disabled",
+          "preserved_invariant": "A reviewer stop decision is recorded but does not bypass the round limit when early stopping is disabled.",
+          "reason": "Retained v1 contract \"A reviewer stop decision is recorded but does not bypass the round limit when early stopping is disabled.\": test_stop_is_recorded_but_ignored_when_early_stop_is_disabled directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0088",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_stop_is_recorded_but_ignored_when_early_stop_is_disabled"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_max_rounds_controls_round_count",
+          "preserved_invariant": "The configured maximum round count bounds loop execution.",
+          "reason": "Retained v1 contract \"The configured maximum round count bounds loop execution.\": test_stop_is_recorded_but_ignored_when_early_stop_is_disabled directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0089",
+      "disposition": "retain",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_validation.py::test_review_is_closed_and_payload_validation_is_delegated",
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_full_schema_failure_fails_without_retry_or_output",
+          "preserved_invariant": "A schema-invalid reviewer result fails without retry or final review output.",
+          "reason": "Retained v1 contract \"A schema-invalid reviewer result fails without retry or final review output.\": test_review_is_closed_and_payload_validation_is_delegated, test_invalid_reviewer_shapes_fail_without_retry_or_fabrication directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0090",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-llm/tests/test_output_interaction.py::test_json_output_repairs_syntax_but_not_missing_business_fields"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_output_recovery_disables_natural_language_when_configured",
+          "preserved_invariant": "Local JSON repair may fix syntax but never synthesizes missing business fields.",
+          "reason": "Retained v1 contract \"Local JSON repair may fix syntax but never synthesizes missing business fields.\": test_json_output_repairs_syntax_but_not_missing_business_fields directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0091",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-llm/tests/test_output_interaction.py::test_json_output_repairs_syntax_but_not_missing_business_fields"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_peer_visible_proposer_plain_text_is_wrapped_for_reviewer_context_and_warned",
+          "preserved_invariant": "Local JSON repair may fix syntax but never synthesizes missing business fields.",
+          "reason": "Retained v1 contract \"Local JSON repair may fix syntax but never synthesizes missing business fields.\": test_json_output_repairs_syntax_but_not_missing_business_fields directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0092",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_cli.py::test_run_emits_no_synthetic_progress_events",
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_one_proposer_one_reviewer_one_round_publishes_typed_result"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_runs_proposers_reviewer_loop_from_config",
+          "preserved_invariant": "The CLI decodes a typed batch request and runs it through the proposer-reviewer service without synthetic progress.",
+          "reason": "Retained v1 contract \"The CLI decodes a typed batch request and runs it through the proposer-reviewer service without synthetic progress.\": test_run_emits_no_synthetic_progress_events, test_one_proposer_one_reviewer_one_round_publishes_typed_result directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0093",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_cli.py::test_validate_emits_one_command_envelope_and_constructs_no_llm"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_dry_run_validates_without_llm_calls",
+          "preserved_invariant": "CLI validation constructs no LLM client and emits one completed command envelope.",
+          "reason": "Retained v1 contract \"CLI validation constructs no LLM client and emits one completed command envelope.\": test_validate_emits_one_command_envelope_and_constructs_no_llm directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0094",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_initial_prompt_has_fixed_section_order"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_initial_prompt_explains_split_caller_context",
+          "preserved_invariant": "The initial prompt separates package protocol, worker instructions, output contract, caller context, and round task.",
+          "reason": "Retained v1 contract \"The initial prompt separates package protocol, worker instructions, output contract, caller context, and round task.\": test_initial_prompt_has_fixed_section_order directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0095",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_reviewer_prompt_contains_business_values_not_diagnostics"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_context_strips_arc_llm_call_records",
+          "preserved_invariant": "Worker-visible prompts contain business values rather than provider diagnostics or LLM call records.",
+          "reason": "Retained v1 contract \"Worker-visible prompts contain business values rather than provider diagnostics or LLM call records.\": test_reviewer_prompt_contains_business_values_not_diagnostics directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0096",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_reviewer_prompt_contains_business_values_not_diagnostics"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_runner_sends_only_reply_correspondence_while_saving_prompt_artifacts",
+          "preserved_invariant": "Worker-visible correspondence excludes execution diagnostics and provider metadata.",
+          "reason": "Retained v1 contract \"Worker-visible correspondence excludes execution diagnostics and provider metadata.\": test_reviewer_prompt_contains_business_values_not_diagnostics directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0097",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_batch_identity_and_worker_cardinality_validation"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_multiple_reviewers_fail_in_v1",
+          "preserved_invariant": "Each loop has exactly one reviewer with an identity distinct from every proposer.",
+          "reason": "Retained v1 contract \"Each loop has exactly one reviewer with an identity distinct from every proposer.\": test_batch_identity_and_worker_cardinality_validation directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0098",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_batch_request_round_trips_without_losing_typed_llm_options"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_valid_config_parses_and_merges_defaults",
+          "preserved_invariant": "A valid typed batch request round-trips without losing per-worker LLM options.",
+          "reason": "Retained v1 contract \"A valid typed batch request round-trips without losing per-worker LLM options.\": test_batch_request_round_trips_without_losing_typed_llm_options directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0099",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_batch_request_round_trips_without_losing_typed_llm_options"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_template_materializer.py::test_materialize_worker_loop_and_batch_payload",
+          "preserved_invariant": "A valid typed batch request round-trips without losing loop, worker, or LLM option data.",
+          "reason": "Retained v1 contract \"A valid typed batch request round-trips without losing loop, worker, or LLM option data.\": test_batch_request_round_trips_without_losing_typed_llm_options directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0100",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_protocol.py::test_string_boolean_is_rejected"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_string_booleans_parse_for_fail_fast_and_early_stop",
+          "preserved_invariant": "Boolean policy fields reject string coercion.",
+          "reason": "Retained v1 contract \"Boolean policy fields reject string coercion.\": test_string_boolean_is_rejected directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0101",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_batch_fail_fast_preserves_request_order_and_marks_unstarted_loop"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_fail_fast_stops_scheduling_new_loops",
+          "preserved_invariant": "Fail-fast mode stops scheduling new loops after the first durable failure.",
+          "reason": "Retained v1 contract \"Fail-fast mode stops scheduling new loops after the first durable failure.\": test_batch_fail_fast_preserves_request_order_and_marks_unstarted_loop directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0102",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_collect_runs_multiple_loops_and_keeps_request_order",
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_two_loops_run_in_isolated_directories",
+          "preserved_invariant": "Multiple loops retain independent worker identities and results while preserving request order.",
+          "reason": "Retained v1 contract \"Multiple loops retain independent worker identities and results while preserving request order.\": test_collect_runs_multiple_loops_and_keeps_request_order, test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0103",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_committed_round_replays_after_outer_unit_interruption"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_transcript_append_crash_leaves_persisted_undelivered_response",
+          "preserved_invariant": "A committed round replays after interruption without repeating its LLM calls.",
+          "reason": "Retained v1 contract \"A committed round replays after interruption without repeating its LLM calls.\": test_committed_round_replays_after_outer_unit_interruption directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0104",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_continue_if_any_excludes_failed_proposer_without_placeholder"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_proposer_exception_degrades_warn_mode_loop_without_fabricating_output",
+          "preserved_invariant": "A failed proposer is excluded without a placeholder or fabricated proposal when the loop policy permits continuation.",
+          "reason": "Retained v1 contract \"A failed proposer is excluded without a placeholder or fabricated proposal when the loop policy permits continuation.\": test_continue_if_any_excludes_failed_proposer_without_placeholder directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0105",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_later_review_cannot_reuse_an_earlier_valid_decision"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_cannot_preserve_approving_retry",
+          "preserved_invariant": "An invalid later reviewer result cannot reuse an earlier approving decision.",
+          "reason": "Retained v1 contract \"An invalid later reviewer result cannot reuse an earlier approving decision.\": test_invalid_later_review_cannot_reuse_an_earlier_valid_decision directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0106",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication",
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_all_proposers_failed_produces_failed_loop_not_fabricated_output"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_exception_fails_warn_mode_loop_without_fabricated_output",
+          "preserved_invariant": "An invalid reviewer outcome fails the loop without fabricating a review.",
+          "reason": "Retained v1 contract \"An invalid reviewer outcome fails the loop without fabricating a review.\": test_invalid_reviewer_shapes_fail_without_retry_or_fabrication, test_all_proposers_failed_produces_failed_loop_not_fabricated_output directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0107",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_reviewer_fails_warn_mode_without_fabricating_recovery",
+          "preserved_invariant": "Invalid reviewer output fails once without retry or fabricated recovery.",
+          "reason": "Retained v1 contract \"Invalid reviewer output fails once without retry or fabricated recovery.\": test_invalid_reviewer_shapes_fail_without_retry_or_fabrication directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0108",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_fails_warn_mode_without_fabricated_output",
+          "preserved_invariant": "Schema-invalid reviewer output fails once without fabricated review data.",
+          "reason": "Retained v1 contract \"Schema-invalid reviewer output fails once without fabricated review data.\": test_invalid_reviewer_shapes_fail_without_retry_or_fabrication directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0109",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_invalid_reviewer_shapes_fail_without_retry_or_fabrication"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_raises_in_strict_mode",
+          "preserved_invariant": "Schema-invalid reviewer output produces an explicit failed loop.",
+          "reason": "Retained v1 contract \"Schema-invalid reviewer output produces an explicit failed loop.\": test_invalid_reviewer_shapes_fail_without_retry_or_fabrication directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0110",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_valid_json_batch_has_empty_warning_summary",
+          "preserved_invariant": "No v1 invariant retains the legacy batch warning-summary artifact.",
+          "reason": "Retired pre-v1 behavior \"No v1 invariant retains the legacy batch warning-summary artifact.\": Retired pre-v1 behavior \"No v1 invariant retains the legacy batch warning-summary artifact.\": The warning aggregation surface was removed; v1 exposes typed loop errors and results instead of a synthetic warning summary; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0111",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-llm/tests/test_output_interaction.py::test_interaction_is_operation_opaque_and_binds_exact_response_ids",
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_pause_resume_returns_to_same_worker_task_identity",
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_same_request_id_is_scoped_to_worker_and_resolved_in_separate_groups",
+          "preserved_invariant": "Interaction response IDs bind within an exact worker task, while distinct workers have distinct semantic identities.",
+          "reason": "Retained v1 contract \"Interaction response IDs bind within an exact worker task, while distinct workers have distinct semantic identities.\": test_interaction_is_operation_opaque_and_binds_exact_response_ids, test_pause_resume_returns_to_same_worker_task_identity, test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0112",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_final_round_request_is_not_resolved_without_a_followup_turn",
+          "preserved_invariant": "No v1 proposer-reviewer invariant automatically resolves domain evidence requests between rounds.",
+          "reason": "Retired pre-v1 behavior \"No v1 proposer-reviewer invariant automatically resolves domain evidence requests between rounds.\": Retired pre-v1 behavior \"No v1 proposer-reviewer invariant automatically resolves domain evidence requests between rounds.\": The legacy evidence controller was removed; v1 only propagates a typed arc-llm pause for the host to resolve explicitly; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0113",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_reviewer_receives_its_controller_response_on_the_next_turn",
+          "preserved_invariant": "No v1 proposer-reviewer invariant injects controller-generated evidence into a later reviewer turn.",
+          "reason": "Retired pre-v1 behavior \"No v1 proposer-reviewer invariant injects controller-generated evidence into a later reviewer turn.\": Retired pre-v1 behavior \"No v1 proposer-reviewer invariant injects controller-generated evidence into a later reviewer turn.\": Automatic controller-response injection was removed with the domain evidence controller; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0114",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_runner_resolves_requests_and_injects_provenance_next_round",
+          "preserved_invariant": "No v1 proposer-reviewer invariant synthesizes provenance-bearing controller responses.",
+          "reason": "Retired pre-v1 behavior \"No v1 proposer-reviewer invariant synthesizes provenance-bearing controller responses.\": Retired pre-v1 behavior \"No v1 proposer-reviewer invariant synthesizes provenance-bearing controller responses.\": Evidence resolution and provenance injection were removed from the generic runner and require a future domain owner; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0115",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_lock_file_records_run_and_loop_id",
+          "preserved_invariant": "No v1 invariant retains proposer-reviewer lock-file metadata.",
+          "reason": "Retired pre-v1 behavior \"No v1 invariant retains proposer-reviewer lock-file metadata.\": Retired pre-v1 behavior \"No v1 invariant retains proposer-reviewer lock-file metadata.\": Ad hoc loop lock files were removed; arc-jobs owns execution leases and proposer-reviewer owns only logical artifacts; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0116",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_run_root_and_logical_artifact_ids_are_explicit_and_stable"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_run_paths_use_configured_run_dir_as_direct_parent",
+          "preserved_invariant": "All run artifacts remain below the explicitly supplied run root.",
+          "reason": "Retained v1 contract \"All run artifacts remain below the explicitly supplied run root.\": test_run_root_and_logical_artifact_ids_are_explicit_and_stable directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0117",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_sessions_continue_only_within_the_same_worker_lineage",
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_reuse_across_batch_calls_requires_scope_id",
+          "preserved_invariant": "Session continuation is confined to one explicit worker semantic lineage.",
+          "reason": "Retained v1 contract \"Session continuation is confined to one explicit worker semantic lineage.\": test_sessions_continue_only_within_the_same_worker_lineage, test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0118",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_sessions_continue_only_within_the_same_worker_lineage",
+        "packages/arc-proposer-reviewer/tests/test_prompts_identity.py::test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_non_reuse_scope_id_still_isolates_sessions_by_loop",
+          "preserved_invariant": "Session continuation never crosses loop or worker identity.",
+          "reason": "Retained v1 contract \"Session continuation never crosses loop or worker identity.\": test_sessions_continue_only_within_the_same_worker_lineage, test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0119",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage",
+        "packages/arc-llm/tests/test_provider_contracts.py::test_provider_schema_is_transported_by_each_adapter"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_validation_is_requested_from_custom_runner",
+          "preserved_invariant": "The reviewer LLM request carries its typed output schema through the shared provider adapter.",
+          "reason": "Retained v1 contract \"The reviewer LLM request carries its typed output schema through the shared provider adapter.\": test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage, test_provider_schema_is_transported_by_each_adapter directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0120",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage",
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_sessions_continue_only_within_the_same_worker_lineage"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_stateful_runner_uses_initial_then_delta_prompts_and_stable_session_keys",
+          "preserved_invariant": "Each worker starts with an initial prompt, receives targeted delta prompts on later rounds, and continues only its own session lineage.",
+          "reason": "Retained v1 contract \"Each worker starts with an initial prompt, receives targeted delta prompts on later rounds, and continues only its own session lineage.\": test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage, test_sessions_continue_only_within_the_same_worker_lineage directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0121",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_three_proposers_follow_targeted_reviewer_requests_for_three_rounds",
+          "preserved_invariant": "Multiple proposers receive only their targeted reviewer feedback on later rounds.",
+          "reason": "Retained v1 contract \"Multiple proposers receive only their targeted reviewer feedback on later rounds.\": test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0122",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_service.py::test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_worker_model_tier_is_passed_as_runner_argument",
+          "preserved_invariant": "Each worker's explicit ModelSelection and CapabilityPolicy reach its LLM request unchanged.",
+          "reason": "Retained v1 contract \"Each worker's explicit ModelSelection and CapabilityPolicy reach its LLM request unchanged.\": test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0123",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_validation.py::test_review_feedback_exactly_matches_successful_active_proposers",
+        "packages/arc-proposer-reviewer/tests/test_validation.py::test_review_rejects_missing_extra_or_empty_feedback"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_review_envelope_rejects_unexpected_proposer_ids",
+          "preserved_invariant": "Review feedback keys must exactly match the active successful proposer IDs.",
+          "reason": "Retained v1 contract \"Review feedback keys must exactly match the active successful proposer IDs.\": test_review_feedback_exactly_matches_successful_active_proposers, test_review_rejects_missing_extra_or_empty_feedback directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0124",
+      "disposition": "rewrite",
+      "status": "closed",
+      "target_nodeids": [
+        "packages/arc-proposer-reviewer/tests/test_validation.py::test_review_is_closed_and_payload_validation_is_delegated"
+      ],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_review_envelope_requires_review_payload",
+          "preserved_invariant": "Every review envelope includes a payload that is validated against the reviewer-owned schema.",
+          "reason": "Retained v1 contract \"Every review envelope includes a payload that is validated against the reviewer-owned schema.\": test_review_is_closed_and_payload_validation_is_delegated directly asserts this replacement contract."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0125",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_strict_mode_worker_call_errors_are_saved_as_debug_artifacts",
+          "preserved_invariant": "No v1 invariant retains strict-mode debug artifacts from the legacy runner.",
+          "reason": "Retired pre-v1 behavior \"No v1 invariant retains strict-mode debug artifacts from the legacy runner.\": Retired pre-v1 behavior \"No v1 invariant retains strict-mode debug artifacts from the legacy runner.\": Strict/warn runner modes and their ad hoc debug files were removed; v1 persists typed task failures through arc-jobs and arc-llm; the removed surface has no compatibility contract in arc-proposer-reviewer v1; the removed surface has no compatibility contract in arc-proposer-reviewer v1."
+        }
+      ]
+    },
+    {
+      "group_id": "audit-0126",
+      "disposition": "delete",
+      "status": "closed",
+      "target_nodeids": [],
+      "entries": [
+        {
+          "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_llm_integration.py::test_true_llm_three_proposers_follow_targeted_reviews_for_three_rounds",
+          "preserved_invariant": "Targeted feedback reaches the correct worker lineage across rounds, and the shared LLM boundary is verified by a bounded real-provider continuation smoke.",
+          "reason": "Retired pre-v1 behavior \"Targeted feedback reaches the correct worker lineage across rounds, and the shared LLM boundary is verified by a bounded real-provider continuation smoke.\": the broad live three-proposer workflow was intentionally retired; v1 keeps provider-live verification as a bounded arc-llm smoke and verifies proposer-reviewer routing offline."
+        }
+      ]
+    }
+  ]
+}

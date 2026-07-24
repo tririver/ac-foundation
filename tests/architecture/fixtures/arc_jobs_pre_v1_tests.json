@@ -1,0 +1,335 @@
+{
+  "schema_version": "arc.legacy_test_manifest.v1",
+  "source_revision": "f7b4424f427a11f40cd3dea61cb56e90067685dd",
+  "package": "arc-jobs",
+  "source_files": [
+    "packages/arc-jobs/tests/test_jobs.py",
+    "packages/arc-jobs/tests/test_runtime.py"
+  ],
+  "family_count": 62,
+  "families": [
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_arc_home_places_jobs_in_fixed_layout",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_argv_rejects_shell_strings_and_nul",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cache_env_uses_protocol_neutral_name",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cancel_terminal_job_is_idempotent",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cancel_terminates_running_command",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_catches_unexpected_errors_as_json",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_rejects_disallowed_submit_as_json",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_status_is_nonzero_for_failed_job",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_submit_and_all_json_commands",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_watch_json_returns_terminal_result",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_watch_progress_jsonl_emits_compact_events_and_terminal_result",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_watch_progress_jsonl_emits_terminal_error_and_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_cli_watch_until_review_returns_without_cancelling_job",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_command_allowlist_rejects_mcp_self_and_general_commands",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "command"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_command_watchdog_reaps_group_after_worker_sigkill",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_concurrent_completion_is_not_overwritten_by_cancel",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_concurrent_provider_review_sequences_become_monotonic_job_cursors",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_detached_job_persists_agent_host",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "host"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_detached_kimi_context_matches_foreground_runtime",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_deterministic_start_deduplicates_exact_concurrent_submission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_deterministic_start_rejects_identity_or_payload_mismatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_environment_override_and_persisted_snapshot_reject_removed_total_timeout",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_environment_overrides_reject_secrets_and_unknown_keys",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_environment_snapshot_excludes_secrets_and_persists_host",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_environment_snapshot_preserves_explicit_provider_reasoning_effort",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_environment_snapshot_preserves_nonsecret_llm_concurrency_limits",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_environment_snapshot_preserves_tier_model_override",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "env_key"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_explicit_command_must_match_same_runtime",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_invalid_progress_terminates_and_reaps_running_command",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "progress_kind"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_job_storage_is_private",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_launch_maps_invalid_persisted_environment_before_process",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_launch_maps_process_creation_failure_before_command",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_live_status_projects_actual_proposer_phase_and_round",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_non_substantive_progress_does_not_replace_last_excerpt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_nonzero_exit_preserves_failure_semantics_and_rejects_success",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "reported",
+            "expected_status",
+            "expected_code"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_process_job_requires_argv",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_process_job_runs_in_explicit_working_directory",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_stable_cli_invocation_preserves_virtualenv_symlink_path",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_stale_worker_lock_is_reclaimed_by_process_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_status_restarts_pre_command_worker_after_crash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_status_terminalizes_worker_that_repeatedly_fails_to_start",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_status_terminates_orphaned_command_and_marks_terminal",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_submit_persists_tier_model_override",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "env_key"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_submit_rejects_removed_total_timeout_from_caller_environment",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "env_key"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_tail_events_uses_bounded_binary_tail",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_terminal_event_is_durable_before_terminal_status",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "terminal_status",
+            "terminal_event"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_thread_job_compatibility_and_protocol_neutral_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_thread_job_cooperative_cancel",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_watch_after_review_sequence_requires_until_review",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_accepts_companion_progress_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_executes_argv_without_shell_and_persists_streams",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_forwards_progress_sidechannel",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_injects_internal_job_identity_after_environment_restore",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_persists_nonzero_exit_and_json_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_preserves_companion_controlled_terminal_status",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "reported",
+            "ok_value",
+            "exit_status"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_preserves_needs_llm_terminal_status",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_jobs.py::test_worker_preserves_success_terminal_statuses",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "reported"
+          ],
+          "case_count": 3
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_runtime.py::test_cross_device_migration_verifies_before_source_delete",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_runtime.py::test_doctor_reports_migration_host_and_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_runtime.py::test_migration_failure_records_manifest_and_stops",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_runtime.py::test_migration_moves_deduplicates_and_preserves_conflicts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-jobs/tests/test_runtime.py::test_runtime_paths_use_arc_home_and_overrides",
+      "parameter_dimensions": []
+    }
+  ]
+}

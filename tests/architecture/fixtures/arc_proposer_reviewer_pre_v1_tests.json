@@ -1,0 +1,530 @@
+{
+  "schema_version": "arc.legacy_test_manifest.v1",
+  "source_revision": "f7b4424f427a11f40cd3dea61cb56e90067685dd",
+  "package": "arc-proposer-reviewer",
+  "source_files": [
+    "packages/arc-llm/tests/test_controlled.py",
+    "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py",
+    "packages/arc-llm/tests/test_proposers_reviewer_bench.py",
+    "packages/arc-llm/tests/test_proposers_reviewer_cli.py",
+    "packages/arc-llm/tests/test_proposers_reviewer_config.py",
+    "packages/arc-llm/tests/test_proposers_reviewer_evidence.py",
+    "packages/arc-llm/tests/test_proposers_reviewer_llm_integration.py",
+    "packages/arc-llm/tests/test_proposers_reviewer_runner.py",
+    "packages/arc-llm/tests/test_template_materializer.py"
+  ],
+  "family_count": 126,
+  "families": [
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_controlled.py::test_controlled_runner_uses_shared_session_and_passes_attempt_artifacts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_controlled.py::test_json_policy_controller_retries_then_accepts_with_locked_outputs",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_acquiring_same_lock_twice_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_atomic_write_json_and_text_create_complete_files",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_different_host_lock_is_not_recovered",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_lock_file_records_run_and_loop_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_run_paths_use_configured_run_dir_as_direct_parent",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_artifacts.py::test_same_host_dead_pid_lock_is_recovered",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_apply_improvement_edits_restricts_reviewer_changes_by_default",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_config_accepts_overrides_without_changing_batch_shape",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_config_defaults_materialize_ten_auto_loops",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_config_rejects_multiple_loop_templates",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_defaults_use_flash_tier_for_sample_workers_and_high_tier_for_improver",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_defaults_use_soft_prompt_optimizer_acceptance_thresholds",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_improver_context_can_be_path_only",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_improver_exact_model_requires_explicit_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_runner_accepts_significant_prompt_improvement",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_runner_fails_when_no_scores_are_found",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_bench_runner_rejects_small_improvement_and_stops_on_patience",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_bench.py::test_score_run_uses_final_round_scores_only",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_does_not_expose_workflow_consensus_command",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_dry_run_validates_without_llm_calls",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_max_concurrent_loops_overrides_operational_concurrency",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_runs_proposers_reviewer_bench_from_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_cli.py::test_cli_runs_proposers_reviewer_loop_from_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_artifact_options_can_disable_prompt_saving",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_default_exact_model_requires_explicit_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_duplicate_loop_ids_fail",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_duplicate_proposer_ids_fail",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_evidence_capability_cascades_from_batch_loop_and_worker",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_idle_timeout_config_preserves_unspecified_and_parses_batch_and_worker_overrides",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_invalid_model_tier_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_invalid_string_boolean_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_isolated_worker_env_fail_closes_paper_and_host_tools",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_multiple_reviewers_fail_in_v1",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_removed_total_timeout_config_fails_fast_with_migration_hint",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "location"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_reuse_across_batch_calls_requires_scope_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_runtime_merge_does_not_mutate_input",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_session_options_parse_and_loop_overrides_parent",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_session_scope_rejects_absolute_or_parent_paths",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_string_booleans_parse_for_fail_fast_and_early_stop",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_valid_config_parses_and_merges_defaults",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_false_runtime_clears_inherited_permission_flags",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_maps_arc_only_mcp_and_codex_filesystem_options",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_maps_mcp_model_and_provider_options",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_maps_runtime_without_mutating_base_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_env_rejects_invalid_mcp_mode",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_exact_model_requires_explicit_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_advertises_controller_without_direct_shell_marker",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_context_strips_arc_llm_call_records",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_rewrites_legacy_controller_only_paper_wording",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_prompt_with_paper_cli_disabled_retains_blanket_tool_guard",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_runtime_can_disable_appended_full_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_runtime_can_disable_paper_cli_and_rejects_invalid_access",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_runtime_inherit_host_tools_is_explicit_and_all_or_nothing",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_config.py::test_worker_specific_model_tier_overrides_default_model_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_controller_is_never_called_after_three_evidence_rounds",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_dialogue_searches_back_to_latest_event_for_addressed_worker",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_disabled_evidence_is_not_advertised_or_resolved",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_empty_request_list_is_a_no_op",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_final_round_request_is_not_resolved_without_a_followup_turn",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_malformed_worker_request_fails_the_loop_deterministically",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_reviewer_receives_its_controller_response_on_the_next_turn",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_runner_resolves_requests_and_injects_provenance_next_round",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_same_request_id_is_scoped_to_worker_and_resolved_in_separate_groups",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_transcript_append_crash_leaves_persisted_undelivered_response",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_evidence.py::test_worker_evidence_override_never_reaches_controller",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_llm_integration.py::test_true_llm_three_proposers_follow_targeted_reviews_for_three_rounds",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_batch_config_defaults_output_recovery_to_warn",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_cache_guard_writes_warning_after_warmup",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_idea_reviewer_rich_format_failure_no_longer_uses_reviewer_formatter",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_receives_output_recovery_when_supported",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_receives_process_chain_when_supported",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_that_calls_run_json_does_not_double_record_turns",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_custom_json_runner_with_var_kwargs_uses_legacy_full_prompts_by_default",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_early_stop_is_honored_when_enabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_early_stop_request_is_recorded_but_ignored_when_disabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_fail_fast_stops_scheduling_new_loops",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_failed_loop_does_not_corrupt_successful_loop",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_initial_prompt_explains_split_caller_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_initial_prompt_static_prefix_stays_shared_until_variable_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_idea_reviewer_no_longer_fabricates_zero_marks",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_reviewer_envelope_fails_without_retry_or_fabricated_review",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_reviewer_fails_warn_mode_without_fabricating_recovery",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_invalid_reviewer_plain_text_fails_without_retry_or_warning_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_locked_turn_kind_uses_initial_when_calls_exist_but_native_session_missing",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_loop_failure_state_is_not_written_after_lock_loss",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_loop_session_root_is_used_for_stateful_turn_records",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_materialize_batch_defaults_to_peer_visible_schema_formatter",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_max_rounds_controls_round_count",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_non_reuse_scope_id_still_isolates_sessions_by_loop",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_output_recovery_disables_natural_language_when_configured",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_peer_visible_proposer_plain_text_is_wrapped_for_reviewer_context_and_warned",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_peer_visible_short_reviewer_text_fails_without_fabricated_warning_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_prefix_concurrency_limiter_caps_threads_per_prefix",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_prompt_artifacts_can_be_disabled",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_prompt_artifacts_put_instructions_before_variable_context_for_cache_reuse",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_proposer_delta_tells_worker_to_recompute_not_patch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_proposer_exception_degrades_warn_mode_loop_without_fabricating_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_raw_output_text_prefers_structured_raw_excerpt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_review_envelope_rejects_unexpected_proposer_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_review_envelope_requires_review_payload",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_delta_requires_independent_current_review",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_exception_fails_warn_mode_loop_without_fabricated_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_full_schema_failure_fails_without_retry_or_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_cannot_preserve_approving_retry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_fails_warn_mode_without_fabricated_output",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_ignores_legacy_retry_count_and_fails",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_failure_raises_in_strict_mode",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_schema_validation_is_requested_from_custom_runner",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_valid_schema_does_not_retry_or_recover",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_reviewer_validation_artifact_is_not_saved_after_reviewer_fallback_removal",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_runner_sends_only_reply_correspondence_while_saving_prompt_artifacts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_stateful_reviewer_validation_failure_is_not_retried",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_stateful_runner_uses_initial_then_delta_prompts_and_stable_session_keys",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_strict_mode_worker_call_errors_are_saved_as_debug_artifacts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_three_proposers_follow_targeted_reviewer_requests_for_three_rounds",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_two_loops_run_in_isolated_directories",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_valid_json_batch_has_empty_warning_summary",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_warn_mode_fatal_mcp_failure_still_raises",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_worker_env_maps_claude_json_schema_runtime_options",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_worker_envs_are_isolated_and_os_environ_is_not_mutated",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_proposers_reviewer_runner.py::test_worker_model_tier_is_passed_as_runner_argument",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_template_materializer.py::test_deep_merge_merges_dicts_and_replaces_lists",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_template_materializer.py::test_materialize_worker_loop_and_batch_payload",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-llm/tests/test_template_materializer.py::test_replace_placeholders_recurses_through_json_like_values",
+      "parameter_dimensions": []
+    }
+  ]
+}
