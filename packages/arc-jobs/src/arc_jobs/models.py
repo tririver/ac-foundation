@@ -205,6 +205,20 @@ class UnitResult:
 
 
 @dataclass(frozen=True)
+class GroupUnitView:
+    unit_id: str
+    status: Literal["pending", "succeeded", "failed", "cancelled"]
+    value: JsonValue = None
+    error: RunError | None = None
+
+
+@dataclass(frozen=True)
+class GroupView:
+    group_id: str
+    units: tuple[GroupUnitView, ...]
+
+
+@dataclass(frozen=True)
 class GroupResult:
     group_id: str
     units: tuple[UnitResult, ...]

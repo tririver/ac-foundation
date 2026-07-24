@@ -34,6 +34,8 @@ class EventWriter:
     def __init__(self, path: Path, *, run_id: str):
         self.path = path
         self.run_id = validate_simple_id(run_id, label="run id")
+        self._last_sequence: int | None = None
+        self._last_size: int | None = None
 
     def _validate_document(
         self, value: dict[str, JsonValue], *, expected_sequence: int
@@ -95,26 +97,68 @@ class EventWriter:
             documents.append(value)
         return documents
 
-    def _truncate_incomplete_tail(self) -> None:
+    def _truncate_incomplete_tail(self) -> int:
         if not self.path.exists():
-            return
-        raw = self.path.read_bytes()
-        if not raw or raw.endswith(b"\n"):
-            return
-        last_newline = raw.rfind(b"\n")
+            return 0
         with self.path.open("r+b") as handle:
-            handle.truncate(last_newline + 1)
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            if size == 0:
+                return 0
+            handle.seek(size - 1)
+            if handle.read(1) in {b"\n", b"\r"}:
+                return size
+            boundary = size
+            while boundary:
+                chunk_start = max(0, boundary - 64 * 1024)
+                handle.seek(chunk_start)
+                chunk = handle.read(boundary - chunk_start)
+                newline = max(chunk.rfind(b"\n"), chunk.rfind(b"\r"))
+                if newline >= 0:
+                    boundary = chunk_start + newline + 1
+                    break
+                boundary = chunk_start
+            handle.truncate(boundary)
             handle.flush()
             os.fsync(handle.fileno())
         _fsync_directory(self.path.parent)
+        self._last_sequence = None
+        self._last_size = None
+        return boundary
+
+    def _sequence_at_size(self, size: int) -> int:
+        if size == 0:
+            return 0
+        if self._last_sequence is not None and self._last_size == size:
+            return self._last_sequence
+        with self.path.open("rb") as handle:
+            start = max(0, size - MAX_EVENT_BYTES - 1)
+            handle.seek(start)
+            raw = handle.read(size - start)
+        lines = raw.splitlines()
+        if not lines or (start > 0 and len(lines) < 2):
+            raise CorruptStateError("last event record exceeds the event size limit")
+        try:
+            value = json.loads(lines[-1].decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise CorruptStateError("invalid last event record") from exc
+        if not isinstance(value, dict):
+            raise CorruptStateError("last event is not an object")
+        sequence = value.get("sequence")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+            raise CorruptStateError("invalid last event sequence")
+        self._validate_document(value, expected_sequence=sequence)
+        self._last_sequence = sequence
+        self._last_size = size
+        return sequence
 
     def emit(self, event: str, data: Mapping[str, JsonValue]) -> None:
         validate_simple_id(event, label="event")
         _validate_safe_data(dict(data))
         lock = FileLease(self.path.with_suffix(".lock")).acquire(blocking=True)
         try:
-            self._truncate_incomplete_tail()
-            sequence = len(self._complete_documents()) + 1
+            size = self._truncate_incomplete_tail()
+            sequence = self._sequence_at_size(size) + 1
             stable = {
                 "run_id": self.run_id,
                 "sequence": sequence,
@@ -141,6 +185,8 @@ class EventWriter:
                 handle.flush()
                 os.fsync(handle.fileno())
             _fsync_directory(self.path.parent)
+            self._last_sequence = sequence
+            self._last_size = size + len(encoded)
         finally:
             lock.release()
 

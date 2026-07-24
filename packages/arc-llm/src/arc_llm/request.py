@@ -7,6 +7,13 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Literal, Mapping, Protocol, TypeAlias
 
+from arc_jobs import (
+    ArtifactDigest,
+    ArtifactSourceRef,
+    InvalidRunIdError,
+    validate_artifact_id,
+    validate_simple_id,
+)
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
@@ -15,7 +22,7 @@ from .errors import InvalidRequestError, InvalidSchemaError
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 ModelTier: TypeAlias = Literal["low", "medium", "high", "xhigh"]
 
-REQUEST_SCHEMA_VERSION = "arc.llm.request.v1"
+REQUEST_SCHEMA_VERSION = "arc.llm.request.v2"
 RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v1"
 
 
@@ -181,6 +188,57 @@ class SessionRef:
 
 
 @dataclass(frozen=True)
+class LLMInputArtifact:
+    """One verified immutable artifact supplied to a provider."""
+
+    input_id: str
+    source: ArtifactSourceRef
+    media_type: str
+
+    def __post_init__(self) -> None:
+        _validate_identifier(self.input_id, field_name="inputs.input_id")
+        if not isinstance(self.source, ArtifactSourceRef):
+            raise InvalidRequestError("inputs.source must be an ArtifactSourceRef.")
+        try:
+            validate_simple_id(
+                self.source.source_run_id,
+                label="inputs.source.source_run_id",
+            )
+            validate_artifact_id(self.source.source_artifact_id)
+        except InvalidRunIdError as exc:
+            raise InvalidRequestError(
+                "inputs.source must contain valid run and artifact identifiers."
+            ) from exc
+        digest = self.source.expected_digest
+        if not isinstance(digest, ArtifactDigest) or digest.algorithm != "sha256":
+            raise InvalidRequestError("inputs.source.expected_digest must use SHA-256.")
+        _validate_sha256(
+            digest.value,
+            field_name="inputs.source.expected_digest.value",
+        )
+        if (
+            isinstance(digest.size_bytes, bool)
+            or not isinstance(digest.size_bytes, int)
+            or digest.size_bytes < 0
+        ):
+            raise InvalidRequestError(
+                "inputs.source.expected_digest.size_bytes must be non-negative."
+            )
+        normalized_media_type = (
+            self.media_type.strip().lower()
+            if isinstance(self.media_type, str)
+            else self.media_type
+        )
+        if (
+            not isinstance(normalized_media_type, str)
+            or "/" not in normalized_media_type
+            or any(char.isspace() for char in normalized_media_type)
+        ):
+            raise InvalidRequestError("inputs.media_type must be a MIME type.")
+        object.__setattr__(self, "media_type", normalized_media_type)
+
+
+@dataclass(frozen=True)
 class TextOutput:
     kind: Literal["text"] = "text"
 
@@ -249,6 +307,7 @@ class LLMRequest:
     model: ModelSelection = field(default_factory=ModelSelection)
     session: SessionRef | None = None
     capabilities: CapabilityPolicy = field(default_factory=CapabilityPolicy)
+    inputs: tuple[LLMInputArtifact, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_identifier(self.task_id, field_name="task_id")
@@ -256,6 +315,20 @@ class LLMRequest:
             raise InvalidRequestError("prompt must be a non-empty string.")
         if not isinstance(self.output, (TextOutput, JsonOutput, InteractiveJsonOutput)):
             raise InvalidRequestError("output must be a supported output contract.")
+        if isinstance(self.inputs, (str, bytes)):
+            raise InvalidRequestError("inputs must be a sequence of LLMInputArtifact values.")
+        try:
+            inputs = tuple(self.inputs)
+        except TypeError as exc:
+            raise InvalidRequestError(
+                "inputs must be a sequence of LLMInputArtifact values."
+            ) from exc
+        if any(not isinstance(item, LLMInputArtifact) for item in inputs):
+            raise InvalidRequestError("inputs entries must be LLMInputArtifact values.")
+        input_ids = [item.input_id for item in inputs]
+        if len(input_ids) != len(set(input_ids)):
+            raise InvalidRequestError("inputs.input_id values must be unique.")
+        object.__setattr__(self, "inputs", inputs)
 
 
 class ResumeAction(StrEnum):
@@ -374,13 +447,38 @@ def request_to_document(request: LLMRequest) -> dict[str, Any]:
             "inherit_host_config": request.capabilities.inherit_host_config,
             "allowed_tools": list(request.capabilities.allowed_tools),
         },
+        "inputs": [
+            {
+                "input_id": item.input_id,
+                "source": {
+                    "source_run_id": item.source.source_run_id,
+                    "source_artifact_id": item.source.source_artifact_id,
+                    "expected_digest": {
+                        "algorithm": item.source.expected_digest.algorithm,
+                        "value": item.source.expected_digest.value,
+                        "size_bytes": item.source.expected_digest.size_bytes,
+                    },
+                },
+                "media_type": item.media_type,
+            }
+            for item in request.inputs
+        ],
     }
 
 
 def decode_request(document: Mapping[str, Any]) -> LLMRequest:
     _require_exact(
         document,
-        {"schema_version", "task_id", "prompt", "output", "model", "session", "capabilities"},
+        {
+            "schema_version",
+            "task_id",
+            "prompt",
+            "output",
+            "model",
+            "session",
+            "capabilities",
+            "inputs",
+        },
         "request",
     )
     if document["schema_version"] != REQUEST_SCHEMA_VERSION:
@@ -435,6 +533,45 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
     )
     if not isinstance(capabilities_doc["allowed_tools"], list):
         raise InvalidRequestError("capabilities.allowed_tools must be an array.")
+    inputs_doc = document["inputs"]
+    if not isinstance(inputs_doc, list):
+        raise InvalidRequestError("inputs must be an array.")
+    inputs: list[LLMInputArtifact] = []
+    for raw in inputs_doc:
+        item = _object(raw, "input")
+        _require_exact(item, {"input_id", "source", "media_type"}, "input")
+        source_doc = _object(item["source"], "input.source")
+        _require_exact(
+            source_doc,
+            {"source_run_id", "source_artifact_id", "expected_digest"},
+            "input.source",
+        )
+        digest_doc = _object(
+            source_doc["expected_digest"],
+            "input.source.expected_digest",
+        )
+        _require_exact(
+            digest_doc,
+            {"algorithm", "value", "size_bytes"},
+            "input.source.expected_digest",
+        )
+        if digest_doc["algorithm"] != "sha256":
+            raise InvalidRequestError("input source digest must use SHA-256.")
+        inputs.append(
+            LLMInputArtifact(
+                item["input_id"],
+                ArtifactSourceRef(
+                    source_doc["source_run_id"],
+                    source_doc["source_artifact_id"],
+                    ArtifactDigest(
+                        "sha256",
+                        digest_doc["value"],
+                        digest_doc["size_bytes"],
+                    ),
+                ),
+                item["media_type"],
+            )
+        )
     return LLMRequest(
         task_id=document["task_id"],
         prompt=document["prompt"],
@@ -446,6 +583,7 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
             capabilities_doc["inherit_host_config"],
             tuple(capabilities_doc["allowed_tools"]),
         ),
+        inputs=tuple(inputs),
     )
 
 

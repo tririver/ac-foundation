@@ -42,7 +42,6 @@ from arc_llm.output import CandidateMaterial, candidate_digest, select_output
 from arc_llm.providers._cli import EventAccumulator
 from arc_llm.providers.claude import _parse_event as parse_claude_event
 from arc_llm.providers.codex import _parse_event as parse_codex_event
-from arc_llm.providers.kimi import _parse_event as parse_kimi_event
 
 
 def test_config_resolution_matrix_is_explicit_and_host_deterministic() -> None:
@@ -294,19 +293,6 @@ def test_provider_event_normalization_matrix_preserves_terminal_material() -> No
             "claude-session",
             {"ok": True},
             ProviderUsage(5, 2, 1),
-        ),
-        (
-            "kimi",
-            parse_kimi_event,
-            (
-                {
-                    "session_id": "kimi-session",
-                    "result": {"content": '{"ok":true}'},
-                },
-            ),
-            "kimi-session",
-            '{"ok":true}',
-            None,
         ),
     )
     for provider, parser, events, handle, value, usage in cases:
@@ -635,12 +621,7 @@ def test_usage_matrix_preserves_unknown_partial_and_cached_diagnostics() -> None
             },
         }
     )
-    _, _, kimi = parse_kimi_event(
-        {"result": {"content": "done"}, "usage": {"input_tokens": 99}}
-    )
-
     assert codex == ProviderUsage(11, 7, 3)
     assert claude == ProviderUsage(13, None, 2)
     assert malformed == ProviderUsage(None, None, None)
-    assert kimi is None
     assert ProviderUsage() == ProviderUsage(None, None, None)

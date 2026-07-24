@@ -26,7 +26,7 @@ from .errors import (
     ResumeInputConflictError,
     ResumeKeyMismatchError,
 )
-from .identity import AdoptionAuthorization
+from .identity import AdoptionAuthorization, resume_input_matches
 from .outcome import (
     LLMCancelled,
     LLMCompleted,
@@ -35,12 +35,14 @@ from .outcome import (
     LLMTaskOutcome,
 )
 from .providers import (
+    InputDeliveryMode,
     IsolationMode,
     NativeResumeHandle,
     ProviderAdapter,
     ProviderCapabilities,
     ProviderDiagnostic,
     ProviderExecution,
+    ProviderInput,
     ProviderRegistry,
     ProviderRequest,
     ProviderResumeRequest,
@@ -58,6 +60,7 @@ from .request import (
     InteractiveJsonOutput,
     JsonOutput,
     LLMExecutionOptions,
+    LLMInputArtifact,
     LLMRequest,
     ModelSelection,
     OperationContract,
@@ -94,6 +97,7 @@ __all__ = [
     "InteractionRequest",
     "InteractionResolver",
     "InteractionResponse",
+    "InputDeliveryMode",
     "InteractiveJsonOutput",
     "InvalidRequestError",
     "InvalidSchemaError",
@@ -102,6 +106,7 @@ __all__ = [
     "LLMClient",
     "LLMCompleted",
     "LLMExecutionOptions",
+    "LLMInputArtifact",
     "LLMFailed",
     "LLMPaused",
     "LLMRequest",
@@ -118,6 +123,7 @@ __all__ = [
     "ProviderCapabilities",
     "ProviderDiagnostic",
     "ProviderExecution",
+    "ProviderInput",
     "ProviderFailure",
     "ProviderGateOptions",
     "ProviderRegistry",
@@ -140,4 +146,5 @@ __all__ = [
     "decode_resume_input",
     "request_to_document",
     "resume_input_to_document",
+    "resume_input_matches",
 ]

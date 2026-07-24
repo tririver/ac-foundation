@@ -6,12 +6,14 @@ import sys
 
 import pytest
 
+from arc_jobs import ArtifactDigest, ArtifactSourceRef
 from arc_llm import (
     CapabilityPolicy,
     ExecutionLimits,
     InvalidRequestError,
     JsonOutput,
     LLMExecutionOptions,
+    LLMInputArtifact,
     LLMRequest,
     ModelSelection,
     ProviderGateOptions,
@@ -46,6 +48,94 @@ def test_request_and_resume_codecs_are_closed_round_trips() -> None:
 
     resume = ResumeInput("resume-3", ResumeAction.REPLACE, reason="new evidence")
     assert decode_resume_input(resume_input_to_document(resume)) == resume
+
+
+def _input(
+    input_id: str,
+    digest: str,
+    *,
+    run_id: str = "source-run",
+    artifact_id: str = "paper/source",
+    media_type: str = "text/markdown",
+) -> LLMInputArtifact:
+    return LLMInputArtifact(
+        input_id,
+        ArtifactSourceRef(
+            run_id,
+            artifact_id,
+            ArtifactDigest("sha256", digest, 3),
+        ),
+        media_type,
+    )
+
+
+def test_request_v2_input_codec_and_content_identity() -> None:
+    first = _input("paper", "a" * 64, media_type=" Text/Markdown ")
+    request = LLMRequest(
+        "with-input",
+        "Review.",
+        JsonOutput({"type": "object"}),
+        inputs=(first,),
+    )
+    document = request_to_document(request)
+    assert document["schema_version"] == "arc.llm.request.v2"
+    assert document["inputs"][0]["media_type"] == "text/markdown"
+    assert decode_request(document) == request
+
+    relocated = replace(
+        request,
+        inputs=(
+            _input(
+                "paper",
+                "a" * 64,
+                run_id="other-run",
+                artifact_id="other/artifact",
+            ),
+        ),
+    )
+    changed = replace(request, inputs=(_input("paper", "b" * 64),))
+    assert semantic_key(relocated) == semantic_key(request)
+    assert semantic_key(changed) != semantic_key(request)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("source_run_id", "../source"),
+        ("source_run_id", ["source"]),
+        ("source_artifact_id", "../paper"),
+        ("source_artifact_id", {"artifact": "paper"}),
+    ),
+)
+def test_request_v2_rejects_invalid_source_locator_identifiers(
+    field: str,
+    value: object,
+) -> None:
+    request = LLMRequest(
+        "with-input",
+        "Review.",
+        JsonOutput({"type": "object"}),
+        inputs=(_input("paper", "a" * 64),),
+    )
+    document = request_to_document(request)
+    document["inputs"][0]["source"][field] = value
+
+    with pytest.raises(InvalidRequestError):
+        decode_request(document)
+
+
+def test_input_order_and_ids_are_semantic_and_duplicate_ids_are_invalid() -> None:
+    left = _input("left", "a" * 64)
+    right = _input("right", "b" * 64)
+    request = LLMRequest(
+        "ordered",
+        "Review.",
+        JsonOutput({"type": "object"}),
+        inputs=(left, right),
+    )
+    assert semantic_key(request) != semantic_key(replace(request, inputs=(right, left)))
+    with pytest.raises(InvalidRequestError):
+        replace(request, inputs=(left, left))
 
 
 def test_model_constraints_and_json_booleans_are_strict() -> None:

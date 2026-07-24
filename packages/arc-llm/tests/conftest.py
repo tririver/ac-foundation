@@ -8,6 +8,7 @@ import pytest
 from arc_llm import (
     DeliveryState,
     FailureCategory,
+    InputDeliveryMode,
     IsolationMode,
     NativeResumeHandle,
     ProviderCapabilities,
@@ -46,6 +47,12 @@ class ScriptedAdapter:
             tool_isolation=IsolationMode.ISOLATED,
             cooperative_cancel=True,
             provider_persistence=True,
+            input_delivery={
+                "image/png": InputDeliveryMode.NATIVE_ATTACHMENT,
+                "image/jpeg": InputDeliveryMode.NATIVE_ATTACHMENT,
+                "text/markdown": InputDeliveryMode.READ_TOOL,
+                "application/json": InputDeliveryMode.READ_TOOL,
+            },
         )
 
     def doctor(self) -> ProviderDiagnostic:

@@ -41,6 +41,12 @@ See the canonical
 [`identity-and-reuse.md`](../../docs/architecture/identity-and-reuse.md)
 policy.
 
+Joined work groups are also immutable within a run. Use
+`repository.inspect_group(run_id, group_id)` (or `context.inspect_group(group_id)`
+inside a handler) to read every unit's pending or terminal status, value, and
+error without claiming or mutating work. Completed units replay in the same run,
+including failed units; retrying a failed item requires a new run ID.
+
 For a small cross-process concurrency limit, use an explicit-root lease pool:
 
 ```python

@@ -104,6 +104,10 @@ tools it names.
   partially implement it, rename artifacts, update mirrors, or make compromise
   edits unless the user explicitly approves a revised instruction. Explain the
   disagreement and leave files unchanged.
+- Never change any version declaration without the user's explicit approval.
+  This gate includes the root `VERSION` file, package and plugin manifests or
+  metadata, dependency version ranges, and in-code declarations such as
+  `__version__`.
 
 ## Complexity Review Gate
 

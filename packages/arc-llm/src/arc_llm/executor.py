@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 from typing import Any, Mapping
 
 from arc_jobs import (
@@ -35,10 +38,12 @@ from .errors import (
 )
 from .identity import (
     AdoptionAuthorization,
+    _make_resume_key,
     canonical_json_bytes,
     document_sha256,
     execution_document,
     execution_fingerprint,
+    input_identity_document,
     semantic_document,
     semantic_key,
 )
@@ -65,8 +70,10 @@ from .output import (
 )
 from .progress import DurableProviderObserver
 from .providers import (
+    InputDeliveryMode,
     NativeResumeHandle,
     ProviderExecution,
+    ProviderInput,
     ProviderRegistry,
     ProviderRequest,
     ProviderResumeRequest,
@@ -101,7 +108,7 @@ from .request import (
     request_to_document,
 )
 
-HANDLER_NAME = "arc.llm.task.v1"
+HANDLER_NAME = "arc.llm.task.v2"
 
 
 class LLMTaskExecutor:
@@ -167,27 +174,38 @@ class LLMTaskExecutor:
             if state.pause is not None:
                 return self._paused_outcome(state.pause)
             try:
-                self._validate_session_lineage(context, request, state)
+                durable_request = self._load_request(context, state)
+                self._validate_session_lineage(context, durable_request, state)
             except ArcLLMError as exc:
                 return LLMFailed(exc)
-            return self._drive(context, request, state, store, options)
+            return self._drive(context, durable_request, state, store, options)
         try:
-            resolved = resolve_model_selection(
-                request.model,
-                available=self.registry.names(),
-            )
+            resolved = self._resolve_model(request)
             adapter = self.registry.create(resolved.provider)
-            execution_doc = self._execution_document(adapter, resolved.model, request)
-            execution = execution_fingerprint(execution_doc)
             scoped = self._artifacts(context, key)
+            durable_request = self._canonicalize_inputs(
+                context,
+                request,
+                scoped,
+            )
+            execution_doc = self._execution_document(
+                adapter,
+                resolved.model,
+                durable_request,
+            )
+            execution = execution_fingerprint(execution_doc)
             request_ref = scoped.publish_json(
                 "requests/semantic.json",
-                request_to_document(request),
+                request_to_document(durable_request),
             )
             scoped.publish_json("execution/1/recipe.json", execution_doc)
             self._publish_policy(scoped, 1, options)
             initial_handle = self._existing_session_handle(
-                context, request, resolved.provider, resolved.model, execution
+                context,
+                durable_request,
+                resolved.provider,
+                resolved.model,
+                execution,
             )
             generation = GenerationRecord(
                 1,
@@ -205,14 +223,20 @@ class LLMTaskExecutor:
                 generations=(generation,),
                 request_ref=request_ref,
                 session_key=(
-                    request.session.session_key
-                    if request.session is not None
-                    else request.task_id
+                    durable_request.session.session_key
+                    if durable_request.session is not None
+                    else durable_request.task_id
                 ),
             )
             store.create(state)
-            self._prepare_effect(context, request, state)
-            return self._drive(context, request, state, store, options)
+            self._prepare_effect(context, durable_request, state)
+            return self._drive(
+                context,
+                durable_request,
+                state,
+                store,
+                options,
+            )
         except ArcLLMError as exc:
             return LLMFailed(exc)
         except Exception as exc:
@@ -541,6 +565,7 @@ class LLMTaskExecutor:
                         provider_schema(request.output),
                         self._capability_document(request),
                         options.limits.idle_timeout_seconds,
+                        self._materialize_inputs(context, request, adapter),
                     ),
                     observer,
                     context.cancel,
@@ -583,6 +608,7 @@ class LLMTaskExecutor:
                         provider_schema(request.output),
                         self._capability_document(request),
                         options.limits.idle_timeout_seconds,
+                        self._materialize_inputs(context, request, adapter),
                     ),
                     observer,
                     context.cancel,
@@ -1109,7 +1135,7 @@ class LLMTaskExecutor:
         request_ref: ArtifactRef | None = None,
     ) -> LLMPaused:
         response_contract = RESUME_SCHEMA_VERSION if input_required else None
-        resume_key = f"resume-{state.revision + 1}"
+        resume_key = _make_resume_key(state.semantic_key, state.revision + 1)
         pause = TaskPause(
             reason,
             resume_key,
@@ -1151,6 +1177,7 @@ class LLMTaskExecutor:
             "prompt": request.prompt if prompt is None else prompt,
             "output_schema": provider_schema(request.output),
             "capabilities": self._capability_document(request),
+            "inputs": input_identity_document(request),
             "generation": state.current_generation,
         }
         context.effects.prepare(
@@ -1161,6 +1188,10 @@ class LLMTaskExecutor:
 
     def _execution_document(self, adapter: Any, model: str, request: LLMRequest) -> dict[str, Any]:
         capabilities = adapter.capabilities()
+        delivery_modes = self.registry.delivery_modes(
+            adapter.name,
+            tuple(item.media_type for item in request.inputs),
+        )
         return execution_document(
             provider=adapter.name,
             model=model,
@@ -1169,6 +1200,18 @@ class LLMTaskExecutor:
                 "structured_output": capabilities.structured_output.value,
                 "config_isolation": capabilities.config_isolation.value,
                 "tool_isolation": capabilities.tool_isolation.value,
+                "input_delivery": [
+                    {
+                        "input_id": item.input_id,
+                        "media_type": item.media_type,
+                        "mode": mode.value,
+                    }
+                    for item, mode in zip(
+                        request.inputs,
+                        delivery_modes,
+                        strict=True,
+                    )
+                ],
             },
             adapter_compatibility_version=adapter.compatibility_version,
             session_compatibility={},
@@ -1181,6 +1224,190 @@ class LLMTaskExecutor:
             "inherit_host_config": request.capabilities.inherit_host_config,
             "allowed_tools": list(request.capabilities.allowed_tools),
         }
+
+    def _resolve_model(self, request: LLMRequest) -> Any:
+        media_types = tuple(item.media_type for item in request.inputs)
+        available = (
+            self.registry.supporting(media_types)
+            if request.model.provider == "auto"
+            else self.registry.names()
+        )
+        resolved = resolve_model_selection(request.model, available=available)
+        modes = self.registry.delivery_modes(resolved.provider, media_types)
+        unsupported = [
+            item.media_type
+            for item, mode in zip(request.inputs, modes, strict=True)
+            if mode is InputDeliveryMode.UNSUPPORTED
+        ]
+        if unsupported:
+            raise InvalidRequestError(
+                f"Provider {resolved.provider} does not support all input media.",
+                details={
+                    "code": "unsupported_input_media",
+                    "provider": resolved.provider,
+                    "media_types": unsupported,
+                },
+            )
+        return resolved
+
+    def _materialize_inputs(
+        self,
+        context: Any,
+        request: LLMRequest,
+        adapter: Any,
+    ) -> tuple[ProviderInput, ...]:
+        if not request.inputs:
+            return ()
+        modes = self.registry.delivery_modes(
+            adapter.name,
+            tuple(item.media_type for item in request.inputs),
+        )
+        materialized: list[ProviderInput] = []
+        delivery_root = context.run_directory / "provider-inputs"
+        delivery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(delivery_root, 0o700)
+        delivery_directory = delivery_root / semantic_key(request).sha256
+        delivery_directory.mkdir(exist_ok=True, mode=0o700)
+        os.chmod(delivery_directory, 0o700)
+        try:
+            for index, (item, mode) in enumerate(
+                zip(request.inputs, modes, strict=True)
+            ):
+                if mode is InputDeliveryMode.UNSUPPORTED:
+                    raise InvalidRequestError(
+                        f"Provider {adapter.name} does not support {item.media_type}.",
+                        details={
+                            "code": "unsupported_input_media",
+                            "provider": adapter.name,
+                            "media_type": item.media_type,
+                        },
+                    )
+                try:
+                    verified = context.artifacts.read_source(item.source)
+                except Exception as exc:
+                    raise InvalidRequestError(
+                        f"Input artifact could not be verified: {item.input_id}",
+                        details={
+                            "code": "invalid_input_artifact",
+                            "input_id": item.input_id,
+                        },
+                    ) from exc
+                if verified.media_type != item.media_type:
+                    raise InvalidRequestError(
+                        "Input artifact media type differs from the request: "
+                        f"{item.input_id}",
+                        details={
+                            "code": "input_media_type_mismatch",
+                            "input_id": item.input_id,
+                            "expected": item.media_type,
+                            "actual": verified.media_type,
+                        },
+                    )
+                path = delivery_directory / f"{index:04d}-{item.input_id}"
+                self._publish_readonly_input(path, verified.content)
+                materialized.append(
+                    ProviderInput(
+                        input_id=item.input_id,
+                        media_type=item.media_type,
+                        sha256=verified.digest.value,
+                        size_bytes=verified.digest.size_bytes,
+                        path=path,
+                        delivery_mode=mode,
+                    )
+                )
+        finally:
+            os.chmod(delivery_directory, 0o500)
+        return tuple(materialized)
+
+    def _canonicalize_inputs(
+        self,
+        context: Any,
+        request: LLMRequest,
+        scoped: Any,
+    ) -> LLMRequest:
+        if not request.inputs:
+            return request
+        canonical = []
+        key = semantic_key(request)
+        for index, item in enumerate(request.inputs):
+            target_artifact_id = (
+                f"llm/tasks/{key.sha256}/inputs/source/"
+                f"{index:04d}-{item.input_id}"
+            )
+            canonical_source = ArtifactSourceRef(
+                context.run_id,
+                target_artifact_id,
+                item.source.expected_digest,
+            )
+            try:
+                verified = context.artifacts.read_source(canonical_source)
+            except Exception:
+                try:
+                    verified = context.artifacts.read_source(item.source)
+                except Exception as exc:
+                    raise InvalidRequestError(
+                        f"Input artifact could not be verified: {item.input_id}",
+                        details={
+                            "code": "invalid_input_artifact",
+                            "input_id": item.input_id,
+                        },
+                    ) from exc
+            if verified.media_type != item.media_type:
+                raise InvalidRequestError(
+                    f"Input artifact media type differs from the request: {item.input_id}",
+                    details={
+                        "code": "input_media_type_mismatch",
+                        "input_id": item.input_id,
+                        "expected": item.media_type,
+                        "actual": verified.media_type,
+                    },
+                )
+            target = scoped.publish_bytes(
+                f"inputs/source/{index:04d}-{item.input_id}",
+                verified.content,
+                media_type=item.media_type,
+            )
+            canonical.append(
+                replace(
+                    item,
+                    source=ArtifactSourceRef(
+                        context.run_id,
+                        target.artifact_id,
+                        target.digest,
+                    ),
+                )
+            )
+        durable = replace(request, inputs=tuple(canonical))
+        if semantic_key(durable) != semantic_key(request):
+            raise InvalidRequestError(
+                "Canonical input materialization changed semantic identity."
+            )
+        return durable
+
+    @staticmethod
+    def _publish_readonly_input(path: Path, content: bytes) -> None:
+        if path.exists() and path.read_bytes() == content:
+            os.chmod(path, 0o400)
+            return
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            dir=path.parent,
+        )
+        temporary_path = Path(temporary)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary_path, 0o400)
+            os.replace(temporary_path, path)
+            directory_descriptor = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     @staticmethod
     def _task_namespace(task_id: str) -> str:

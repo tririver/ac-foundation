@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from ..output import CandidateMaterial
 from ._cli import executable_diagnostic, run_cli
 from .base import (
+    InputDeliveryMode,
     IsolationMode,
     ProviderCapabilities,
     ProviderDiagnostic,
@@ -45,6 +46,12 @@ class ClaudeAdapter:
             tool_isolation=IsolationMode.EXPLICIT,
             cooperative_cancel=True,
             provider_persistence=True,
+            input_delivery={
+                "image/png": InputDeliveryMode.READ_TOOL,
+                "image/jpeg": InputDeliveryMode.READ_TOOL,
+                "text/markdown": InputDeliveryMode.READ_TOOL,
+                "application/json": InputDeliveryMode.READ_TOOL,
+            },
         )
 
     def doctor(self) -> ProviderDiagnostic:
@@ -73,7 +80,13 @@ class ClaudeAdapter:
                     ),
                 ]
             )
-        return self._run(argv, request.prompt, request.idle_timeout_seconds, observer, cancel)
+        return self._run(
+            argv,
+            _prompt_with_inputs(request.prompt, request.inputs),
+            request.idle_timeout_seconds,
+            observer,
+            cancel,
+        )
 
     def resume(
         self,
@@ -103,7 +116,13 @@ class ClaudeAdapter:
                     ),
                 ]
             )
-        return self._run(argv, request.prompt, request.idle_timeout_seconds, observer, cancel)
+        return self._run(
+            argv,
+            _prompt_with_inputs(request.prompt, request.inputs),
+            request.idle_timeout_seconds,
+            observer,
+            cancel,
+        )
 
     def _run(
         self, argv: list[str], prompt: str, timeout: float, observer: Any, cancel: Any
@@ -152,3 +171,17 @@ def _integer(value: Any) -> int | None:
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0
         else None
     )
+
+
+def _prompt_with_inputs(prompt: str, inputs: tuple[Any, ...]) -> str:
+    if not inputs:
+        return prompt
+    lines = [
+        prompt,
+        "",
+        "Use the Read tool to inspect these verified, read-only input artifacts:",
+    ]
+    lines.extend(
+        f"- {item.input_id} ({item.media_type}): {item.path}" for item in inputs
+    )
+    return "\n".join(lines)

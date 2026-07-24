@@ -308,6 +308,21 @@ class ImmutableArtifactStore:
             raise CorruptStateError("artifact manifest id mismatch")
         return manifest
 
+    def find(self, artifact_id: str) -> ArtifactRef | None:
+        """Return a verified immutable artifact reference when it is published.
+
+        This is a read-only replay primitive. Missing artifacts return ``None``;
+        malformed manifests or content still raise the normal corruption errors.
+        """
+
+        logical_id = self._logical_id(artifact_id)
+        manifest_path = self._manifest_path(logical_id)
+        if not manifest_path.exists():
+            return None
+        ref = self._ref_from_manifest(self._read_manifest(logical_id))
+        self.verify(ref)
+        return ref
+
     @staticmethod
     def _digest_from_json(value: JsonValue) -> ArtifactDigest:
         if not isinstance(value, dict):

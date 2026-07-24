@@ -19,7 +19,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).with_name("fixtures")
-PACKAGES = ("arc_jobs", "arc_llm", "arc_proposer_reviewer")
+PACKAGES = ("arc_jobs", "arc_llm", "arc_proposer_reviewer", "arc_paper")
 SOURCE_REVISION = "f7b4424f427a11f40cd3dea61cb56e90067685dd"
 EXPECTED_MANIFESTS = {
     "arc_jobs": {
@@ -57,6 +57,13 @@ EXPECTED_MANIFESTS = {
             "packages/arc-llm/tests/test_proposers_reviewer_runner.py",
             "packages/arc-llm/tests/test_template_materializer.py",
         },
+    },
+    "arc_paper": {
+        "package": "arc-paper",
+        "family_count": 409,
+        "parameterized_family_count": 9,
+        "families_sha256": "929c055efd00144a1779c85a11e23f744720e404cf15c45b41e205f5b447dcf5",
+        "source_file_count": 36,
     },
 }
 
@@ -199,6 +206,12 @@ def test_legacy_closure_is_structurally_complete_and_targets_real_tests(
             )
             if disposition == "delete":
                 assert entry["reason"].startswith("Retired pre-v1 behavior ")
+                if package == "arc_paper":
+                    assert "The approved v1 design" in entry["reason"], (
+                        "arc-paper deletions must cite the approved replacement "
+                        f"design rather than treating missing coverage as retirement: "
+                        f"{entry['old_nodeid']}"
+                    )
             else:
                 assert entry["reason"].startswith("Retained v1 contract ")
             closed_nodeids.append(entry["old_nodeid"])

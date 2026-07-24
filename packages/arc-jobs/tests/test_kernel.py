@@ -145,6 +145,8 @@ def test_hierarchical_artifacts_and_adoption(tmp_path):
 
     assert target.read_bytes(adopted) == b"value"
     assert adopted.artifact_id == "reuse/result"
+    assert target.find("reuse/result") == adopted
+    assert target.find("reuse/missing") is None
     with pytest.raises(ArtifactConflictError):
         target.publish_bytes(
             adopted.artifact_id, b"different", media_type="text/plain"

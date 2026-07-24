@@ -285,6 +285,31 @@ def test_concurrent_event_appends_receive_monotonic_sequences(tmp_path):
     assert {event["data"]["index"] for event in events} == {0, 1, 2, 3}
 
 
+def test_event_appends_only_full_scan_during_explicit_validation(
+    tmp_path, monkeypatch
+):
+    writer = EventWriter(tmp_path / "events.jsonl", run_id="run-1")
+    writer.emit("progress", {"index": 0})
+    full_scan = writer._complete_documents
+
+    def fail_if_scanned():
+        raise AssertionError("normal event append performed a full log scan")
+
+    monkeypatch.setattr(writer, "_complete_documents", fail_if_scanned)
+    for index in range(1, 100):
+        writer.emit("progress", {"index": index})
+
+    # A distinct writer observes the shared append-only log from its last record.
+    other = EventWriter(writer.path, run_id="run-1")
+    monkeypatch.setattr(other, "_complete_documents", fail_if_scanned)
+    other.emit("progress", {"index": 100})
+    writer.emit("progress", {"index": 101})
+
+    EventWriter(writer.path, run_id="run-1").validate()
+    documents = full_scan()
+    assert [document["sequence"] for document in documents] == list(range(1, 103))
+
+
 def test_cli_commands_queries_and_unexpected_errors_use_one_envelope(
     tmp_path, capsys, monkeypatch
 ):

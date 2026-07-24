@@ -27,6 +27,14 @@ ALLOWED = {
 }
 
 DIST_TO_MODULE = {name.replace("_", "-"): name for name in ALLOWED}
+REQUIRED_EXTERNAL_DEPENDENCIES = {
+    "arc_companion": {"beautifulsoup4>=4.12"},
+}
+PROJECT_URLS = {
+    "Homepage": "https://github.com/tririver/arc",
+    "Repository": "https://github.com/tririver/arc",
+    "Issues": "https://github.com/tririver/arc/issues",
+}
 ARC_DEPENDENCY = re.compile(
     r"^(arc-[a-z0-9-]+)>=1\.0\.1,<1\.1$"
 )
@@ -99,6 +107,16 @@ def test_all_packages_use_root_release_and_known_dependency_rows():
         assert project["version"] == RELEASE, module
 
 
+def test_all_packages_publish_complete_distribution_metadata():
+    for module, (package_dir, project) in _projects().items():
+        readme = package_dir / project["readme"]
+        assert readme.is_file(), module
+        assert project["license"] == "MIT", module
+        assert project["authors"] == [{"name": "ARC"}], module
+        assert "Programming Language :: Python :: 3.11" in project["classifiers"], module
+        assert project["urls"] == PROJECT_URLS, module
+
+
 def test_declared_and_imported_arc_edges_are_direct_and_allowed():
     for module, (package_dir, project) in _projects().items():
         declared = _declared(project)
@@ -110,6 +128,16 @@ def test_declared_and_imported_arc_edges_are_direct_and_allowed():
         assert declared | imported <= ALLOWED[module], (
             f"{module} has forbidden ARC dependency edges: "
             f"{sorted((declared | imported) - ALLOWED[module])}"
+        )
+
+
+def test_known_direct_external_dependencies_are_declared():
+    projects = _projects()
+    for module, required in REQUIRED_EXTERNAL_DEPENDENCIES.items():
+        dependencies = set(projects[module][1].get("dependencies", ()))
+        assert required <= dependencies, (
+            f"{module} is missing direct external dependencies: "
+            f"{sorted(required - dependencies)}"
         )
 
 

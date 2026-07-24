@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from ..output import CandidateMaterial
 from ._cli import executable_diagnostic, run_cli
 from .base import (
+    InputDeliveryMode,
     IsolationMode,
     ProviderCapabilities,
     ProviderDiagnostic,
@@ -47,6 +48,12 @@ class CodexAdapter:
             tool_isolation=IsolationMode.EXPLICIT,
             cooperative_cancel=True,
             provider_persistence=True,
+            input_delivery={
+                "image/png": InputDeliveryMode.NATIVE_ATTACHMENT,
+                "image/jpeg": InputDeliveryMode.NATIVE_ATTACHMENT,
+                "text/markdown": InputDeliveryMode.READ_TOOL,
+                "application/json": InputDeliveryMode.READ_TOOL,
+            },
         )
 
     def doctor(self) -> ProviderDiagnostic:
@@ -57,10 +64,13 @@ class CodexAdapter:
         argv = [self.binary, "exec", "--json"]
         if not request.capabilities.get("inherit_host_config", False):
             argv.extend(["--ignore-user-config", "--ignore-rules"])
+        for item in request.inputs:
+            if item.delivery_mode is InputDeliveryMode.NATIVE_ATTACHMENT:
+                argv.extend(["--image", str(item.path)])
         argv.extend(["--sandbox", "read-only", "--model", request.model, "-"])
         return self._run(
             argv,
-            request.prompt,
+            _prompt_with_read_inputs(request.prompt, request.inputs),
             request.output_schema,
             request.idle_timeout_seconds,
             observer,
@@ -114,10 +124,13 @@ class CodexAdapter:
         argv = [self.binary, "exec", "resume", "--json"]
         if not request.capabilities.get("inherit_host_config", False):
             argv.extend(["--ignore-user-config", "--ignore-rules"])
+        for item in request.inputs:
+            if item.delivery_mode is InputDeliveryMode.NATIVE_ATTACHMENT:
+                argv.extend(["--image", str(item.path)])
         argv.extend(["-c", 'sandbox_mode="read-only"', handle.value, "-"])
         return self._run(
             argv,
-            request.prompt,
+            _prompt_with_read_inputs(request.prompt, request.inputs),
             request.output_schema,
             request.idle_timeout_seconds,
             observer,
@@ -155,3 +168,20 @@ def _integer(value: Any) -> int | None:
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0
         else None
     )
+
+
+def _prompt_with_read_inputs(prompt: str, inputs: tuple[Any, ...]) -> str:
+    readable = [
+        item for item in inputs if item.delivery_mode is InputDeliveryMode.READ_TOOL
+    ]
+    if not readable:
+        return prompt
+    lines = [
+        prompt,
+        "",
+        "Read these verified, read-only input artifacts before answering:",
+    ]
+    lines.extend(
+        f"- {item.input_id} ({item.media_type}): {item.path}" for item in readable
+    )
+    return "\n".join(lines)

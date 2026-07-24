@@ -24,7 +24,7 @@ from .errors import (
     UnsupportedSchemaError,
 )
 from .events import EventWriter
-from .groups import WorkGroupRunner
+from .groups import WorkGroupRunner, inspect_group
 from .identity import canonical_json_bytes, semantic_key, validate_simple_id
 from .lease import FileLease
 from .models import (
@@ -37,6 +37,7 @@ from .models import (
     FailureMode,
     GroupExecutionResult,
     GroupResult,
+    GroupView,
     JsonValue,
     Paused,
     ResumeReason,
@@ -486,6 +487,10 @@ class RunRepository:
         cancel = CancellationToken(self.run_directory(run_id) / "cancel.json").read()
         return RunView(snapshot, cancel)
 
+    def inspect_group(self, run_id: str, group_id: str) -> GroupView:
+        self._snapshot_store(run_id).read()
+        return inspect_group(self.run_directory(run_id) / "groups", group_id)
+
     def request_cancel(self, run_id: str, *, reason: str | None = None) -> RunView:
         snapshot = self._snapshot_store(run_id).read()
         if snapshot.status in _TERMINAL:
@@ -622,6 +627,9 @@ class RunContext:
             max_workers=max_workers,
             failure_mode=failure_mode,
         )
+
+    def inspect_group(self, group_id: str) -> GroupView:
+        return self.repository.inspect_group(self.run_id, group_id)
 
 
 class RunEngine:

@@ -14,6 +14,7 @@ from arc_jobs import (
     ResumeReason,
     RunBusyError,
     RunEngine,
+    RunError,
     RunRepository,
     RunSpec,
     RunStatus,
@@ -206,7 +207,10 @@ class FailFastGroupHandler:
             self.called.append(unit.unit_id)
             if unit.unit_id == "a":
                 return UnitResult(
-                    "a", "failed", {"partial": True}
+                    "a",
+                    "failed",
+                    {"partial": True},
+                    RunError("expected", "failed"),
                 )
             return {"ok": True}
 
@@ -226,11 +230,50 @@ class FailFastGroupHandler:
 
 def test_fail_fast_stops_new_units_and_joins_started_work(tmp_path):
     handler = FailFastGroupHandler()
-    snapshot = RunEngine(RunRepository(tmp_path)).execute(
+    repository = RunRepository(tmp_path)
+    snapshot = RunEngine(repository).execute(
         RunSpec("run-1", handler.name, {}), handler
     )
     assert snapshot.status is RunStatus.SUCCEEDED
     assert handler.called == ["a"]
+    before = {
+        path: path.stat().st_mtime_ns
+        for path in repository.run_directory("run-1").glob("groups/**/*")
+        if path.is_file()
+    }
+
+    view = repository.inspect_group("run-1", "group")
+
+    assert [unit.status for unit in view.units] == ["failed", "pending", "pending"]
+    assert view.units[0].value == {"partial": True}
+    assert view.units[0].error == RunError("expected", "failed")
+    assert view.units[1].value is None
+    assert repository.inspect_group("run-1", "group") == view
+    assert {
+        path: path.stat().st_mtime_ns
+        for path in repository.run_directory("run-1").glob("groups/**/*")
+        if path.is_file()
+    } == before
+
+
+def test_failed_group_unit_retry_requires_a_new_run(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = FailFastGroupHandler()
+    spec = RunSpec("run-1", handler.name, {})
+
+    first = engine.execute(spec, handler)
+    replayed = engine.execute(spec, handler)
+
+    assert replayed == first
+    assert handler.called == ["a"]
+    first_view = repository.inspect_group("run-1", "group")
+    assert first_view.units[0].status == "failed"
+
+    engine.execute(RunSpec("run-2", handler.name, {}), handler)
+
+    assert handler.called == ["a", "a"]
+    assert repository.inspect_group("run-1", "group") == first_view
 
 
 class FailFastReplayHandler:

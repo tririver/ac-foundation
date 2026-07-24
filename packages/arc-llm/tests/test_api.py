@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 import json
 from pathlib import Path
 import threading
 
-from arc_jobs import ArtifactSourceRef, RunContext, RunRepository, RunSpec, RunStatus
+import pytest
+
+from arc_jobs import (
+    ArtifactDigest,
+    ArtifactSourceRef,
+    RunContext,
+    RunRepository,
+    RunSpec,
+    RunStatus,
+)
 from arc_jobs import EffectStage
 from arc_llm import (
     AdoptionAuthorization,
@@ -14,7 +24,9 @@ from arc_llm import (
     JsonOutput,
     LLMClient,
     LLMCompleted,
+    LLMExecutionOptions,
     LLMFailed,
+    LLMInputArtifact,
     LLMPaused,
     LLMRequest,
     LLMTaskService,
@@ -23,12 +35,14 @@ from arc_llm import (
     OperationContract,
     ProviderExecution,
     ProviderFailure,
+    ProviderGateOptions,
     ProviderTerminalKind,
     DeliveryState,
     FailureCategory,
     ResumeAction,
     ResumeInput,
     SemanticKeyDigest,
+    resume_input_matches,
 )
 from arc_llm.identity import semantic_key
 from arc_llm.output import CandidateMaterial
@@ -49,6 +63,64 @@ def _completed(value: object, *, handle: str = "thread-1") -> ProviderExecution:
         (CandidateMaterial(value=value, terminal=True),),
         NativeResumeHandle("codex", handle),
     )
+
+
+def _source_input(
+    repository: RunRepository,
+    *,
+    content: bytes = b"# paper\n",
+    media_type: str = "text/markdown",
+    run_id: str = "source-run",
+    artifact_id: str = "paper/source",
+) -> tuple[LLMInputArtifact, Path]:
+    source_snapshot = repository.create(
+        RunSpec(run_id, "test.source", {"case": "input"})
+    )
+    source_context = RunContext(
+        repository,
+        source_snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    ref = source_context.artifacts.publish_bytes(
+        artifact_id,
+        content,
+        media_type=media_type,
+    )
+    return (
+        LLMInputArtifact(
+            "paper",
+            ArtifactSourceRef(
+                run_id,
+                artifact_id,
+                ArtifactDigest(
+                    "sha256",
+                    ref.digest.value,
+                    ref.digest.size_bytes,
+                ),
+            ),
+            media_type,
+        ),
+        repository.run_directory(run_id) / ref.relative_path,
+    )
+
+
+def _semantic_mutant(
+    repository: RunRepository,
+    request: LLMRequest,
+    mutation: str,
+) -> LLMRequest:
+    if mutation == "prompt":
+        return replace(request, prompt="Changed prompt.")
+    if mutation == "output":
+        return replace(
+            request,
+            output=JsonOutput({"type": "object", "required": ["changed"]}),
+        )
+    if mutation == "input":
+        input_artifact, _ = _source_input(repository)
+        return replace(request, inputs=(input_artifact,))
+    raise AssertionError(f"unknown semantic mutation: {mutation}")
 
 
 def test_client_generate_replays_accepted_result_without_provider_call(
@@ -105,6 +177,523 @@ def test_service_supports_multiple_tasks_in_one_parent_run_without_effect_collis
     effect_files = tuple((tmp_path / "runs" / "parent" / "effects").glob("*.json"))
     assert len(effect_files) == 2
     assert effect_files[0].name != effect_files[1].name
+
+
+def test_execute_or_resume_preserves_input_required_pause_without_input(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+    )
+    adapter.steps.append(
+        _completed(
+            {
+                "schema_version": "arc.llm.interactive_turn.v1",
+                "state": "interact",
+                "result": None,
+                "requests": [
+                    {
+                        "request_id": "req-1",
+                        "operation": "lookup",
+                        "arguments": {"query": "x"},
+                    }
+                ],
+            }
+        )
+    )
+    repository = RunRepository(tmp_path)
+    parent = repository.create(
+        RunSpec("parent", "test.parent", {"case": "preserve-child-pause"})
+    )
+    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    request = LLMRequest(
+        "paused-child",
+        "Solve.",
+        contract,
+        ModelSelection("codex"),
+    )
+    service = LLMTaskService(registry=registry)
+
+    first = service.execute_or_resume(context, request)
+    replayed = service.execute_or_resume(context, request)
+
+    assert isinstance(first, LLMPaused)
+    assert replayed == first
+    resume_input = ResumeInput(first.resume_key, ResumeAction.CONTINUE)
+    assert resume_input_matches(request, resume_input)
+    assert not resume_input_matches(
+        LLMRequest(
+            "other-child",
+            request.prompt,
+            request.output,
+            request.model,
+        ),
+        resume_input,
+    )
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
+
+
+@pytest.mark.parametrize("mutation", ("prompt", "output", "input"))
+def test_execute_or_resume_rejects_semantic_conflict_at_input_required_pause(
+    tmp_path: Path,
+    adapter,
+    registry,
+    mutation: str,
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+    )
+    adapter.steps.append(
+        _completed(
+            {
+                "schema_version": "arc.llm.interactive_turn.v1",
+                "state": "interact",
+                "result": None,
+                "requests": [
+                    {
+                        "request_id": "req-conflict",
+                        "operation": "lookup",
+                        "arguments": {"query": "x"},
+                    }
+                ],
+            }
+        )
+    )
+    repository = RunRepository(tmp_path)
+    parent = repository.create(
+        RunSpec("parent", "test.parent", {"case": "input-pause-conflict"})
+    )
+    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    request = LLMRequest(
+        "paused-child",
+        "Solve.",
+        contract,
+        ModelSelection("codex"),
+    )
+    service = LLMTaskService(registry=registry)
+
+    paused = service.execute_or_resume(context, request)
+    conflict = service.execute_or_resume(
+        context,
+        _semantic_mutant(repository, request, mutation),
+    )
+
+    assert isinstance(paused, LLMPaused)
+    assert paused.input_required
+    assert isinstance(conflict, LLMFailed)
+    assert conflict.error.code.value == "idempotency_conflict"
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
+
+
+@pytest.mark.parametrize("mutation", ("prompt", "output", "input"))
+def test_execute_or_resume_rejects_semantic_conflict_at_no_input_pause(
+    tmp_path: Path,
+    adapter,
+    registry,
+    mutation: str,
+) -> None:
+    adapter.steps.extend(
+        [
+            ProviderFailure(
+                "authentication unavailable",
+                category=FailureCategory.AUTHENTICATION,
+                delivery=DeliveryState.NOT_DELIVERED,
+            ),
+            _completed({"answer": 42}),
+        ]
+    )
+    repository = RunRepository(tmp_path)
+    parent = repository.create(
+        RunSpec("parent", "test.parent", {"case": "no-input-pause-conflict"})
+    )
+    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    request = _request("paused-child")
+    service = LLMTaskService(registry=registry)
+    options = LLMExecutionOptions(gate=ProviderGateOptions(enabled=False))
+
+    paused = service.execute_or_resume(context, request, options=options)
+    conflict = service.execute_or_resume(
+        context,
+        _semantic_mutant(repository, request, mutation),
+        options=options,
+    )
+
+    assert isinstance(paused, LLMPaused)
+    assert not paused.input_required
+    assert isinstance(conflict, LLMFailed)
+    assert conflict.error.code.value == "idempotency_conflict"
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
+
+
+def test_input_artifact_is_verified_and_materialized_before_provider_call(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, _ = _source_input(repository)
+    parent = repository.create(
+        RunSpec("parent", "test.parent", {"case": "verified-input"})
+    )
+    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    adapter.steps.append(_completed({"answer": 42}))
+    request = LLMRequest(
+        "input-task",
+        "Review the input.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+
+    outcome = LLMTaskService(registry=registry).execute(context, request)
+
+    assert isinstance(outcome, LLMCompleted)
+    delivered = adapter.requests[0].inputs
+    assert len(delivered) == 1
+    assert delivered[0].path.is_file()
+    assert delivered[0].path.read_bytes() == b"# paper\n"
+    assert delivered[0].sha256 == input_artifact.source.expected_digest.value
+    assert delivered[0].path.stat().st_mode & 0o777 == 0o400
+    assert delivered[0].path.parent.stat().st_mode & 0o777 == 0o500
+    object_paths = (
+        path
+        for path in (tmp_path / "runs" / "parent" / "artifacts" / "objects").rglob("*")
+        if path.is_file()
+    )
+    recipe = next(path for path in object_paths if b'"input_delivery"' in path.read_bytes())
+    assert b'"mode":"read_tool"' in recipe.read_bytes()
+
+
+def test_relocated_input_source_replays_same_standalone_run(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    repository = RunRepository(tmp_path)
+    first_input, _ = _source_input(repository)
+    second_input, _ = _source_input(
+        repository,
+        run_id="other-source",
+        artifact_id="other/paper",
+    )
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    first_request = LLMRequest(
+        "relocated",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(first_input,),
+    )
+    second_request = LLMRequest(
+        "relocated",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(second_input,),
+    )
+
+    first = client.generate(first_request, run_root=tmp_path, run_id="llm-run")
+    second = client.generate(second_request, run_root=tmp_path, run_id="llm-run")
+
+    assert isinstance(first.outcome, LLMCompleted)
+    assert isinstance(second.outcome, LLMCompleted)
+    assert adapter.start_calls == 1
+
+
+def test_standalone_resume_recovers_request_locators_before_task_state_exists(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, _ = _source_input(repository)
+    request = LLMRequest(
+        "bootstrap-crash",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    original_execute = client.service._executor.execute
+
+    def crash_before_task_state(*args, **kwargs):
+        raise KeyboardInterrupt("simulated crash before task state publication")
+
+    monkeypatch.setattr(client.service._executor, "execute", crash_before_task_state)
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(request, run_root=tmp_path, run_id="llm-run")
+
+    snapshot = repository.inspect("llm-run").snapshot
+    context = RunContext(
+        repository,
+        snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    assert client.service._executor._task_store(context, request.task_id).read() is None
+
+    monkeypatch.setattr(client.service._executor, "execute", original_execute)
+    resumed = client.resume(run_root=tmp_path, run_id="llm-run")
+
+    assert resumed.snapshot.status is RunStatus.SUCCEEDED
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 1
+    assert adapter.requests[0].inputs[0].sha256 == (
+        input_artifact.source.expected_digest.value
+    )
+
+
+def test_standalone_resume_reuses_canonical_input_published_before_task_state(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, source_path = _source_input(repository)
+    request = LLMRequest(
+        "canonical-bootstrap-crash",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_execution_document = executor._execution_document
+
+    def crash_after_input_publication(*args, **kwargs):
+        raise KeyboardInterrupt("simulated crash after canonical input publication")
+
+    monkeypatch.setattr(
+        executor,
+        "_execution_document",
+        crash_after_input_publication,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(request, run_root=tmp_path, run_id="llm-run")
+
+    snapshot = repository.inspect("llm-run").snapshot
+    context = RunContext(
+        repository,
+        snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    assert executor._task_store(context, request.task_id).read() is None
+    source_path.write_bytes(b"corrupt upstream source")
+
+    monkeypatch.setattr(
+        executor,
+        "_execution_document",
+        original_execution_document,
+    )
+    resumed = client.resume(run_root=tmp_path, run_id="llm-run")
+
+    assert resumed.snapshot.status is RunStatus.SUCCEEDED
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 1
+
+
+def test_unfinished_task_resumes_from_canonical_current_run_input(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, source_path = _source_input(repository)
+    request = LLMRequest(
+        "canonical-resume",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+    adapter.steps.extend(
+        [
+            ProviderFailure(
+                "authentication unavailable",
+                category=FailureCategory.AUTHENTICATION,
+                delivery=DeliveryState.NOT_DELIVERED,
+            ),
+            _completed({"answer": 42}),
+        ]
+    )
+    client = LLMClient(registry=registry)
+    options = LLMExecutionOptions(
+        gate=ProviderGateOptions(enabled=False),
+    )
+
+    paused = client.generate(
+        request,
+        run_root=tmp_path,
+        run_id="llm-run",
+        options=options,
+    )
+    assert paused.snapshot.status is RunStatus.PAUSED
+    assert isinstance(paused.outcome, LLMPaused)
+    source_path.write_bytes(b"corrupt upstream source")
+
+    resumed = client.resume(
+        run_root=tmp_path,
+        run_id="llm-run",
+        options=options,
+    )
+
+    assert resumed.snapshot.status is RunStatus.SUCCEEDED
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 2
+    assert all(
+        item.inputs[0].path.stat().st_mode & 0o777 == 0o400
+        for item in adapter.requests
+    )
+
+
+def test_corrupt_input_fails_before_provider_invocation(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, source_path = _source_input(repository)
+    source_path.write_bytes(b"corrupt")
+    parent = repository.create(
+        RunSpec("parent", "test.parent", {"case": "corrupt-input"})
+    )
+    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    request = LLMRequest(
+        "corrupt-input",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+
+    outcome = LLMTaskService(registry=registry).execute(context, request)
+
+    assert isinstance(outcome, LLMFailed)
+    assert outcome.error.code.value == "invalid_request"
+    assert outcome.error.details["code"] == "invalid_input_artifact"
+    assert adapter.start_calls == 0
+
+
+def test_explicit_provider_rejects_unsupported_media_before_provider_invocation(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, _ = _source_input(
+        repository,
+        content=b"%PDF",
+        media_type="application/pdf",
+    )
+    parent = repository.create(
+        RunSpec("parent", "test.parent", {"case": "unsupported-input"})
+    )
+    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    request = LLMRequest(
+        "unsupported-input",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+
+    outcome = LLMTaskService(registry=registry).execute(context, request)
+
+    assert isinstance(outcome, LLMFailed)
+    assert outcome.error.code.value == "invalid_request"
+    assert outcome.error.details["code"] == "unsupported_input_media"
+    assert adapter.start_calls == 0
+
+
+def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("parent", "test.parent", {"case": "same-task-single-flight"})
+    )
+    context = RunContext(
+        repository,
+        snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    service = LLMTaskService(registry=registry)
+    request = _request("shared-task")
+    provider_entered = threading.Event()
+    release_provider = threading.Event()
+
+    def blocking_start(request, observer, cancel):
+        adapter.start_calls += 1
+        adapter.requests.append(request)
+        observer.before_delivery()
+        provider_entered.set()
+        assert release_provider.wait(timeout=5)
+        result = _completed({"answer": 42})
+        observer.native_handle(result.native_handle)
+        return result
+
+    adapter.start = blocking_start
+    worker_label = threading.local()
+    replay_caller_waiting = threading.Event()
+    original_checkpoint = context.checkpoint
+
+    def checkpoint() -> None:
+        if getattr(worker_label, "value", None) == "replay":
+            replay_caller_waiting.set()
+        original_checkpoint()
+
+    context.checkpoint = checkpoint
+
+    def execute(label: str):
+        worker_label.value = label
+        return service.execute(context, request)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        provider_call = pool.submit(execute, "provider")
+        assert provider_entered.wait(timeout=5)
+        replay_call = pool.submit(execute, "replay")
+        assert replay_caller_waiting.wait(timeout=5)
+        assert adapter.start_calls == 1
+        release_provider.set()
+        provider_outcome = provider_call.result(timeout=5)
+        replay_outcome = replay_call.result(timeout=5)
+
+    assert isinstance(provider_outcome, LLMCompleted)
+    assert isinstance(replay_outcome, LLMCompleted)
+    assert replay_outcome == provider_outcome
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
 
 
 def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
@@ -229,6 +818,9 @@ def test_host_driven_interaction_pauses_and_resumes_same_native_session(
     paused = client.generate(request, run_root=tmp_path)
     assert paused.snapshot.status is RunStatus.PAUSED
     assert isinstance(paused.outcome, LLMPaused)
+    assert paused.outcome.resume_key.startswith(
+        f"resume-{semantic_key(request).sha256[:24]}-"
+    )
     resume = ResumeInput(
         paused.outcome.resume_key,
         ResumeAction.CONTINUE,

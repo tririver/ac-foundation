@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from ..errors import ProviderFailure
@@ -38,6 +39,13 @@ class ProviderTerminalKind(StrEnum):
     CANCELLED = "cancelled"
 
 
+class InputDeliveryMode(StrEnum):
+    NATIVE_ATTACHMENT = "native_attachment"
+    READ_TOOL = "read_tool"
+    ACP_CONTENT = "acp_content"
+    UNSUPPORTED = "unsupported"
+
+
 @dataclass(frozen=True)
 class ProviderCapabilities:
     native_resume: bool
@@ -47,6 +55,7 @@ class ProviderCapabilities:
     tool_isolation: IsolationMode
     cooperative_cancel: bool
     provider_persistence: bool
+    input_delivery: Mapping[str, InputDeliveryMode] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -71,12 +80,23 @@ class ProviderUsage:
 
 
 @dataclass(frozen=True)
+class ProviderInput:
+    input_id: str
+    media_type: str
+    sha256: str
+    size_bytes: int
+    path: Path
+    delivery_mode: InputDeliveryMode
+
+
+@dataclass(frozen=True)
 class ProviderRequest:
     prompt: str
     model: str
     output_schema: Mapping[str, Any] | None
     capabilities: Mapping[str, Any]
     idle_timeout_seconds: float
+    inputs: tuple[ProviderInput, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -85,6 +105,7 @@ class ProviderResumeRequest:
     output_schema: Mapping[str, Any] | None
     capabilities: Mapping[str, Any]
     idle_timeout_seconds: float
+    inputs: tuple[ProviderInput, ...] = ()
 
 
 @dataclass(frozen=True)

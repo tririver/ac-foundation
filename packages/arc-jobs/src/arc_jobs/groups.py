@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Callable, Mapping
@@ -13,6 +14,8 @@ from .models import (
     FailureMode,
     GroupExecutionResult,
     GroupResult,
+    GroupUnitView,
+    GroupView,
     JsonValue,
     RunError,
     Paused,
@@ -35,6 +38,117 @@ def _artifact_value(ref: ArtifactRef) -> dict[str, JsonValue]:
     }
 
 
+def _unit_result(
+    path: Path,
+    *,
+    expected_unit_id: str,
+    expected_semantic_key: str,
+    replayed: bool,
+) -> UnitResult:
+    document = read_json_object(path)
+    require_fields(
+        document,
+        required={
+            "schema_version",
+            "unit_id",
+            "semantic_key_sha256",
+            "status",
+            "value",
+            "error",
+        },
+    )
+    if document["schema_version"] != "arc.jobs.group_unit.v1":
+        raise CorruptStateError("unsupported group unit schema")
+    unit_id, semantic_key_sha256, status, value, error_json = (
+        document["unit_id"],
+        document["semantic_key_sha256"],
+        document["status"],
+        document["value"],
+        document["error"],
+    )
+    if (
+        unit_id != expected_unit_id
+        or semantic_key_sha256 != expected_semantic_key
+        or status not in {"succeeded", "failed", "cancelled"}
+    ):
+        raise CorruptStateError("invalid group unit document")
+    error = None
+    if error_json is not None:
+        if not isinstance(error_json, dict):
+            raise CorruptStateError("invalid group unit error")
+        require_fields(error_json, required={"code", "message", "details"})
+        code, message, details = (
+            error_json["code"],
+            error_json["message"],
+            error_json["details"],
+        )
+        if (
+            not isinstance(code, str)
+            or not isinstance(message, str)
+            or not isinstance(details, dict)
+        ):
+            raise CorruptStateError("invalid group unit error fields")
+        error = RunError(code, message, details)
+    return UnitResult(unit_id, status, value, error, replayed)
+
+
+def inspect_group(directory: Path, group_id: str) -> GroupView:
+    """Return a read-only projection of one durable work group."""
+
+    validate_simple_id(group_id, label="group id")
+    group_directory = directory / group_id
+    document = read_json_object(group_directory / "state.json")
+    require_fields(
+        document,
+        required={"schema_version", "group_id", "units"},
+    )
+    if document["schema_version"] != "arc.jobs.group.v1":
+        raise CorruptStateError("unsupported group schema")
+    if document["group_id"] != group_id or not isinstance(document["units"], list):
+        raise CorruptStateError("invalid group document")
+
+    views: list[GroupUnitView] = []
+    unit_ids: set[str] = set()
+    for item in document["units"]:
+        if not isinstance(item, dict):
+            raise CorruptStateError("invalid group unit descriptor")
+        require_fields(item, required={"unit_id", "semantic_key_sha256"})
+        unit_id = item["unit_id"]
+        semantic_key_sha256 = item["semantic_key_sha256"]
+        if (
+            not isinstance(unit_id, str)
+            or unit_id in unit_ids
+            or not isinstance(semantic_key_sha256, str)
+            or len(semantic_key_sha256) != 64
+            or any(
+                character not in "0123456789abcdef"
+                for character in semantic_key_sha256
+            )
+        ):
+            raise CorruptStateError("invalid group unit descriptor")
+        validate_simple_id(unit_id, label="unit id")
+        unit_ids.add(unit_id)
+        path = group_directory / "units" / f"{unit_id}.json"
+        if not path.exists():
+            views.append(GroupUnitView(unit_id, "pending"))
+            continue
+        result = _unit_result(
+            path,
+            expected_unit_id=unit_id,
+            expected_semantic_key=semantic_key_sha256,
+            replayed=False,
+        )
+        views.append(
+            GroupUnitView(
+                result.unit_id,
+                result.status,
+                result.value,
+                result.error,
+            )
+        )
+    return GroupView(group_id, tuple(views))
+
+
 class WorkGroupRunner:
     def __init__(
         self,
@@ -48,50 +162,6 @@ class WorkGroupRunner:
         self.cancel = cancel
         self.events = events
         self.checkpoint = checkpoint
-
-    def _unit_result(self, path: Path, *, replayed: bool) -> UnitResult:
-        document = read_json_object(path)
-        require_fields(
-            document,
-            required={
-                "schema_version",
-                "unit_id",
-                "semantic_key_sha256",
-                "status",
-                "value",
-                "error",
-            },
-        )
-        if document["schema_version"] != "arc.jobs.group_unit.v1":
-            raise CorruptStateError("unsupported group unit schema")
-        unit_id, status, value, error_json = (
-            document["unit_id"],
-            document["status"],
-            document["value"],
-            document["error"],
-        )
-        if not isinstance(unit_id, str) or status not in {
-            "succeeded",
-            "failed",
-            "cancelled",
-        }:
-            raise CorruptStateError("invalid group unit document")
-        error = None
-        if error_json is not None:
-            if not isinstance(error_json, dict):
-                raise CorruptStateError("invalid group unit error")
-            require_fields(error_json, required={"code", "message", "details"})
-            code, message, details = (
-                error_json["code"],
-                error_json["message"],
-                error_json["details"],
-            )
-            if not isinstance(code, str) or not isinstance(message, str) or not isinstance(
-                details, dict
-            ):
-                raise CorruptStateError("invalid group unit error fields")
-            error = RunError(code, message, details)
-        return UnitResult(unit_id, status, value, error, replayed)
 
     def run(
         self,
@@ -132,14 +202,19 @@ class WorkGroupRunner:
             atomic_write_json(state_path, state, exclusive=True)
 
         results: dict[str, UnitResult] = {}
-        pending: list[WorkUnit] = []
+        pending: deque[WorkUnit] = deque()
         for unit in units:
             path = group_directory / "units" / f"{unit.unit_id}.json"
             if path.exists():
                 document = read_json_object(path)
                 if document.get("semantic_key_sha256") != keys[unit.unit_id]:
                     raise ResumeMismatchError(f"unit {unit.unit_id!r} semantic input changed")
-                results[unit.unit_id] = self._unit_result(path, replayed=True)
+                results[unit.unit_id] = _unit_result(
+                    path,
+                    expected_unit_id=unit.unit_id,
+                    expected_semantic_key=keys[unit.unit_id],
+                    replayed=True,
+                )
             else:
                 pending.append(unit)
 
@@ -220,7 +295,7 @@ class WorkGroupRunner:
                 self.checkpoint()
                 while pending and len(in_flight) < max_workers and not stop_submitting:
                     self.cancel.raise_if_requested()
-                    unit = pending.pop(0)
+                    unit = pending.popleft()
                     in_flight[executor.submit(invoke, unit)] = unit
                 if not in_flight:
                     break

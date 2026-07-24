@@ -1,0 +1,1748 @@
+{
+  "schema_version": "arc.legacy_test_manifest.v1",
+  "source_revision": "f7b4424f427a11f40cd3dea61cb56e90067685dd",
+  "package": "arc-paper",
+  "source_files": [
+    "packages/arc-paper/tests/test_arxiv_source.py",
+    "packages/arc-paper/tests/test_batch_cli.py",
+    "packages/arc-paper/tests/test_batch_db.py",
+    "packages/arc-paper/tests/test_batch_runner.py",
+    "packages/arc-paper/tests/test_broker_jobs.py",
+    "packages/arc-paper/tests/test_cache.py",
+    "packages/arc-paper/tests/test_capabilities.py",
+    "packages/arc-paper/tests/test_cli.py",
+    "packages/arc-paper/tests/test_equations.py",
+    "packages/arc-paper/tests/test_host.py",
+    "packages/arc-paper/tests/test_host_cli_providers.py",
+    "packages/arc-paper/tests/test_ids.py",
+    "packages/arc-paper/tests/test_import.py",
+    "packages/arc-paper/tests/test_package_metadata.py",
+    "packages/arc-paper/tests/test_parse_ar5iv.py",
+    "packages/arc-paper/tests/test_parse_source.py",
+    "packages/arc-paper/tests/test_parsed_source_service_cli.py",
+    "packages/arc-paper/tests/test_pdf_structure.py",
+    "packages/arc-paper/tests/test_prompt_summary_adapter.py",
+    "packages/arc-paper/tests/test_providers_ar5iv.py",
+    "packages/arc-paper/tests/test_providers_inspire.py",
+    "packages/arc-paper/tests/test_results.py",
+    "packages/arc-paper/tests/test_rich_document_contract.py",
+    "packages/arc-paper/tests/test_service.py",
+    "packages/arc-paper/tests/test_structure.py",
+    "packages/arc-paper/tests/test_summary_checkpoint.py",
+    "packages/arc-paper/tests/test_summary_input_pack.py",
+    "packages/arc-paper/tests/test_summary_model.py",
+    "packages/arc-paper/tests/test_summary_pipeline.py",
+    "packages/arc-paper/tests/test_summary_provider_selection.py",
+    "packages/arc-paper/tests/test_summary_schema.py",
+    "packages/arc-paper/tests/test_summary_service_cli.py",
+    "packages/arc-paper/tests/test_summary_store.py",
+    "packages/arc-paper/tests/test_worker_cli.py",
+    "packages/arc-paper/tests/test_worker_controller.py",
+    "packages/arc-paper/tests/test_worker_session.py"
+  ],
+  "family_count": 409,
+  "families": [
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_arxiv_source.py::test_cli_source_commands_are_explicit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_arxiv_source.py::test_explicit_source_cache_records_version_license_hash_manifest_and_main_tex",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_arxiv_source.py::test_ordinary_parse_never_calls_arxiv_source_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_arxiv_source.py::test_source_probe_is_read_only_and_missing_cache_does_not_fetch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_arxiv_source.py::test_unpack_rejects_device_entry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_arxiv_source.py::test_unpack_rejects_expansion_and_file_count_limits",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_arxiv_source.py::test_unpack_rejects_traversal_and_links",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "payload"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_cli.py::test_summary_batch_create_and_status",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_db.py::test_claim_ready_items_is_atomic_across_db_handles",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_db.py::test_create_batch_deduplicates_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_db.py::test_create_batch_replaces_existing_items",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_db.py::test_expired_lease_is_reclaimed_only_after_advisory_lock_releases",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_db.py::test_lease_heartbeat_and_completion_require_matching_token",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_db.py::test_legacy_database_is_migrated_additively",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_db.py::test_mark_status_and_retry_failed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_concurrent_batch_items_charge_one_shared_budget",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_prefetch_marks_ready",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_cancel_before_claim_leaves_items_ready",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_claims_only_available_executor_slots",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_gives_all_items_one_schema_canary_root",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_marks_done_and_export",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_max_items_zero_does_not_claim_or_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_passes_model_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_propagates_progress_context_into_worker_thread",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_rejects_auto_provider_with_exact_model_before_status_mutation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_batch_runner.py::test_run_batch_stops_refilling_after_batch_fatal",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_bounded_job_status_and_result_do_not_project_private_values",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_equivalent_requests_share_job_but_cancel_waiters_independently",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_inline_and_admin_operations_are_not_routed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_invalid_environment_reconciliation_rejects_other_record_mismatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_invalid_persisted_environment_reconciles_only_retired_timeout_mismatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_invalid_receipt_is_rejected_before_budget_admission",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_last_waiter_cancel_and_new_attach_are_linearized",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_last_waiter_cancel_charges_submitted_reservation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_malformed_existing_broker_result_fails_stably",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_managed_batch_export_resolves_opaque_controller_handle",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_missing_or_exhausted_budget_launches_no_job",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_real_command_failure_codes_enter_verified_reconciliation",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "error_code"
+          ],
+          "case_count": 5
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_source_and_content_guards_change_deterministic_job_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_submit_is_deterministic_and_public_ticket_has_no_private_values",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_two_workers_concurrently_share_one_job_with_distinct_waiters",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_cache_hit_releases_first_call_admission_uncharged",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_failure_projects_bounded_failed_event",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_failure_reconciles_response_checkpoint_before_retry",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_loss_after_submission_charges_and_requires_supervision",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_loss_retries_only_proven_unsubmitted_then_supervises",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_loss_retries_when_completed_child_checkpoint_can_replay",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_rejects_corrupt_private_job_record",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "corrupt"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_requires_complete_internal_context_and_rejects_nested_submit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_broker_jobs.py::test_worker_uses_private_request_budget_and_persists_result_before_exit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_cache_paths_quote_paper_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_cache_root_never_implicitly_uses_source_checkout",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_cache_root_prefers_package_env_over_arc_home_and_xdg",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_cache_root_uses_arc_home_before_xdg",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_cache_root_uses_xdg_when_arc_envs_missing",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_json_and_text_roundtrip",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_migrate_paper_cache_dir_drops_legacy_parsed_json",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_parsed_source_annotations_cache_path_uses_sidecar_dir",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_parsed_source_cache_path_accepts_local_arc_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cache.py::test_parsed_source_cache_path_uses_safe_paper_id_file_name",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_catalog_covers_every_public_service_operation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_catalog_covers_registered_cli_commands_and_aliases",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_catalog_ids_and_aliases_are_globally_unique",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_catalog_publishes_strict_valid_schemas_and_effect_classification",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_catalog_resolves_cli_aliases_and_compound_operations",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_cli_worker_capability_classification_comes_from_catalog",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_dispatcher_accepts_structured_parameters_and_resolves_service_lazily",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_dispatcher_exposes_service_capabilities_not_previously_on_cli",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_dispatcher_rejects_unknown_or_unvalidated_parameters_before_execution",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_local_paths_require_controller_artifact_handles_and_resolver",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_optional_positional_parameters_are_passed_as_none",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_capabilities.py::test_required_service_parameters_fail_schema_validation",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "operation",
+            "parameters",
+            "missing"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_cache_list_dispatches",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_cache_remove_decline_cancels_after_preview",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_cache_remove_prompts_and_runs_after_y",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_cache_remove_yes_skips_prompt",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_doctor_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_doctor_host",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_doctor_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_extract_paper_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_get_citers_limit_sort",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_get_metadata",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_get_references_enrich",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_get_section",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_get_title",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_json_wraps_dispatch_exception",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_llm_infer_main_references",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_parse_accepts_markdown_pdf_source",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_parse_dispatches_ar5iv_paper",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_parse_dispatches_html",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_parse_dispatches_markdown_aliases",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "option"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_parse_dispatches_tex_pdf",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_parse_passes_explicit_document_kind",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_parsed_lookup_commands",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_prints_parse_warnings_to_stderr",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_rejects_removed_validate_note_check_command",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_returns_nonzero_for_error_envelope",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_safe_dir_name",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_search_full_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_search_full_text_defaults_to_one_context_line",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_cli.py::test_cli_treats_needs_llm_as_successful_handoff",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_equations.py::test_equation_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_equations.py::test_find_equation_context_searches_labels_numbers_and_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host.py::test_env_host_has_priority",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host.py::test_parent_process_detects_claude_code",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host.py::test_parent_process_detects_codex",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host.py::test_provider_selection_ignores_env_provider_override",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host.py::test_provider_selection_uses_detected_host",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_claude_cli_provider_uses_low_default_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_claude_summary_provider_keeps_test_prompt_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_claude_summary_provider_uses_arc_llm_run_json",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_cli_summary_adapters_forward_managed_progress_and_cancel",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_cli_summary_providers_forward_batch_schema_canary_root",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_codex_cli_provider_uses_low_default_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_codex_summary_provider_keeps_test_prompt_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_host_cli_providers.py::test_codex_summary_provider_uses_arc_llm_run_json",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_arxiv_path_id_rejects_invalid_arxiv_like_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_arxiv_path_id_rejects_non_arxiv",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_extract_paper_ids_deduplicates_and_accepts_urls",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_extract_paper_ids_from_natural_language",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_extract_paper_ids_rejects_invalid_new_style_months",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_normalize_doi",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_normalize_inspire_recid",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_normalize_new_arxiv_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_normalize_old_arxiv_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_ids.py::test_paper_ids_safe_dir_name",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_import.py::test_package_imports",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_package_metadata.py::test_arc_llm_dependency_is_version_bounded",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_package_metadata.py::test_arc_package_internal_dependencies_are_version_bounded",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_package_metadata.py::test_arc_packages_declare_direct_external_dependencies",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_package_metadata.py::test_arc_packages_have_publish_metadata",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_equation_context_does_not_cross_section_boundaries",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_inline_label_inside_multi_paragraph_block_starts_at_label_paragraph",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_inline_paragraph_label_creates_section_until_next_label",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_inline_section_stops_at_embedded_end_label_after_breaks",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_inline_section_stops_at_inline_references_label",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_inline_section_stops_at_reference_list_markers_without_references_label",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_math_inside_equation_container_is_not_duplicated",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_missing_section_returns_toc",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_nested_section_text_is_not_duplicated_in_parent",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_parse_html_includes_equation_contexts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_section_can_be_selected_by_title_fragment",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_ar5iv.py::test_toc_and_sections",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_markdown_compact_parenthesized_value_is_not_treated_as_an_ocr_number",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_markdown_ocr_trailing_number_is_normalized_and_removed_from_formula",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_markdown_standalone_trailing_number_has_layout_evidence",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_local_html_returns_current_ar5iv_shape",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_markdown_pdf_uses_combined_hash_and_pdf_mapping",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_markdown_preserves_escaped_tilde_while_cleaning_strikethrough",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_markdown_records_sections_equations_and_line_anchors",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_pdf_only_returns_best_effort_shape",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_ignores_comment_environment_sections_and_equations",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_ignores_percent_commented_sections_and_equations",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_brackets_number_between_before_and_after_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_fails_when_pdf_text_is_unavailable",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_ignores_inline_references_when_selecting_printed_number",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_records_all_printed_numbers_for_multirow_align",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_returns_same_shape_with_optional_details",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_uses_isolated_printed_number_before_page_break",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_uses_nearby_prose_to_choose_pdf_page",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_tex_pdf_uses_nearest_printed_equation_number",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_parse_without_id_generates_arc_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_pdf_mapping_accepts_ocr_spaced_labels_and_repeated_numbers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_pdf_mapping_uses_source_number_anchors_as_monotonic_bounds",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_pdf_number_binding_does_not_read_the_next_page",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_pdf_number_binding_rejects_numbered_formula_above_unnumbered_formula",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_pdf_number_binding_reserves_source_tag_for_following_formula",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_pdf_text_extraction_preserves_internal_blank_pages",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_source_number_directive_is_authoritative_and_removed_from_normalized_latex",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_source_number_does_not_anchor_to_wrong_page_without_formula_or_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_source_tags_with_spacing_are_authoritative_for_markdown_and_tex",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parse_source.py::test_unnumbered_directive_prevents_pdf_inference_and_wins_conflicts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_cached_source_author_evidence_is_minimal_strict_and_read_only",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_cached_source_author_evidence_rejects_malformed_light_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_cached_source_author_evidence_rejects_non_strict_or_document_flags",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_cli_get_parsed_structure_dispatches_exact_source_only",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_cli_parse_and_get_parsed_commands",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_cli_parsed_search_dispatches_to_service",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_leading_decimal_ordinal_accepts_punctuation_but_rejects_noncanonical_numbers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_parsed_structure_missing_or_tampered_sidecar_fails_closed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_parsed_structure_read_is_sidecar_only_and_never_writes_or_falls_back",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_parsed_structure_view_is_closed_body_free_and_hashes_exact_section_data",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_service_get_parsed_source_missing_returns_error",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_service_mark_parsed_equation_validates_source_and_equation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_service_mark_parsed_equation_writes_sidecar_and_overlays_current_source_hash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_service_parse_source_caches_and_lookup_apis",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_service_parse_source_ignores_cached_parse_with_wrong_source_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_service_parse_source_reuses_cached_parse_when_source_hash_matches",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_strict_cached_document_read_never_fetches_rebuilds_or_upgrades",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_strict_cached_document_read_rejects_malformed_current_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_structure_view_rejects_section_selector_identity_collision",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_parsed_source_service_cli.py::test_structure_view_uses_only_the_exact_chapter_section_universe",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_block_reconciliation_fails_for_repeated_text_across_section_pages",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_block_reconciliation_ignores_equation_anchor_outside_section",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_block_reconciliation_uses_text_fingerprints_and_monotonic_order",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_embedded_outline_reader_is_injectable_and_preserves_hierarchy",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_index_keeps_unlocated_parent_and_sparse_trailing_page",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_locator_dense_appendix_is_not_an_index_without_structural_evidence",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_nested_index_preserves_ranges_roman_pages_and_cross_references",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_printed_toc_fallback_extracts_entries_and_resolves_page_labels",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_reconciliation_fails_when_alignment_is_ambiguous",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_reconciliation_prefers_unique_text_anchor_over_equation_page_hint",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_reconciliation_uses_equation_page_hint_to_disambiguate_running_heading",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_pdf_structure.py::test_title_fingerprint_and_monotonic_reconciliation_are_deterministic",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_prompt_summary_adapter.py::test_kimi_prompt_adapter_uses_default_model_schema_and_valid_provenance",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_prompt_summary_adapter.py::test_production_kimi_summary_routes_through_arc_llm_runner",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_asset_discovery_excludes_site_chrome",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_asset_failure_is_recorded_without_fabricating_content",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_asset_redirect_does_not_request_a_cross_origin_target",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_assets_are_content_addressed_deduplicated_and_reused",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_get_html_reads_existing_html_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_get_html_refresh_overwrites_existing_html_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_get_html_uses_html_cache_by_default",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_manifest_reuse_rejects_path_outside_current_asset_root",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_manifest_reuse_revalidates_cached_bytes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_ar5iv.py::test_ar5iv_url_uses_arxiv_path_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_citers_support_limit_sort_and_separate_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_citers_use_recid_query_and_month_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_mathml_text_is_normalized",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_metadata_and_references_are_cached",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_metadata_and_references_strip_arxiv_versions",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_metadata_migrates_existing_doi_cache_to_arxiv",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_metadata_supports_doi_lookup",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_references_can_be_enriched_through_single_paper_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_providers_inspire.py::test_inspire_search_metadata_consumes_query_and_limit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_results.py::test_error_envelope",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_results.py::test_ok_envelope",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_ar5iv_assets_are_content_addressed_deduplicated_and_reused",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_centered_body_text_without_emphasized_preamble_is_not_front_matter",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_cli_get_parsed_forwards_include_document",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_cli_parse_forwards_rich_document_flags",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "flag"
+          ],
+          "case_count": 2
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_concurrent_explicit_rich_requests_build_once",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_creator_container_fallback_never_mixes_affiliation_or_profile_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_creator_container_prefers_direct_name_over_mixed_credit_text",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_default_ar5iv_parse_does_not_build_document_or_cache_assets",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_display_equation_layout_preserves_rows_cells_alignment_breaks_and_identity",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_doi_alias_reads_canonical_rich_parsed_cache_without_network",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_equation_annotations_are_bound_to_parser_version_and_equation_fingerprint",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_explicit_rich_request_is_reused_and_version_bump_leaves_light_untouched",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_heading_and_list_blocks_preserve_rendering_structure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_inline_anchor_internal_boundary_whitespace_is_preserved_outside_hashes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_inline_run_separators_preserve_explicit_adjacency_without_changing_tokens",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_inline_runs_separate_text_math_citations_and_links_with_stable_tokens",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_integrity_rejects_unrenderable_entities_but_preserves_idless_equation_group_rows",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_legacy_centered_preamble_has_structural_front_matter_roles_and_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_local_markdown_lookup_rebuilds_stale_rich_cache_from_verified_provenance",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_markdown_images_and_pipe_tables_are_loss_aware_rich_blocks",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_markdown_machine_image_details_are_not_reader_prose",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_markdown_pdf_rich_document_keeps_pdf_mapping_and_uses_rich_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_markdown_rich_document_reuses_shared_contract_and_source_anchors",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_markdown_stale_rich_cache_is_ignored_after_version_bump",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_markdown_unnumbered_override_is_consistent_in_legacy_and_rich_views",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_markdown_without_include_document_stays_lightweight",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_missing_markdown_image_is_retained_and_marks_integrity_partial",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_outer_current_rich_cache_rejects_stale_inner_document_version",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_parse_and_get_parsed_default_to_light_cache_only",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_parse_include_document_exposes_cached_document",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_parsed_cache_lookup_follows_alias_chain_to_canonical_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_real_ar5iv_equation_group_preserves_rows_tex_numbers_and_block_order",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_recache_upgrades_v12_ar5iv_cache_without_refreshing_source",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_refresh_and_recache_are_mutually_exclusive",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_rich_html_parse_stores_versioned_document_without_removing_legacy_fields",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_semantic_front_matter_descendants_mark_combined_atomic_block",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_structured_source_credit_preserves_order_links_profiles_and_variants",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_rich_document_contract.py::test_unrelated_person_description_is_not_source_credit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_cache_document_kind_must_match_request",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_cache_list_includes_paper_dirs_sources_and_filters_since",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_cache_remove_dry_run_and_delete_by_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_equation_context_uses_cached_parsed_json_without_fetch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_extract_paper_ids_service",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_full_text_resolves_doi_to_arxiv",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_get_parsed_source_identity_excludes_body_and_reads_cached_metadata",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_get_parsed_source_reads_sources_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_get_title_single",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_list_input_returns_id_result_dict",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_llm_infer_main_references_enables_web_and_verifies_candidates",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_llm_infer_main_references_explicit_ids_override_stale_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_llm_infer_main_references_rejects_unverified_candidates",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_llm_infer_main_references_short_circuits_explicit_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_llm_infer_main_references_uses_cached_query",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_llm_reference_inference_is_single_flight",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_missing_section_keeps_error_and_toc",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_paired_pdf_cache_requires_reconciliation_proof",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_paper_ids_safe_dir_name_service",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_paper_query_services_reject_missing_ids",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_ar5iv_writes_sources_cache_not_old_parsed_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_fails_when_paired_pdf_is_not_extractable",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_markdown_pdf_requires_both_inputs",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_markdown_writes_and_reuses_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_rejects_explicit_source_mismatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_tex_pdf_requires_tex_and_pdf",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_tex_rejects_pdf_companion",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_parse_source_writes_sources_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_references_citers_and_counts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_full_text_can_search_all_cached_papers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_full_text_can_search_explicit_local_source_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_full_text_deduplicates_nested_section_snippets",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_full_text_includes_cached_title_and_abbreviated_authors",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_full_text_python_fallback",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_full_text_uses_cached_parsed_json_without_fetch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_inspire_uses_provider_query_and_limit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_search_parsed_source_finds_equation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_section_and_equation_provider_errors_are_result_envelopes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_stale_parsed_cache_is_reparsed_from_ar5iv_fetch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_service.py::test_toc_section_and_equation_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_article_skips_a_lone_document_title_when_sections_follow",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_article_structure_uses_top_level_sections",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_book_structure_drills_below_three_parts_to_seven_chapters",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_book_without_five_units_uses_deepest_real_level_with_diagnostic",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_exact_coverage_reports_duplicates_missing_and_order",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_four_top_level_units_require_explicit_document_kind",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_pdf_contents_evidence_excludes_converter_toc_heading_with_page_suffix",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_semantic_source_roles_exclude_contents_from_chapter_selection",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_structure.py::test_structure_and_index_contracts_are_versioned_and_proof_is_pdf_bound",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_checkpoint.py::test_invalid_paid_response_is_checkpointed_before_validation",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_checkpoint.py::test_response_is_replayed_without_second_provider_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_checkpoint.py::test_uncertain_call_waits_one_hour_then_retries_only_once",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_input_pack.py::test_build_input_pack_includes_hash_and_truncated_sections",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_model.py::test_claude_default_summary_model_is_low",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_model.py::test_codex_default_summary_model_is_low",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_model.py::test_kimi_default_summary_model_honors_low_tier_mapping",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_model.py::test_kimi_default_summary_model_uses_provider_default_alias",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_model.py::test_summary_model_env_vars_do_not_select_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_pipeline.py::test_section_and_final_calls_share_budget_and_checkpoint_replay_is_free",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_pipeline.py::test_section_pipeline_keeps_section_cache_model_specific",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_pipeline.py::test_section_pipeline_summarizes_sections_sequentially_and_uses_compact_final_pack",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_provider_selection.py::test_select_summary_provider_auto_falls_back_to_manual",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_provider_selection.py::test_select_summary_provider_auto_uses_agent_host_env",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_provider_selection.py::test_select_summary_provider_auto_uses_kimi_code_host",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_provider_selection.py::test_select_summary_provider_explicit",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_provider_selection.py::test_select_summary_provider_passes_env_to_claude_native_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_provider_selection.py::test_select_summary_provider_passes_env_to_codex_native_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_provider_selection.py::test_select_summary_provider_passes_env_to_kimi_prompt_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_schema.py::test_kimi_code_cli_summary_provenance_passes_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_schema.py::test_missing_title_fails_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_schema.py::test_summary_prompt_loads_from_package_resource",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_schema.py::test_summary_resources_are_package_local",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_schema.py::test_summary_schema_loads",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_schema.py::test_valid_summary_passes_schema",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_cli_generate_llm_summary_passes_model_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_cli_get_llm_summary_can_force_manual_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_cli_store_llm_summary",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_generate_llm_summary_defaults_to_low_model_tier",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_generate_llm_summary_keeps_generation_cache_model_specific",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_generate_llm_summary_rejects_auto_provider_with_exact_model",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_generate_llm_summary_resolves_model_tier_before_summary_provider",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_generate_llm_summary_uses_provider_and_caches",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_get_llm_summary_autogenerates_and_caches",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_get_llm_summary_returns_needs_llm_when_provider_is_manual",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_get_llm_summary_uses_canonical_cache_key_for_aliases",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_summary_generation_is_single_flight_across_callers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_service_cli.py::test_summary_generation_propagates_batch_fatal_config",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_store.py::test_read_summary_with_provider_and_no_model_can_use_matching_latest",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_store.py::test_store_section_summary_writes_resumable_partial_cache",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_store.py::test_store_summary_rejects_mismatched_paper_id",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_summary_store.py::test_store_summary_validates_and_writes",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_artifact_handle_cannot_escape_session",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_artifact_read_detects_content_tampering",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_audit_records_ids_and_argument_shape_without_values",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_direct_service_module_cannot_bypass_worker_wrapper",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_final_envelope_with_session_metadata_obeys_inline_boundary",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_large_result_is_externalized_and_pageable",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_policy_targets_byte_limit_includes_worker_session_metadata",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_policy_targets_pages_unbounded_catalog_with_digest_bound_cursor",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_raw_arc_paper_is_rejected_inside_worker_context",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_restricted_read_policy_allows_only_authorized_cached_section",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_restricted_read_policy_rejects_duplicate_or_conflicting_security_arguments",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "argv",
+            "code"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_restricted_structure_read_rejects_locator_extra_source_and_flags",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "argv"
+          ],
+          "case_count": 4
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_summary_batch_export_normalizes_relative_output_into_run_root",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_summary_batch_export_rejects_output_outside_run_root",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_summary_batch_export_rejects_symlink_escape",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_v2_read_policy_authorizes_the_same_exact_cached_targets",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_v2_read_policy_fails_closed_for_tamper_escape_and_symlink",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_capability_metadata_defaults_new_deterministic_command_to_allowed",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_context_uses_session_paths_without_local_bearer_guard",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_defers_unclassified_command_to_canonical_cli",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_delegates_safe_command_and_preserves_result",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_fails_closed_when_paper_cli_access_is_not_full",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_rejects_every_nested_llm_entrypoint_before_dispatch",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_session_finishes_after_keyboard_cancel",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_session_stages_and_audits_pending_after_command_failure",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_cli.py::test_worker_session_stages_and_audits_pending_after_success",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_controller.py::test_controller_finalize_promotes_and_audits_completion",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_cache_list_search_and_remove_see_union_base",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_cache_paths_reject_traversal_and_session_state",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_call_record_ownership_is_not_reassigned_by_later_call",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_call_scoped_promotion_is_all_or_none_and_keeps_other_calls",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_fetch_concurrency_is_bounded_and_terminal_errors_are_not_retried",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_fetch_once_deduplicates_same_canonical_id_across_workers",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_finish_call_promotes_after_failure_and_audit_redacts_secrets",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_from_environment_reopens_controller_session",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_invalid_or_tampered_artifact_is_quarantined",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_malformed_owned_tombstone_blocks_call_promotion",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_missing_paper_provider_fetch_is_deduplicated_without_network_or_llm",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_open_or_create_fails_closed_on_partial_or_changed_environment",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_open_or_create_needs_only_controller_owned_paths",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_overlay_reads_fall_back_to_base_and_tombstone_hides_base",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_path_lock_prevents_promotion_from_losing_concurrent_writer",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_promoted_tombstone_moves_base_content_to_recoverable_trash",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_promotion_ignores_ephemeral_lock_and_temporary_files",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_promotion_is_atomic_deduplicates_and_preserves_conflicts",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_promotion_rewrites_real_manifest_overlay_paths_to_base",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_provider_generated_ar5iv_asset_manifest_has_live_promoted_path",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_provider_generated_arxiv_source_manifest_has_live_promoted_paths",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_same_canonical_id_serializes_operations_without_cross_operation_replay",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_session_id_is_safe_for_conflict_and_trash_paths",
+      "parameter_dimensions": [
+        {
+          "names": [
+            "session_id"
+          ],
+          "case_count": null
+        }
+      ]
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_source_identity_namespace_promotes_under_call_scope",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_terminal_rate_limit_blocks_refresh_and_other_operations_for_same_paper",
+      "parameter_dimensions": []
+    },
+    {
+      "old_nodeid": "packages/arc-paper/tests/test_worker_session.py::test_unowned_artifact_is_quarantined_and_other_call_cannot_claim_it",
+      "parameter_dimensions": []
+    }
+  ]
+}

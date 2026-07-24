@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from arc_jobs import (
+    AtomicStateStore,
     ArtifactSourceRef,
     Awaiting,
     CancelledError,
+    CorruptStateError,
     Failed,
     IdempotencyConflictError as JobsIdempotencyConflictError,
+    JsonValue,
     Paused,
     RunContext,
     RunEngine,
@@ -22,11 +25,18 @@ from arc_jobs import (
     RunView,
     ResumeInputConflictError as JobsResumeInputConflictError,
     ResumeMismatchError as JobsResumeMismatchError,
+    StateConflictError,
     Succeeded,
 )
 
 from .executor import HANDLER_NAME, LLMTaskExecutor
-from .identity import AdoptionAuthorization, derive_run_id
+from .identity import (
+    AdoptionAuthorization,
+    derive_run_id,
+    document_sha256,
+    semantic_document,
+    semantic_key,
+)
 from .errors import (
     IdempotencyConflictError,
     ResumeInputConflictError,
@@ -62,6 +72,48 @@ class LLMRunView:
     run: RunView
 
 
+@dataclass(frozen=True)
+class _StandaloneBootstrap:
+    revision: int
+    request: LLMRequest
+
+
+class _StandaloneBootstrapContract:
+    schema_version = "arc.llm.standalone_bootstrap.v1"
+
+    def encode(self, value: _StandaloneBootstrap) -> Mapping[str, JsonValue]:
+        return {
+            "revision": value.revision,
+            "request": request_to_document(value.request),
+        }
+
+    def decode(self, document: Mapping[str, JsonValue]) -> _StandaloneBootstrap:
+        if set(document) != {"revision", "request"}:
+            raise CorruptStateError("invalid standalone LLM bootstrap fields")
+        revision = document["revision"]
+        request = document["request"]
+        if (
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision != 0
+            or not isinstance(request, Mapping)
+        ):
+            raise CorruptStateError("invalid standalone LLM bootstrap")
+        try:
+            decoded = decode_request(request)
+        except Exception as exc:
+            raise CorruptStateError("invalid standalone LLM bootstrap request") from exc
+        return _StandaloneBootstrap(revision, decoded)
+
+    def validate_transition(
+        self,
+        previous: _StandaloneBootstrap | None,
+        next: _StandaloneBootstrap,
+    ) -> None:
+        if previous is not None or next.revision != 0:
+            raise ValueError("Standalone LLM bootstrap is immutable.")
+
+
 class LLMTaskService:
     """Reusable in-run LLM task service."""
 
@@ -75,6 +127,32 @@ class LLMTaskService:
         *,
         options: LLMExecutionOptions = LLMExecutionOptions(),
     ) -> LLMTaskOutcome:
+        return self._executor.execute(context, request, options=options)
+
+    def execute_or_resume(
+        self,
+        context: RunContext,
+        request: LLMRequest,
+        *,
+        input: ResumeInput | None = None,
+        options: LLMExecutionOptions = LLMExecutionOptions(),
+    ) -> LLMTaskOutcome:
+        """Drive one child task without creating a nested arc-jobs run."""
+
+        state = self._executor._task_store(context, request.task_id).read()
+        if state is not None and state.pause is not None:
+            if state.semantic_key.sha256 != semantic_key(request).sha256:
+                return LLMFailed(IdempotencyConflictError())
+            if state.pause.input_required and input is None:
+                return self._executor._paused_outcome(state.pause)
+            return self._executor.resume(
+                context,
+                request.task_id,
+                input=input,
+                options=options,
+            )
+        if input is not None:
+            return LLMFailed(ResumeKeyMismatchError())
         return self._executor.execute(context, request, options=options)
 
     def resume(
@@ -116,13 +194,15 @@ class _LLMHandler:
         service: LLMTaskService,
         *,
         options: LLMExecutionOptions,
+        request: LLMRequest | None = None,
     ) -> None:
         self.service = service
         self.options = options
+        self.request = request
         self.last_outcome: LLMTaskOutcome | None = None
 
     def execute(self, context: RunContext) -> Any:
-        request = decode_request(context.semantic_input)
+        request = self.request or self._load_durable_request(context)
         state = self.service._executor._task_store(context, request.task_id).read()
         if state is not None and state.pause is not None:
             resume_input = (
@@ -130,16 +210,39 @@ class _LLMHandler:
                 if context.resume_input is None
                 else decode_resume_input(context.resume_input)
             )
-            outcome = self.service.resume(
+            outcome = self.service.execute_or_resume(
                 context,
-                request.task_id,
+                request,
                 input=resume_input,
                 options=self.options,
             )
         else:
-            outcome = self.service.execute(context, request, options=self.options)
+            outcome = self.service.execute_or_resume(
+                context,
+                request,
+                options=self.options,
+            )
         self.last_outcome = outcome
         return _run_outcome(self.service, context, request.task_id, outcome)
+
+    def _load_durable_request(self, context: RunContext) -> LLMRequest:
+        task_id = context.semantic_input.get("task_id")
+        if not isinstance(task_id, str):
+            raise RuntimeError("LLM run semantic input has no task_id.")
+        state = self.service._executor._task_store(context, task_id).read()
+        if state is not None:
+            return self.service._executor._load_request(context, state)
+        bootstrap = _standalone_bootstrap_store(
+            context.repository,
+            context.run_id,
+            document_sha256(context.semantic_input),
+        ).read()
+        if (
+            bootstrap is None
+            or semantic_document(bootstrap.request) != dict(context.semantic_input)
+        ):
+            raise RuntimeError("LLM run has no durable task request.")
+        return bootstrap.request
 
 
 class _AdoptHandler:
@@ -224,13 +327,14 @@ class LLMClient:
     ) -> LLMRunResult:
         resolved_run_id = run_id or derive_run_id(HANDLER_NAME, request.task_id)
         repository = RunRepository(run_root)
-        handler = _LLMHandler(self.service, options=options)
+        _publish_standalone_bootstrap(repository, resolved_run_id, request)
+        handler = _LLMHandler(self.service, options=options, request=request)
         try:
             snapshot = RunEngine(repository).execute(
                 RunSpec(
                     resolved_run_id,
                     HANDLER_NAME,
-                    request_to_document(request),
+                    semantic_document(request),
                 ),
                 handler,
             )
@@ -270,7 +374,7 @@ class LLMClient:
             )
         outcome = handler.last_outcome
         if outcome is None and snapshot.result_ref is not None:
-            request = decode_request(repository.read_spec(run_id).semantic_input)
+            request = self._durable_request(repository, snapshot)
             outcome = self._replay_succeeded(repository, snapshot, request)
         return LLMRunResult(snapshot, outcome)
 
@@ -285,7 +389,7 @@ class LLMClient:
     ) -> LLMRunResult:
         resolved_run_id = run_id or derive_run_id(HANDLER_NAME, request.task_id)
         repository = RunRepository(run_root)
-        spec = RunSpec(resolved_run_id, HANDLER_NAME, request_to_document(request))
+        spec = RunSpec(resolved_run_id, HANDLER_NAME, semantic_document(request))
         handler = _AdoptHandler(
             self.service,
             request,
@@ -317,3 +421,51 @@ class LLMClient:
             execution_slice=None,
         )
         return self.service.execute(context, request)
+
+    def _durable_request(
+        self,
+        repository: RunRepository,
+        snapshot: RunSnapshot,
+    ) -> LLMRequest:
+        context = RunContext(
+            repository,
+            snapshot,
+            resume_input=None,
+            execution_slice=None,
+        )
+        task_id = context.semantic_input.get("task_id")
+        if not isinstance(task_id, str):
+            raise RuntimeError("LLM run semantic input has no task_id.")
+        state = self.service._executor._task_store(context, task_id).read()
+        if state is None:
+            raise RuntimeError("LLM run has no durable task request.")
+        return self.service._executor._load_request(context, state)
+
+
+def _standalone_bootstrap_store(
+    repository: RunRepository,
+    run_id: str,
+    semantic_sha256: str,
+) -> AtomicStateStore[_StandaloneBootstrap]:
+    namespace = f"llm-bootstrap-{semantic_sha256[:32]}"
+    return AtomicStateStore(
+        repository.run_directory(run_id) / "state" / f"{namespace}.json",
+        _StandaloneBootstrapContract(),
+    )
+
+
+def _publish_standalone_bootstrap(
+    repository: RunRepository,
+    run_id: str,
+    request: LLMRequest,
+) -> None:
+    key = semantic_key(request).sha256
+    store = _standalone_bootstrap_store(repository, run_id, key)
+    existing = store.read()
+    if existing is None:
+        try:
+            store.create(_StandaloneBootstrap(0, request))
+        except StateConflictError:
+            existing = store.read()
+    if existing is not None and semantic_key(existing.request).sha256 != key:
+        raise RuntimeError("Standalone LLM bootstrap semantic key mismatch.")

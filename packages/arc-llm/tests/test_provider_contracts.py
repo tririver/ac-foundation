@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from arc_jobs import CancelledError
 
 from arc_llm import (
     DeliveryState,
@@ -12,10 +16,13 @@ from arc_llm import (
     FailureCategory,
     ModelSelection,
     NativeResumeHandle,
+    ProviderExecution,
+    ProviderInput,
     ProviderRequest,
     ProviderResumeRequest,
     ProviderTerminalKind,
 )
+from arc_llm.output import CandidateMaterial
 from arc_llm.config import detect_host, resolve_model_selection
 from arc_llm.errors import ProviderFailure
 from arc_llm.progress import DurableProviderObserver
@@ -23,10 +30,14 @@ from arc_llm.providers.claude import ClaudeAdapter
 from arc_llm.providers.claude import _parse_event as parse_claude_event
 from arc_llm.providers.codex import CodexAdapter
 from arc_llm.providers.codex import _parse_event as parse_codex_event
-from arc_llm.providers.kimi import KimiAdapter, _parse_event as parse_kimi_event
+from arc_llm.providers.acp import _ACPClient
+from arc_llm.providers.acp import OfficialACPRunner
+from arc_llm.providers.base import InputDeliveryMode
+from arc_llm.providers.kimi import KimiAdapter
 from arc_llm.providers._cli import classify_cli_failure, run_cli
 from arc_llm.providers.base import UsageAvailability
 from arc_llm.providers.process import ProcessResult
+from arc_llm.providers.registry import default_registry
 
 
 class Observer:
@@ -73,6 +84,23 @@ class FakeRunner:
         return ProcessResult(0, self.stdout, b"")
 
 
+class FakeACPRunner:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def run(self, **kwargs: Any) -> ProviderExecution:
+        self.calls.append(kwargs)
+        kwargs["observer"].before_delivery()
+        session_id = kwargs["session_id"] or "kimi-session"
+        handle = NativeResumeHandle("kimi", session_id)
+        kwargs["observer"].native_handle(handle)
+        return ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            candidates=(CandidateMaterial(text='{"ok":true}', terminal=True),),
+            native_handle=handle,
+        )
+
+
 @pytest.mark.parametrize(
     ("adapter_type", "event", "handle"),
     [
@@ -93,14 +121,6 @@ class FakeRunner:
                 "usage": {"input_tokens": 2, "output_tokens": 1},
             },
             "claude-session",
-        ),
-        (
-            KimiAdapter,
-            {
-                "session_id": "kimi-session",
-                "result": {"content": '{"ok":true}'},
-            },
-            "kimi-session",
         ),
     ],
 )
@@ -167,29 +187,26 @@ def test_provider_schema_is_transported_by_each_adapter() -> None:
     )
     assert "--json-schema" in claude_runner.calls[0]["argv"]
 
-    kimi_runner = FakeRunner(
-        b'{"session_id":"s","result":{"content":"{}"}}\n'
-    )
-    KimiAdapter(binary="fake", runner=kimi_runner, env={}).start(
+    kimi_runner = FakeACPRunner()
+    KimiAdapter(binary="fake", acp_runner=kimi_runner, env={}).start(
         ProviderRequest("p", "m", {"type": "object"}, {}, 2),
         Observer(),
         Cancel(),
     )
-    assert b"JSON Schema" in kimi_runner.calls[0]["stdin"]
+    assert "JSON Schema" in kimi_runner.calls[0]["prompt"]
 
 
-def test_kimi_denies_reverse_permission_and_filesystem_requests() -> None:
-    for method in (
-        "session/request_permission",
-        "fs/read_text_file",
-        "fs/write_text_file",
+def test_kimi_acp_client_denies_reverse_permission_and_filesystem_requests() -> None:
+    from acp import RequestError
+
+    client = _ACPClient("kimi", [], Observer())
+    for operation in (
+        client.request_permission,
+        client.read_text_file,
+        client.write_text_file,
     ):
-        with pytest.raises(ProviderFailure) as caught:
-            parse_kimi_event({"jsonrpc": "2.0", "id": 1, "method": method})
-        assert caught.value.category is FailureCategory.INVALID_REQUEST
-        assert caught.value.delivery is DeliveryState.MAY_HAVE_RUN
-        assert caught.value.details["code"] == "reverse_operation_denied"
-        assert caught.value.details["method"] == method
+        with pytest.raises(RequestError):
+            asyncio.run(operation())
 
 
 def test_codex_start_and_resume_preserve_native_history_and_schema_contract() -> None:
@@ -263,6 +280,55 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
     assert not Path(resume_schema_path).exists()
 
 
+def test_codex_start_and_resume_deliver_native_image_and_read_context(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "page.png"
+    image.write_bytes(b"\x89PNG\r\n")
+    markdown = tmp_path / "paper.md"
+    markdown.write_text("# paper", encoding="utf-8")
+    inputs = (
+        ProviderInput(
+            "page",
+            "image/png",
+            "a" * 64,
+            image.stat().st_size,
+            image,
+            InputDeliveryMode.NATIVE_ATTACHMENT,
+        ),
+        ProviderInput(
+            "paper",
+            "text/markdown",
+            "b" * 64,
+            markdown.stat().st_size,
+            markdown,
+            InputDeliveryMode.READ_TOOL,
+        ),
+    )
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n'
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\n'
+    )
+    adapter = CodexAdapter(binary="fake-codex", runner=runner, env={})
+
+    adapter.start(
+        ProviderRequest("Review.", "model", None, {}, 2, inputs),
+        Observer(),
+        Cancel(),
+    )
+    adapter.resume(
+        NativeResumeHandle("codex", "thread-1"),
+        ProviderResumeRequest("Continue.", None, {}, 2, inputs),
+        Observer(),
+        Cancel(),
+    )
+
+    for call in runner.calls:
+        assert call["argv"][call["argv"].index("--image") + 1] == str(image)
+        assert str(markdown).encode() in call["stdin"]
+        assert str(image).encode() not in call["stdin"]
+
+
 def test_claude_start_resume_and_structured_output_preference() -> None:
     schema = {
         "properties": {"ok": {"type": "boolean"}},
@@ -325,6 +391,53 @@ def test_claude_start_resume_and_structured_output_preference() -> None:
     assert "--no-session-persistence" not in runner.calls[1]["argv"]
 
 
+def test_claude_start_and_resume_deliver_inputs_through_read_paths(
+    tmp_path: Path,
+) -> None:
+    image = tmp_path / "page.jpg"
+    image.write_bytes(b"\xff\xd8\xff")
+    context = tmp_path / "context.json"
+    context.write_text("{}", encoding="utf-8")
+    inputs = (
+        ProviderInput(
+            "page",
+            "image/jpeg",
+            "a" * 64,
+            image.stat().st_size,
+            image,
+            InputDeliveryMode.READ_TOOL,
+        ),
+        ProviderInput(
+            "context",
+            "application/json",
+            "b" * 64,
+            context.stat().st_size,
+            context,
+            InputDeliveryMode.READ_TOOL,
+        ),
+    )
+    runner = FakeRunner(
+        b'{"type":"result","session_id":"session-1","result":"ok"}\n'
+    )
+    adapter = ClaudeAdapter(binary="fake-claude", runner=runner, env={})
+
+    adapter.start(
+        ProviderRequest("Review.", "model", None, {}, 2, inputs),
+        Observer(),
+        Cancel(),
+    )
+    adapter.resume(
+        NativeResumeHandle("claude", "session-1"),
+        ProviderResumeRequest("Continue.", None, {}, 2, inputs),
+        Observer(),
+        Cancel(),
+    )
+
+    for call in runner.calls:
+        assert str(image).encode() in call["stdin"]
+        assert str(context).encode() in call["stdin"]
+
+
 def test_kimi_resume_uses_session_without_creation_or_model_and_has_null_usage() -> None:
     schema = {
         "type": "object",
@@ -332,53 +445,441 @@ def test_kimi_resume_uses_session_without_creation_or_model_and_has_null_usage()
         "properties": {"ok": {"type": "boolean"}},
         "additionalProperties": False,
     }
-    runner = FakeRunner(
-        b'{"session_id":"kimi-1","result":{"content":"{\\"ok\\":true}"}}\n'
-    )
-    adapter = KimiAdapter(binary="fake-kimi", runner=runner, env={})
+    runner = FakeACPRunner()
+    adapter = KimiAdapter(binary="fake-kimi", acp_runner=runner, env={})
 
     started = adapter.start(
         ProviderRequest("private prompt", "kimi-test", schema, {}, 7),
         Observer(),
         Cancel(),
     )
-    assert runner.calls[0]["argv"] == [
-        "fake-kimi",
-        "--acp",
-        "--model",
-        "kimi-test",
-    ]
+    assert runner.calls[0]["binary"] == "fake-kimi"
+    assert runner.calls[0]["model"] == "kimi-test"
+    assert runner.calls[0]["session_id"] is None
     expected_schema = json.dumps(
         schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
-    sent = runner.calls[0]["stdin"].decode()
+    sent = runner.calls[0]["prompt"]
     assert sent == (
         "private prompt\n\n"
         "Return exactly one JSON value satisfying this JSON Schema. "
         "Do not add prose or code fences.\n"
         f"JSON Schema:\n{expected_schema}"
     )
-    assert "private prompt" not in runner.calls[0]["argv"]
-    assert started.native_handle == NativeResumeHandle("kimi", "kimi-1")
+    assert started.native_handle == NativeResumeHandle("kimi", "kimi-session")
     assert started.usage is None
 
     resumed = adapter.resume(
-        started.native_handle,
+        NativeResumeHandle("kimi", "kimi-1"),
         ProviderResumeRequest("follow-up", schema, {}, 9),
         Observer(),
         Cancel(),
     )
-    assert runner.calls[1]["argv"] == [
-        "fake-kimi",
-        "--acp",
-        "--session",
-        "kimi-1",
-    ]
-    assert "--model" not in runner.calls[1]["argv"]
-    assert runner.calls[1]["stdin"].decode().endswith(
+    assert runner.calls[1]["session_id"] == "kimi-1"
+    assert runner.calls[1]["model"] is None
+    assert runner.calls[1]["prompt"].endswith(
         f"JSON Schema:\n{expected_schema}"
     )
     assert resumed.usage is None
+
+
+def test_official_acp_runner_negotiates_media_and_resumes_session(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from acp import text_block
+    from acp.schema import (
+        AgentMessageChunk,
+        ImageContentBlock,
+        TextContentBlock,
+    )
+
+    image = tmp_path / "page.png"
+    image.write_bytes(b"\x89PNG\r\n")
+    markdown = tmp_path / "paper.md"
+    markdown.write_text("# paper", encoding="utf-8")
+    inputs = (
+        ProviderInput(
+            "page",
+            "image/png",
+            "a" * 64,
+            image.stat().st_size,
+            image,
+            InputDeliveryMode.ACP_CONTENT,
+        ),
+        ProviderInput(
+            "paper",
+            "text/markdown",
+            "b" * 64,
+            markdown.stat().st_size,
+            markdown,
+            InputDeliveryMode.ACP_CONTENT,
+        ),
+    )
+    calls: list[Any] = []
+
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(
+                agent_capabilities=SimpleNamespace(
+                    prompt_capabilities=SimpleNamespace(
+                        image=True,
+                        embedded_context=True,
+                    )
+                )
+            )
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            calls.append(("new", kwargs))
+            return SimpleNamespace(session_id="kimi-new")
+
+        async def resume_session(self, **kwargs: Any) -> Any:
+            calls.append(("resume", kwargs))
+
+        async def set_config_option(self, *args: Any) -> Any:
+            calls.append(("model", args))
+
+        async def prompt(self, **kwargs: Any) -> Any:
+            calls.append(("prompt", kwargs))
+            await client.session_update(
+                kwargs["session_id"],
+                AgentMessageChunk(
+                    sessionUpdate="agent_message_chunk",
+                    content=text_block('{"ok":true}'),
+                ),
+            )
+            return SimpleNamespace(stop_reason="end_turn", usage=None)
+
+    client: Any
+
+    @asynccontextmanager
+    async def spawn(fake_client: Any, *args: Any, **kwargs: Any):
+        nonlocal client
+        client = fake_client
+        yield Connection(), SimpleNamespace()
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+    observer = Observer()
+    started = OfficialACPRunner().run(
+        provider="kimi",
+        binary="fake-kimi",
+        model="vision-model",
+        prompt="Review.",
+        inputs=inputs,
+        session_id=None,
+        idle_timeout_seconds=2,
+        observer=observer,
+        cancel=Cancel(),
+        env={},
+    )
+    prompt_blocks = next(item[1]["prompt"] for item in calls if item[0] == "prompt")
+    assert isinstance(prompt_blocks[0], TextContentBlock)
+    assert isinstance(prompt_blocks[1], ImageContentBlock)
+    assert prompt_blocks[1].mime_type == "image/png"
+    assert prompt_blocks[2].resource.mime_type == "text/markdown"
+    assert started.native_handle == NativeResumeHandle("kimi", "kimi-new")
+    assert started.candidates[0].text == '{"ok":true}'
+    assert ("model", ("model", "kimi-new", "vision-model")) in calls
+
+    calls.clear()
+    resumed = OfficialACPRunner().run(
+        provider="kimi",
+        binary="fake-kimi",
+        model=None,
+        prompt="Continue.",
+        inputs=inputs,
+        session_id="kimi-existing",
+        idle_timeout_seconds=2,
+        observer=Observer(),
+        cancel=Cancel(),
+        env={},
+    )
+    assert any(
+        item[0] == "resume" and item[1]["session_id"] == "kimi-existing"
+        for item in calls
+    )
+    assert resumed.native_handle == NativeResumeHandle("kimi", "kimi-existing")
+
+
+def test_official_acp_runner_classifies_initialize_failure_as_not_delivered(
+    monkeypatch,
+) -> None:
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            raise OSError("initialize failed")
+
+    @asynccontextmanager
+    async def spawn(*args: Any, **kwargs: Any):
+        yield Connection(), SimpleNamespace()
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+    observer = Observer()
+
+    with pytest.raises(ProviderFailure) as caught:
+        OfficialACPRunner().run(
+            provider="kimi",
+            binary="fake-kimi",
+            model="default",
+            prompt="Review.",
+            inputs=(),
+            session_id=None,
+            idle_timeout_seconds=2,
+            observer=observer,
+            cancel=Cancel(),
+            env={},
+        )
+
+    assert caught.value.delivery is DeliveryState.NOT_DELIVERED
+    assert observer.deliveries == 0
+
+
+def test_official_acp_runner_classifies_prompt_failure_as_may_have_run(
+    monkeypatch,
+) -> None:
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(
+                agent_capabilities=SimpleNamespace(
+                    prompt_capabilities=SimpleNamespace(image=True)
+                )
+            )
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(session_id="kimi-new")
+
+        async def prompt(self, **kwargs: Any) -> Any:
+            raise OSError("prompt transport failed")
+
+    @asynccontextmanager
+    async def spawn(*args: Any, **kwargs: Any):
+        yield Connection(), SimpleNamespace()
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+    observer = Observer()
+
+    with pytest.raises(ProviderFailure) as caught:
+        OfficialACPRunner().run(
+            provider="kimi",
+            binary="fake-kimi",
+            model="default",
+            prompt="Review.",
+            inputs=(),
+            session_id=None,
+            idle_timeout_seconds=2,
+            observer=observer,
+            cancel=Cancel(),
+            env={},
+        )
+
+    assert caught.value.delivery is DeliveryState.MAY_HAVE_RUN
+    assert observer.deliveries == 1
+
+
+@pytest.mark.parametrize(
+    "media_type",
+    ("text/markdown", "application/json", "text/plain"),
+)
+def test_official_acp_runner_rejects_missing_embedded_context_capability(
+    tmp_path: Path,
+    monkeypatch,
+    media_type: str,
+) -> None:
+    markdown = tmp_path / "paper.md"
+    markdown.write_text("# paper", encoding="utf-8")
+    provider_input = ProviderInput(
+        "paper",
+        media_type,
+        "a" * 64,
+        markdown.stat().st_size,
+        markdown,
+        InputDeliveryMode.ACP_CONTENT,
+    )
+
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(
+                agent_capabilities=SimpleNamespace(
+                    prompt_capabilities=SimpleNamespace(
+                        image=True,
+                        embedded_context=False,
+                    )
+                )
+            )
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            raise AssertionError("unsupported input reached session creation")
+
+    @asynccontextmanager
+    async def spawn(*args: Any, **kwargs: Any):
+        yield Connection(), SimpleNamespace()
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+    observer = Observer()
+
+    with pytest.raises(ProviderFailure) as caught:
+        OfficialACPRunner().run(
+            provider="kimi",
+            binary="fake-kimi",
+            model="default",
+            prompt="Review.",
+            inputs=(provider_input,),
+            session_id=None,
+            idle_timeout_seconds=2,
+            observer=observer,
+            cancel=Cancel(),
+            env={},
+        )
+
+    assert caught.value.category is FailureCategory.INVALID_REQUEST
+    assert caught.value.delivery is DeliveryState.NOT_DELIVERED
+    assert caught.value.details["code"] == "unsupported_input_media"
+    assert observer.deliveries == 0
+
+
+def test_official_acp_runner_session_activity_resets_idle_timeout(
+    monkeypatch,
+) -> None:
+    client: Any
+    cancellations: list[str] = []
+
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(agent_capabilities=SimpleNamespace())
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(session_id="active-session")
+
+        async def prompt(self, **kwargs: Any) -> Any:
+            for _ in range(6):
+                await asyncio.sleep(0.01)
+                await client.session_update(
+                    kwargs["session_id"],
+                    SimpleNamespace(kind="tool_activity"),
+                )
+            return SimpleNamespace(stop_reason="end_turn", usage=None)
+
+        async def cancel(self, *, session_id: str) -> None:
+            cancellations.append(session_id)
+
+    @asynccontextmanager
+    async def spawn(fake_client: Any, *args: Any, **kwargs: Any):
+        nonlocal client
+        client = fake_client
+        yield Connection(), SimpleNamespace()
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+
+    result = OfficialACPRunner().run(
+        provider="kimi",
+        binary="fake-kimi",
+        model="default",
+        prompt="Review.",
+        inputs=(),
+        session_id=None,
+        idle_timeout_seconds=0.03,
+        observer=Observer(),
+        cancel=Cancel(),
+        env={},
+    )
+
+    assert result.terminal_kind is ProviderTerminalKind.COMPLETED
+    assert cancellations == []
+
+
+def test_official_acp_runner_true_idle_timeout_cancels_prompt(
+    monkeypatch,
+) -> None:
+    cancellations: list[str] = []
+
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(agent_capabilities=SimpleNamespace())
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(session_id="idle-session")
+
+        async def prompt(self, **kwargs: Any) -> Any:
+            await asyncio.Event().wait()
+
+        async def cancel(self, *, session_id: str) -> None:
+            cancellations.append(session_id)
+
+    @asynccontextmanager
+    async def spawn(*args: Any, **kwargs: Any):
+        yield Connection(), SimpleNamespace()
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+
+    with pytest.raises(ProviderFailure) as caught:
+        OfficialACPRunner().run(
+            provider="kimi",
+            binary="fake-kimi",
+            model="default",
+            prompt="Review.",
+            inputs=(),
+            session_id=None,
+            idle_timeout_seconds=0.02,
+            observer=Observer(),
+            cancel=Cancel(),
+            env={},
+        )
+
+    assert caught.value.category is FailureCategory.TIMEOUT
+    assert caught.value.delivery is DeliveryState.MAY_HAVE_RUN
+    assert cancellations == ["idle-session"]
+
+
+def test_official_acp_runner_cooperatively_cancels_active_prompt(
+    monkeypatch,
+) -> None:
+    cancellations: list[str] = []
+
+    class CancelDuringPrompt:
+        def __init__(self) -> None:
+            self.checks = 0
+
+        def raise_if_requested(self) -> None:
+            self.checks += 1
+            if self.checks >= 3:
+                raise CancelledError("requested")
+
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(agent_capabilities=SimpleNamespace())
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(session_id="cancel-session")
+
+        async def prompt(self, **kwargs: Any) -> Any:
+            await asyncio.Event().wait()
+
+        async def cancel(self, *, session_id: str) -> None:
+            cancellations.append(session_id)
+
+    @asynccontextmanager
+    async def spawn(*args: Any, **kwargs: Any):
+        yield Connection(), SimpleNamespace()
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+    observer = Observer()
+
+    result = OfficialACPRunner().run(
+        provider="kimi",
+        binary="fake-kimi",
+        model="default",
+        prompt="Review.",
+        inputs=(),
+        session_id=None,
+        idle_timeout_seconds=1,
+        observer=observer,
+        cancel=CancelDuringPrompt(),
+        env={},
+    )
+
+    assert result.terminal_kind is ProviderTerminalKind.CANCELLED
+    assert result.native_handle == NativeResumeHandle("kimi", "cancel-session")
+    assert cancellations == ["cancel-session"]
+    assert observer.deliveries == 1
 
 
 def test_auto_provider_and_model_resolution_is_host_deterministic() -> None:
@@ -390,6 +891,16 @@ def test_auto_provider_and_model_resolution_is_host_deterministic() -> None:
     )
     assert resolved.provider == "claude"
     assert resolved.model
+
+
+def test_default_registry_filters_auto_candidates_by_all_input_media() -> None:
+    registry = default_registry()
+    assert registry.supporting(("image/png", "text/markdown")) == (
+        "claude",
+        "codex",
+        "kimi",
+    )
+    assert registry.supporting(("application/pdf",)) == ()
 
 
 def test_observer_bounds_raw_events_and_rejects_nested_response_body() -> None:
@@ -534,7 +1045,7 @@ def test_provider_usage_normalization_is_explicit() -> None:
         claude_usage.output_tokens,
         claude_usage.cached_input_tokens,
     ) == (13, 5, 2)
-    assert KimiAdapter().capabilities().usage is UsageAvailability.UNAVAILABLE
+    assert KimiAdapter().capabilities().usage is UsageAvailability.PARTIAL
 
 
 def test_provider_doctor_reports_availability_and_provider_warning(
@@ -554,3 +1065,8 @@ def test_provider_doctor_reports_availability_and_provider_warning(
     assert not kimi.available
     assert kimi.executable is None
     assert kimi.details["warning"] == "provider_configuration_is_inherited"
+    assert kimi.details["media_capability_scope"] == "acp_prompt_capability_only"
+    assert (
+        kimi.details["model_media_capability"]
+        == "not_exposed_by_acp_session_config"
+    )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ..errors import InvalidRequestError
-from .base import ProviderAdapter
+from .base import InputDeliveryMode, ProviderAdapter
 
 ProviderFactory = Callable[[], ProviderAdapter]
 
@@ -31,6 +31,27 @@ class ProviderRegistry:
 
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._factories))
+
+    def delivery_modes(
+        self,
+        name: str,
+        media_types: tuple[str, ...],
+    ) -> tuple[InputDeliveryMode, ...]:
+        mapping = self.create(name).capabilities().input_delivery
+        return tuple(
+            mapping.get(media_type, InputDeliveryMode.UNSUPPORTED)
+            for media_type in media_types
+        )
+
+    def supporting(self, media_types: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            name
+            for name in self.names()
+            if all(
+                mode is not InputDeliveryMode.UNSUPPORTED
+                for mode in self.delivery_modes(name, media_types)
+            )
+        )
 
 
 def default_registry() -> ProviderRegistry:

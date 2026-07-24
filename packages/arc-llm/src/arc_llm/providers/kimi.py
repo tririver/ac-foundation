@@ -1,51 +1,55 @@
-"""Kimi Code adapter with a normalized JSON-event boundary."""
+"""Kimi Code adapter backed by the official ACP Python SDK."""
 
 from __future__ import annotations
 
 import json
 from typing import Any, Mapping
 
-from ..errors import DeliveryState, FailureCategory, ProviderFailure
-from ..output import CandidateMaterial
-from ._cli import executable_diagnostic, run_cli
+from ._cli import executable_diagnostic
+from .acp import ACPRunner, OfficialACPRunner
 from .base import (
+    InputDeliveryMode,
     IsolationMode,
     ProviderCapabilities,
     ProviderDiagnostic,
     ProviderExecution,
     ProviderRequest,
     ProviderResumeRequest,
-    ProviderUsage,
     StructuredOutputMode,
     UsageAvailability,
 )
-from .process import ProcessRunner
 
 
 class KimiAdapter:
     name = "kimi"
-    compatibility_version = "kimi-acp.v1"
+    compatibility_version = "kimi-acp-sdk.v2"
 
     def __init__(
         self,
         *,
         binary: str = "kimi",
-        runner: ProcessRunner | None = None,
+        acp_runner: ACPRunner | None = None,
         env: Mapping[str, str] | None = None,
     ) -> None:
         self.binary = binary
-        self.runner = runner or ProcessRunner()
+        self.runner = acp_runner or OfficialACPRunner()
         self.env = env
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             native_resume=True,
             structured_output=StructuredOutputMode.PROMPT,
-            usage=UsageAvailability.UNAVAILABLE,
+            usage=UsageAvailability.PARTIAL,
             config_isolation=IsolationMode.INHERITED,
             tool_isolation=IsolationMode.EXPLICIT,
             cooperative_cancel=True,
             provider_persistence=True,
+            input_delivery={
+                "image/png": InputDeliveryMode.ACP_CONTENT,
+                "image/jpeg": InputDeliveryMode.ACP_CONTENT,
+                "text/markdown": InputDeliveryMode.ACP_CONTENT,
+                "application/json": InputDeliveryMode.ACP_CONTENT,
+            },
         )
 
     def doctor(self) -> ProviderDiagnostic:
@@ -54,17 +58,30 @@ class KimiAdapter:
             self.name,
             available,
             path,
-            details={"warning": "provider_configuration_is_inherited"},
+            details={
+                "warning": "provider_configuration_is_inherited",
+                "media_capability_scope": "acp_prompt_capability_only",
+                "model_media_capability": "not_exposed_by_acp_session_config",
+            },
         )
 
-    def start(self, request: ProviderRequest, observer: Any, cancel: Any) -> ProviderExecution:
-        argv = [self.binary, "--acp", "--model", request.model]
-        return self._run(
-            argv,
-            _prompt_contract(request.prompt, request.output_schema),
-            request.idle_timeout_seconds,
-            observer,
-            cancel,
+    def start(
+        self,
+        request: ProviderRequest,
+        observer: Any,
+        cancel: Any,
+    ) -> ProviderExecution:
+        return self.runner.run(
+            provider=self.name,
+            binary=self.binary,
+            model=request.model,
+            prompt=_prompt_contract(request.prompt, request.output_schema),
+            inputs=request.inputs,
+            session_id=None,
+            idle_timeout_seconds=request.idle_timeout_seconds,
+            observer=observer,
+            cancel=cancel,
+            env=self.env,
         )
 
     def resume(
@@ -74,63 +91,23 @@ class KimiAdapter:
         observer: Any,
         cancel: Any,
     ) -> ProviderExecution:
-        argv = [self.binary, "--acp", "--session", handle.value]
-        return self._run(
-            argv,
-            _prompt_contract(request.prompt, request.output_schema),
-            request.idle_timeout_seconds,
-            observer,
-            cancel,
-        )
-
-    def _run(
-        self, argv: list[str], prompt: str, timeout: float, observer: Any, cancel: Any
-    ) -> ProviderExecution:
-        return run_cli(
+        return self.runner.run(
             provider=self.name,
-            argv=argv,
-            prompt=prompt,
+            binary=self.binary,
+            model=None,
+            prompt=_prompt_contract(request.prompt, request.output_schema),
+            inputs=request.inputs,
+            session_id=handle.value,
+            idle_timeout_seconds=request.idle_timeout_seconds,
             observer=observer,
             cancel=cancel,
-            timeout=timeout,
-            parse_event=_parse_event,
-            runner=self.runner,
             env=self.env,
         )
 
 
-def _parse_event(
-    event: Mapping[str, Any],
-) -> tuple[CandidateMaterial | None, str | None, ProviderUsage | None]:
-    method = event.get("method")
-    if method in {
-        "session/request_permission",
-        "fs/read_text_file",
-        "fs/write_text_file",
-    }:
-        raise ProviderFailure(
-            "Kimi ACP requested a denied reverse operation.",
-            category=FailureCategory.INVALID_REQUEST,
-            delivery=DeliveryState.MAY_HAVE_RUN,
-            details={"code": "reverse_operation_denied", "method": str(method)},
-        )
-    handle = event.get("session_id") or event.get("sessionId")
-    candidate = None
-    result = event.get("result")
-    if isinstance(result, Mapping):
-        content = result.get("content") or result.get("text")
-        if isinstance(content, str):
-            candidate = CandidateMaterial(text=content, terminal=True)
-    params = event.get("params")
-    if isinstance(params, Mapping):
-        content = params.get("content") or params.get("text")
-        if isinstance(content, str):
-            candidate = CandidateMaterial(text=content, terminal=bool(params.get("terminal")))
-    return candidate, handle if isinstance(handle, str) else None, None
-
-
 def _prompt_contract(
-    prompt: str, output_schema: Mapping[str, Any] | None
+    prompt: str,
+    output_schema: Mapping[str, Any] | None,
 ) -> str:
     if output_schema is None:
         return prompt

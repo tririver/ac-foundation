@@ -17,6 +17,15 @@ def _from_imports(path: Path):
             yield node.module
 
 
+def _all_imports(path: Path):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            yield node.module
+        elif isinstance(node, ast.Import):
+            yield from (item.name for item in node.names)
+
+
 def test_new_core_packages_only_use_dependency_root_facades():
     rules = {
         "arc-llm": {"arc_jobs"},
@@ -30,6 +39,15 @@ def test_new_core_packages_only_use_dependency_root_facades():
                     assert module == root, (
                         f"{path.relative_to(ROOT)} imports private dependency module {module}"
                     )
+
+
+def test_arc_paper_only_uses_the_arc_llm_public_facade():
+    for path in _python_files("arc-paper"):
+        for module in _all_imports(path):
+            if module == "arc_llm" or module.startswith("arc_llm."):
+                assert module == "arc_llm", (
+                    f"{path.relative_to(ROOT)} imports private dependency module {module}"
+                )
 
 
 def test_core_does_not_import_plugin_or_test_code():

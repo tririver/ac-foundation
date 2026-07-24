@@ -5,8 +5,8 @@ Agent Research Copilot (ARC) is an angentic research toolkit for theoretical phy
 ARC is CLI-first. Its workflow Skill uses six core Python commands; a seventh,
 separately installed adapter exposes the same services through optional MCP:
 
-- `arc-paper`: paper metadata, references, citers, ar5iv sections, equation
-  context, full-text search, LLM paper summaries, and paper-summary batches.
+- `arc-paper`: content-addressed paper sources, INSPIRE metadata, unified
+  HTML/Markdown/TeX/PDF parsing, reconciliation, and durable paper workflows.
 - `arc-domain`: builds a cached research-domain package from a seed paper and
   optional scientific intent.
 - `arc-llm`: reusable host LLM execution, provider selection, and
@@ -26,8 +26,10 @@ separately installed adapter exposes the same services through optional MCP:
 
 Use ARC when you want to:
 
-- Look up reliable paper metadata, references, citers, sections, or equations.
-- Summarize a paper from cached ar5iv/INSPIRE data.
+- Look up reliable paper metadata, references, and citers.
+- Parse and reconcile local or provider-acquired paper sources.
+- Search text and inline/display mathematics in typed parsed documents.
+- Summarize any parsed document through a durable `arc-jobs` workflow.
 - Generate Chinese-by-default companion-reading PDF and static-web readers with
   chapter guides, a unified glossary, and an original/translation/commentary
   sequence while retaining source equations, figures, tables, links, and
@@ -77,8 +79,7 @@ https://chinaxiv.org/abs/202606.00234
 - `uv` for fast first-time CLI runtime setup; Python `venv` + `pip` is the
   fallback.
 - Network access for first-time INSPIRE/ar5iv fetches.
-- Codex or Claude Code for host LLM work; unknown hosts fall back to manual
-  prompt handoff.
+- Codex, Claude Code, or Kimi Code for supported host LLM work.
 - Optional for `arc-typeset md2pdf`: `pandoc`, `xelatex`, and a CJK-capable
   font such as `Noto Sans CJK SC`.
 - For `arc-companion build`: `latexmk`, `xelatex`, Poppler command-line tools,
@@ -247,8 +248,8 @@ arc-mcp --help
 Run a deterministic smoke test:
 
 ```bash
-arc-paper extract-paper-ids "Compare arXiv:0911.3380 and hep-th/0601001." --json
-arc-paper get-title arXiv:0911.3380 --json
+arc-paper extract-paper-ids "Compare arXiv:0911.3380 and hep-th/0601001."
+arc-paper get-title arXiv:0911.3380
 ```
 
 Convert a Markdown report to PDF:
@@ -307,22 +308,9 @@ first-chapter validation checkpoint for `interactive` runs or a one-time
 review gate; it does not permanently change the managed run's automation
 level.
 
-Companion workers use the structured ARC-paper Controller Broker by default.
-`--arc-paper-access none` removes its schema, catalog, controls, and paper
-network route. Generic `--no-internet` does not disable Broker-only paper
-fetches. `--arc-paper-direct-shell` is a separate trusted opt-in that fails
-preflight unless a nested sandboxed shell is proven and exposes only
-policy-authorized `network=none` operations. Large Broker results use verified
-content-addressed handles and pages across at most three evidence rounds.
-Managed ARC-paper operations that may create descendant LLM calls stay disabled
-unless all three finite flags are supplied:
-`--arc-paper-child-llm-max-calls`,
-`--arc-paper-child-llm-max-tokens`, and
-`--arc-paper-child-llm-output-reserve-tokens`. They require
-`--arc-paper-access full`. One private budget ledger is shared by the run and
-reopened during recovery; known usage is charged exactly, unavailable usage is
-charged conservatively, and a submitted call without a durable response stops
-for supervision rather than being resubmitted.
+Companion and paper workflows use `arc-jobs` for durable execution and
+`arc-llm` for model calls. `arc-paper` does not provide a broker, worker shell,
+private budget ledger, or second job database.
 
 For a managed companion workflow, the executing agent inspects substantive
 source body text near the beginning, middle, and end before building. It
@@ -501,8 +489,6 @@ Check what ARC detects:
 arc-llm doctor host --json
 arc-llm doctor provider --json
 arc-llm doctor config --json
-arc-paper doctor host --json
-arc-paper doctor provider --json
 ```
 
 With `--provider auto`, ARC uses only host-native providers: Codex selects
@@ -563,19 +549,29 @@ error-recovery gates.
 The CLI is useful for direct paper checks, scripting, debugging, and working
 without an MCP host.
 
-### Paper Metadata And Full Text
+### Paper Metadata And Sources
 
 ```bash
-arc-paper get-metadata arXiv:0911.3380 --json
-arc-paper get-references arXiv:0911.3380 --enrich --json
-arc-paper get-citers arXiv:0911.3380 --limit 1000 --sort mostrecent --json
-arc-paper get-citers arXiv:0911.3380 --limit 1000 --sort mostcited --json
-arc-paper get-citer-count arXiv:0911.3380 --json
-arc-paper get-toc arXiv:0911.3380 --json
-arc-paper get-section arXiv:0911.3380 --section S2 --json
-arc-paper search-full-text arXiv:0911.3380 --query "bispectrum" --context 1 --json
-arc-paper get-equation-context arXiv:0911.3380 --query "f_NL" --json
+arc-paper get-metadata arXiv:0911.3380
+arc-paper get-references arXiv:0911.3380 --enrich
+arc-paper get-citers arXiv:0911.3380 --limit 1000 --sort mostrecent
+arc-paper get-citer-count arXiv:0911.3380
+arc-paper fetch-arxiv-auto arXiv:0911.3380
+arc-paper fetch-arxiv-pdf arXiv:0911.3380
+arc-paper import-source note.md
+arc-paper parse-local note.md --validator paper.pdf
 ```
+
+Every invocation emits one `arc.command_result.v1` JSON document. arXiv auto
+fetches ar5iv HTML only; PDF acquisition is explicit. Local TeX input is one
+already-flattened file.
+
+The path-only CLI does not create model tasks. For the default Markdown+PDF
+full-page visual contract, use the public
+`arc_paper.MarkdownPDFVisualParseRunner`; it supplies the `arc-jobs`
+`RunContext`, full-page renderer, and shared `arc-llm` task service. Terminal
+page results—including `unreviewed` provider failures, pauses, and invalid
+outputs—are immutable run artifacts and replay without another provider call.
 
 Paper IDs can be written as new arXiv IDs, old arXiv IDs, INSPIRE record IDs,
 or DOI IDs:
@@ -588,44 +584,13 @@ inspire:837197
 doi:10.1088/1475-7516/2010/04/027
 ```
 
-### Paper Summaries
+### Paper Workflows
 
-Use `llm-summary` to read a cached summary or generate one when an LLM provider
-is available:
-
-```bash
-arc-paper llm-summary arXiv:0911.3380 --provider auto --json
-```
-
-Use `llm-generate-summary` when you explicitly want to regenerate or choose a
-provider/model:
-
-```bash
-arc-paper llm-generate-summary arXiv:0911.3380 --provider auto --json
-```
-
-If no runnable LLM provider is available, ARC returns a `needs_llm` task with
-the prompt, input pack, and schema. Generate schema-valid JSON separately and
-store it:
-
-```bash
-arc-paper store-llm-summary arXiv:0911.3380 --summary-json summary.json --json
-```
-
-### Summary Batches
-
-For many papers, put one paper ID per line in a text file:
-
-```bash
-arc-paper summary-batch create papers.txt --name qft-summaries --json
-arc-paper summary-batch prefetch qft-summaries --workers 8 --json
-arc-paper summary-batch run qft-summaries --provider auto --concurrency 2 --max-items 10 --json
-arc-paper summary-batch status qft-summaries --json
-arc-paper summary-batch run qft-summaries --provider auto --concurrency 2 --json
-arc-paper summary-batch export qft-summaries --format jsonl --output summaries.jsonl --json
-```
-
-Review a small chunk before launching a large batch.
+`PaperSummaryService`, `SummaryBatchRunner`, `ReferenceInferenceService`, and
+`ReferenceInferenceRunner` are typed Python workflows. They run child LLM tasks
+inside the same parent `RunContext`; group unit results are the only batch item
+terminal state. Generic status, cancellation, and validation come from
+`arc-jobs`.
 
 ### Research Domains
 
@@ -857,15 +822,7 @@ validation history before accepting results.
 ARC is cache-first. Repeated calls usually read local JSON/HTML artifacts
 instead of refetching data or rerunning LLM work.
 
-Inside a source checkout, ARC writes generated cache files under:
-
-```text
-cache/arc-paper/
-cache/arc-domain/
-cache/arc-jobs/
-```
-
-Outside a source checkout, ARC uses the user cache directory:
+ARC paper uses the user cache directory unless `ARC_PAPER_CACHE` is set:
 
 ```text
 ~/.cache/arc/arc-paper/
@@ -885,15 +842,14 @@ Use `--refresh` only when you intentionally want fresh source data or a forced
 rebuild:
 
 ```bash
-arc-paper get-metadata arXiv:0911.3380 --refresh --json
+arc-paper get-metadata arXiv:0911.3380 --refresh
 arc-domain llm-build arXiv:0911.3380 --intent "..." --refresh --json
 ```
 
-Diagnose cache state:
+Validate durable run state:
 
 ```bash
-arc-paper doctor cache arXiv:0911.3380 --json
-arc-jobs list --json
+arc-jobs validate --run-root <run-root> --run-id <run-id>
 arc-runtime doctor --profile core
 ```
 
@@ -929,9 +885,8 @@ ARC_MCP_BACKGROUND_MARGIN_SEC     Safety margin subtracted from the MCP tool tim
 If a paper query fails:
 
 ```bash
-arc-paper extract-paper-ids "<your input>" --json
-arc-paper doctor cache <paper-id> --json
-arc-paper get-metadata <paper-id> --refresh --json
+arc-paper extract-paper-ids "<your input>"
+arc-paper get-metadata <paper-id> --refresh
 ```
 
 If LLM generation is unavailable:
