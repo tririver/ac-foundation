@@ -82,14 +82,12 @@ def _write_minimal_arc_repo(work: Path) -> None:
         ],
         "arc-paper": ['"arc-llm>=0.1,<0.2"'],
         "arc-domain": ['"arc-llm>=0.1,<0.2"', '"arc-paper>=0.1,<0.2"'],
-        "arc-typeset": ['"arc-llm>=0.1,<0.2"'],
         "arc-companion": ['"arc-llm>=0.1,<0.2"', '"arc-paper>=0.1,<0.2"'],
         "arc-mcp": [
             '"arc-domain>=0.1,<0.2"',
             '"arc-jobs>=0.1,<0.2"',
             '"arc-llm>=0.1,<0.2"',
             '"arc-paper>=0.1,<0.2"',
-            '"arc-typeset>=0.1,<0.2"',
         ],
     }
     for package, dependencies in package_dependencies.items():

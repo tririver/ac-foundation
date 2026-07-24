@@ -11,8 +11,6 @@ separately installed adapter exposes the same services through optional MCP:
   optional scientific intent.
 - `arc-llm`: reusable host LLM execution, provider selection, and
   proposers-reviewer workflows.
-- `arc-typeset`: deterministic typesetting utilities, including Markdown to PDF
-  conversion through Pandoc and XeLaTeX.
 - `arc-companion`: builds source-faithful, chapter-aware PDF and static-web
   original/translation/commentary readers for papers, lecture notes, and books
   from a paired rich source and PDF.
@@ -80,8 +78,9 @@ https://chinaxiv.org/abs/202606.00234
   fallback.
 - Network access for first-time INSPIRE/ar5iv fetches.
 - Codex, Claude Code, or Kimi Code for supported host LLM work.
-- Optional for `arc-typeset md2pdf`: `pandoc`, `xelatex`, and a CJK-capable
-  font such as `Noto Sans CJK SC`.
+- Optional for Markdown report export with Pandoc (see
+  `plugins/arc/skills/arc/rules/math_typeset.md`): `pandoc`, `xelatex`, and a
+  CJK-capable font such as `Noto Sans CJK SC`.
 - For `arc-companion build`: `latexmk`, `xelatex`, Poppler command-line tools,
   and fonts covering the source and annotation languages.
 
@@ -106,8 +105,8 @@ Install for Claude Code (run in Claude Code):
 /plugin install arc
 ```
 
-The plugin exposes `arc-paper`, `arc-domain`, `arc-llm`, `arc-typeset`,
-`arc-companion`, `arc-jobs`, and `arc-runtime`. On first CLI use,
+The plugin exposes `arc-paper`, `arc-domain`, `arc-llm`, `arc-companion`,
+`arc-jobs`, and `arc-runtime`. On first CLI use,
 `arc-runtime` installs the immutable ARC release into an isolated core profile
 under `~/.codex/arc/runtimes`. It never performs a global `pip install`.
 
@@ -226,7 +225,6 @@ python -m pip install -e packages/arc-jobs[test]
 python -m pip install -e packages/arc-llm[test]
 python -m pip install -e packages/arc-paper[test]
 python -m pip install -e packages/arc-domain[test]
-python -m pip install -e packages/arc-typeset[test]
 python -m pip install -e packages/arc-companion[test]
 # Optional MCP development only:
 python -m pip install -e packages/arc-mcp[test]
@@ -238,7 +236,6 @@ Check the installed commands:
 arc-paper --help
 arc-domain --help
 arc-llm --help
-arc-typeset --help
 arc-companion --help
 arc-jobs --help
 # Optional:
@@ -252,25 +249,8 @@ arc-paper extract-paper-ids "Compare arXiv:0911.3380 and hep-th/0601001."
 arc-paper get-title arXiv:0911.3380
 ```
 
-Convert a Markdown report to PDF:
-
-```bash
-arc-typeset md2pdf <report>.md --json
-```
-
-Translate a Markdown report to Chinese and automatically convert the
-translation to PDF:
-
-```bash
-arc-typeset translate <report>.md --json
-```
-
-Batch translate project reports when `<name>.md` and `<name>.pdf` appear in
-the same folder and `<name>.zh_CN.pdf` is missing:
-
-```bash
-arc-typeset batch-translate <project-dir> --json
-```
+Export a Markdown report to PDF with the canonical Pandoc command in
+`plugins/arc/skills/arc/rules/math_typeset.md`.
 
 Build or resume companion-reading PDF and static-web readers for a paper,
 lecture note, or book. A

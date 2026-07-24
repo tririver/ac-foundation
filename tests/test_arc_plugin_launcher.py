@@ -23,7 +23,6 @@ CORE_TOOLS = (
     "arc-paper",
     "arc-domain",
     "arc-llm",
-    "arc-typeset",
     "arc-companion",
     "arc-jobs",
 )
@@ -352,7 +351,7 @@ def test_companion_installs_complete_mcp_profile(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout == "mcp:arc-mcp:root\n"
     install_call = calls.read_text().splitlines()[1]
-    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-typeset", "arc-companion", "arc-mcp"):
+    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-companion", "arc-mcp"):
         assert f"{package} @ git+https://github.com/tririver/arc.git@v1.0.0" in install_call
 
 
@@ -428,7 +427,7 @@ def test_runtime_fingerprint_covers_ref_constraints_python_and_local_content(
     }
 
     checkout = tmp_path / "checkout"
-    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-typeset", "arc-companion"):
+    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-companion"):
         package_dir = checkout / "packages" / package
         package_dir.mkdir(parents=True)
         (package_dir / "pyproject.toml").write_text("[project]\nname='example'\n")
@@ -730,7 +729,7 @@ def test_mutable_install_refs_and_cross_profile_access_are_rejected(tmp_path: Pa
 
 def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> None:
     checkout = tmp_path / "checkout"
-    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-typeset", "arc-companion"):
+    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-companion"):
         package_dir = checkout / "packages" / package
         package_dir.mkdir(parents=True)
         (package_dir / "pyproject.toml").write_text("[project]\n")

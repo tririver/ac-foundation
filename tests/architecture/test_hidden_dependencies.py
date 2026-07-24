@@ -28,7 +28,6 @@ def test_arc_jobs_has_no_process_or_upper_layer_dependencies():
         "arc_paper",
         "arc_domain",
         "arc_companion",
-        "arc_typeset",
         "arc_mcp",
         "arc_proposer_reviewer",
     }
@@ -41,7 +40,6 @@ def test_arc_llm_has_no_domain_mcp_or_proposer_reviewer_dependencies():
         "arc_paper",
         "arc_domain",
         "arc_companion",
-        "arc_typeset",
         "arc_mcp",
         "arc_proposer_reviewer",
     }

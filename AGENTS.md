@@ -36,9 +36,6 @@ tools it names.
 - `packages/arc-paper`: Owns deterministic paper access and caching, ID
   normalization, ar5iv/INSPIRE metadata, references, citers,
   full-text/equation search, paper summaries, and summary batches.
-- `packages/arc-typeset`: Owns report typesetting utilities, including
-  Markdown-to-PDF conversion, Markdown translation, and batch translation of
-  project reports.
 
 ## Research Tool Development
 
@@ -125,6 +122,12 @@ tools it names.
   unexpectedly more complex implementation. Routine work within an explicitly
   approved design may proceed unless its complexity materially exceeds that
   design.
+
+## Git Conventions
+
+- Commits created by agents in this repository use the author and committer
+  identity `Yi Wang <tririverwangyi@gmail.com>`; this is also set in the
+  repo-local git config.
 
 ## Agent Host Portability
 

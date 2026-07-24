@@ -73,7 +73,6 @@ version_paths=(
   "packages/arc-proposer-reviewer/pyproject.toml"
   "packages/arc-paper/pyproject.toml"
   "packages/arc-domain/pyproject.toml"
-  "packages/arc-typeset/pyproject.toml"
   "packages/arc-companion/pyproject.toml"
   "packages/arc-mcp/pyproject.toml"
   "packages/arc-llm/src/arc_llm/__init__.py"
@@ -288,7 +287,6 @@ packages = [
     "arc-proposer-reviewer",
     "arc-paper",
     "arc-domain",
-    "arc-typeset",
     "arc-companion",
     "arc-mcp",
 ]
