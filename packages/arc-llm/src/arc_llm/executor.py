@@ -28,6 +28,7 @@ from .errors import (
     AdoptionConflictError,
     ArcLLMError,
     CandidateConflictError,
+    CorruptTaskStateError,
     DeliveryState,
     FailureCategory,
     IdempotencyConflictError,
@@ -99,6 +100,7 @@ from .recovery import (
 from .request import (
     RESUME_SCHEMA_VERSION,
     InteractiveJsonOutput,
+    InteractionResponse,
     LLMExecutionOptions,
     LLMRequest,
     ResumeAction,
@@ -436,10 +438,33 @@ class LLMTaskExecutor:
                 )
                 execution = execution_fingerprint(execution_doc)
                 effect = context.effects.read(state.current.effect_id)
+                continuation_prompt: str | None = None
                 if effect is None:
-                    self._prepare_effect(context, request, state)
+                    continuation_prompt = self._prepared_interaction_prompt(
+                        context, state
+                    )
+                    self._prepare_effect(
+                        context,
+                        request,
+                        state,
+                        prompt=continuation_prompt,
+                    )
                     effect = context.effects.read(state.current.effect_id)
                 assert effect is not None
+                if effect.stage in {EffectStage.PREPARED, EffectStage.MAY_HAVE_RUN}:
+                    continuation_prompt = self._prepared_interaction_prompt(
+                        context, state
+                    )
+                    if (
+                        effect.stage is EffectStage.PREPARED
+                        and continuation_prompt is not None
+                    ):
+                        self._prepare_effect(
+                            context,
+                            request,
+                            state,
+                            prompt=continuation_prompt,
+                        )
                 action = decide_recovery(
                     state,
                     effect.stage,
@@ -494,7 +519,18 @@ class LLMTaskExecutor:
                     and state.current.native_handle is not None
                     and request.session is not None
                 )
-                if action is RecoveryAction.NATIVE_RESUME or planned_continuation:
+                if continuation_prompt is not None:
+                    execution_result = self._call_resume(
+                        context,
+                        request,
+                        state,
+                        store,
+                        adapter,
+                        options,
+                        prompt=continuation_prompt,
+                        count_recovery=action is RecoveryAction.NATIVE_RESUME,
+                    )
+                elif action is RecoveryAction.NATIVE_RESUME or planned_continuation:
                     execution_result = self._call_resume(
                         context,
                         request,
@@ -842,9 +878,10 @@ class LLMTaskExecutor:
         context.effects.commit(current.current.effect_id)
         current_generation = replace(
             current.current,
-            effect_id=(
-                f"{effect_id_for(current.task_id, current.current_generation)}"
-                f"-i{next_round}"
+            effect_id=effect_id_for(
+                current.task_id,
+                current.current_generation,
+                next_round,
             ),
         )
         next_state = replace(
@@ -1014,7 +1051,16 @@ class LLMTaskExecutor:
                 )
                 store.compare_and_swap(state.revision, next_state)
                 return None
-            return LLMFailed(failure)
+            return self._pause(
+                store,
+                state,
+                ResumeReason.SUPERVISION_REQUIRED,
+                "recovery_limit_reached",
+                input_required=True,
+                request_ref=self._supervision_artifact(
+                    context, state, "recovery_limit_reached"
+                ),
+            )
         if failure.delivery is DeliveryState.MAY_HAVE_RUN:
             return None
         return LLMFailed(failure)
@@ -1191,6 +1237,71 @@ class LLMTaskExecutor:
             effect_request_digest=EffectRequestDigest(document_sha256(exact_request)),
             details={"task_id": request.task_id, "generation": state.current_generation},
         )
+
+    def _prepared_interaction_prompt(
+        self,
+        context: Any,
+        state: LLMTaskState,
+    ) -> str | None:
+        if state.interaction_round == 0:
+            return None
+        base_effect_id = effect_id_for(state.task_id, state.current_generation)
+        expected_effect_id = effect_id_for(
+            state.task_id,
+            state.current_generation,
+            state.interaction_round,
+        )
+        if state.current.effect_id == base_effect_id:
+            return None
+        if state.current.effect_id != expected_effect_id:
+            raise CorruptTaskStateError(
+                "Interactive continuation effect does not match its persisted round."
+            )
+        if state.pending_interaction is not None:
+            raise CorruptTaskStateError(
+                "Interactive continuation has no persisted response artifact."
+            )
+        scoped = self._artifacts(context, state.semantic_key)
+        try:
+            ref = scoped.find(
+                f"interactions/{state.interaction_round}/response.json"
+            )
+            if ref is None:
+                raise ValueError("response artifact is missing")
+            document = json.loads(scoped.read_bytes(ref).decode("utf-8"))
+            if not isinstance(document, Mapping) or set(document) != {
+                "schema_version",
+                "responses",
+            }:
+                raise ValueError("response artifact has an invalid closed shape")
+            if document["schema_version"] != "arc.llm.interaction_response.v1":
+                raise ValueError("response artifact has an unsupported schema")
+            raw_responses = document["responses"]
+            if not isinstance(raw_responses, list):
+                raise ValueError("response artifact responses are not an array")
+            responses = []
+            for raw in raw_responses:
+                if not isinstance(raw, Mapping) or set(raw) != {
+                    "request_id",
+                    "result",
+                    "error",
+                }:
+                    raise ValueError("response artifact contains an invalid response")
+                responses.append(
+                    InteractionResponse(raw["request_id"], raw["result"], raw["error"])
+                )
+            canonical_document = response_document(tuple(responses))
+            if document != canonical_document:
+                raise ValueError("response artifact is not canonical")
+            return canonical_json_bytes(canonical_document).decode("utf-8")
+        except ArcLLMError as exc:
+            raise CorruptTaskStateError(
+                "Interactive continuation response artifact is corrupt."
+            ) from exc
+        except Exception as exc:
+            raise CorruptTaskStateError(
+                "Interactive continuation response artifact is corrupt."
+            ) from exc
 
     def _execution_document(self, adapter: Any, model: str, request: LLMRequest) -> dict[str, Any]:
         capabilities = adapter.capabilities()
@@ -1656,11 +1767,6 @@ class LLMTaskExecutor:
             "value": candidate.value if candidate.has_value else None,
             "text": candidate.text,
             "terminal": candidate.terminal,
-            "digest": (
-                candidate_digest(candidate.value)
-                if candidate.has_value
-                else hashlib.sha256((candidate.text or "").encode()).hexdigest()
-            ),
         }
 
     def _execution_from_raw(

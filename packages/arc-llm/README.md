@@ -102,6 +102,23 @@ provider/model choices do not affect semantic identity. The execution
 fingerprint records the resolved provider/model, adapter version, and actual
 per-input delivery modes.
 
+## Durable delivery and recovery
+
+Before an adapter submits a prompt, it must durably mark the effect as possibly
+run. A failure while persisting the native handle or that delivery barrier is a
+non-retryable local-I/O failure, never provider transport; cancellation remains
+cancellation and the adapter cleans up its owned process before returning.
+
+`safe_retry_limit` counts additional retries after a proven-not-delivered call.
+The initial call is always admitted; once the limit is exhausted, the task
+pauses for supervision rather than replacing a generation or risking a
+duplicate provider call. Each interactive continuation has its own durable
+effect ID; a proven-not-delivered continuation reloads its immutable response
+prompt and uses native resume rather than restarting the task prompt. New raw
+provider-material artifacts omit a non-semantic material digest;
+candidate-selection digests remain canonical validated-value digests, and
+legacy raw artifacts remain readable.
+
 ## Optional live smoke
 
 The normal test suite skips the real-provider smoke. Run it explicitly with an

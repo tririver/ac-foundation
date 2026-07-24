@@ -168,9 +168,10 @@ def replace_current(
     )
 
 
-def effect_id_for(task_id: str, generation: int) -> str:
+def effect_id_for(task_id: str, generation: int, interaction_round: int = 0) -> str:
     task_digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:24]
-    return f"llm-{task_digest}-g{generation}"
+    suffix = "" if interaction_round == 0 else f"-i{interaction_round}"
+    return f"llm-{task_digest}-g{generation}{suffix}"
 
 
 class TaskStateContract:

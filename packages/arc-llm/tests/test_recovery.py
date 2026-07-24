@@ -12,6 +12,7 @@ from arc_jobs import (
     SemanticKeyDigest,
 )
 
+from arc_llm.executor import LLMTaskExecutor
 from arc_llm.recovery import (
     AcceptedSessionTurn,
     AcceptedOrigin,
@@ -111,6 +112,73 @@ def test_recovery_decision_is_bounded_and_delivery_aware() -> None:
     )
     assert replacement.current.replacement_of == 1
     assert replacement.current.possible_duplicate_execution
+
+
+def test_replacement_generation_uses_base_effect_after_earlier_interaction() -> None:
+    original = _state()
+    state = replace_current(
+        original,
+        execution=original.current.execution,
+        reason="uncertain",
+        possible_duplicate=True,
+    )
+    state = LLMTaskState(
+        **{
+            **state.__dict__,
+            "interaction_round": 1,
+        }
+    )
+
+    assert state.current.effect_id == effect_id_for("task", 2)
+    assert LLMTaskExecutor()._prepared_interaction_prompt(None, state) is None
+
+
+@pytest.mark.parametrize(
+    ("limit", "safe_retries", "expected"),
+    (
+        (0, 0, RecoveryAction.START),
+        (1, 1, RecoveryAction.START),
+        (1, 2, RecoveryAction.PAUSE_UNCERTAIN),
+    ),
+)
+def test_prepared_recovery_includes_initial_call_and_reserved_safe_retry(
+    limit: int,
+    safe_retries: int,
+    expected: RecoveryAction,
+) -> None:
+    state = _state()
+    current = GenerationRecord(
+        1,
+        state.current.effect_id,
+        state.current.execution,
+        safe_retries=safe_retries,
+    )
+    state = LLMTaskState(
+        **{
+            **state.__dict__,
+            "generations": (current,),
+        }
+    )
+
+    assert (
+        decide_recovery(
+            state,
+            EffectStage.PREPARED,
+            execution=state.current.execution,
+            supports_native_resume=True,
+            safe_retry_limit=limit,
+            native_resume_limit=1,
+            automatic_replacement_limit=1,
+        )
+        is expected
+    )
+
+
+def test_interaction_effect_id_extends_the_initial_effect_id() -> None:
+    initial = effect_id_for("task", 1)
+
+    assert effect_id_for("task", 1, 0) == initial
+    assert effect_id_for("task", 1, 2) == f"{initial}-i2"
 
 
 @pytest.mark.parametrize(

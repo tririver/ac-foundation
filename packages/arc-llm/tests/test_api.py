@@ -46,8 +46,10 @@ from arc_llm import (
     SemanticKeyDigest,
     resume_input_matches,
 )
-from arc_llm.identity import semantic_key
+from arc_llm.identity import canonical_json_bytes, semantic_key
+from arc_llm.interaction import response_document
 from arc_llm.output import CandidateMaterial
+from arc_llm.recovery import effect_id_for
 
 
 def _request(task_id: str = "task") -> LLMRequest:
@@ -990,6 +992,16 @@ def test_host_driven_interaction_pauses_and_resumes_same_native_session(
     assert completed.outcome.value == {"answer": 7}
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 1
+    repository = RunRepository(tmp_path)
+    snapshot = repository.inspect(completed.snapshot.run_id).snapshot
+    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    state = client.service._executor._task_store(context, request.task_id).read()
+    assert state is not None
+    initial_effect_id = effect_id_for(request.task_id, 1)
+    interaction_effect_id = effect_id_for(request.task_id, 1, 1)
+    assert state.current.effect_id == interaction_effect_id
+    assert context.effects.read(initial_effect_id).stage is EffectStage.COMMITTED
+    assert context.effects.read(interaction_effect_id).stage is EffectStage.COMMITTED
     assert json.loads(
         (
                 tmp_path
@@ -1006,6 +1018,500 @@ def test_host_driven_interaction_pauses_and_resumes_same_native_session(
                 ).name
         ).read_text()
     )["input"]["resume_key"] == paused.outcome.resume_key
+
+
+def test_interactive_not_delivered_retry_resumes_with_persisted_response_prompt(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "req-retry",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                },
+                handle="interactive-retry",
+            ),
+            ProviderFailure(
+                "continuation was not delivered",
+                category=FailureCategory.TRANSPORT,
+                delivery=DeliveryState.NOT_DELIVERED,
+            ),
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "complete",
+                    "result": {"answer": 7},
+                    "requests": [],
+                },
+                handle="interactive-retry",
+            ),
+        ]
+    )
+    continuation_prompts: list[str] = []
+
+    def resume(handle, request, observer, cancel):
+        adapter.resume_calls += 1
+        adapter.requests.append(request)
+        continuation_prompts.append(request.prompt)
+        result = adapter.steps.popleft()
+        if isinstance(result, ProviderFailure):
+            raise result
+        observer.before_delivery()
+        if result.native_handle is not None:
+            observer.native_handle(result.native_handle)
+        return result
+
+    adapter.resume = resume
+    request = LLMRequest(
+        "interactive-retry",
+        "Solve.",
+        contract,
+        ModelSelection("codex"),
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(request, run_root=tmp_path)
+    response = InteractionResponse("req-retry", result={"value": "found"})
+    expected_prompt = canonical_json_bytes(
+        response_document((response,))
+    ).decode("utf-8")
+
+    completed = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(
+            paused.outcome.resume_key,
+            ResumeAction.CONTINUE,
+            (response,),
+        ),
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(safe_retry_limit=1),
+        ),
+    )
+
+    assert isinstance(completed.outcome, LLMCompleted)
+    assert completed.outcome.value == {"answer": 7}
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 2
+    assert continuation_prompts == [expected_prompt, expected_prompt]
+
+
+@pytest.mark.parametrize(
+    ("native_resume_limit", "expects_completion"),
+    ((0, False), (1, True)),
+)
+def test_interactive_may_have_run_continuation_reloads_prompt_and_counts_native_resume(
+    tmp_path: Path,
+    adapter,
+    registry,
+    native_resume_limit: int,
+    expects_completion: bool,
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "req-may-have-run",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                },
+                handle="interactive-may-have-run",
+            ),
+            ProviderFailure(
+                "continuation delivery is uncertain",
+                category=FailureCategory.TRANSPORT,
+                delivery=DeliveryState.MAY_HAVE_RUN,
+            ),
+        ]
+    )
+    if expects_completion:
+        adapter.steps.append(
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "complete",
+                    "result": {"answer": 7},
+                    "requests": [],
+                },
+                handle="interactive-may-have-run",
+            )
+        )
+    continuation_prompts: list[str] = []
+
+    def resume(handle, provider_request, observer, cancel):
+        adapter.resume_calls += 1
+        adapter.requests.append(provider_request)
+        continuation_prompts.append(provider_request.prompt)
+        result = adapter.steps.popleft()
+        observer.before_delivery()
+        if isinstance(result, ProviderFailure):
+            raise result
+        if result.native_handle is not None:
+            observer.native_handle(result.native_handle)
+        return result
+
+    adapter.resume = resume
+    request = LLMRequest(
+        "interactive-may-have-run",
+        "Original task prompt must not be retried.",
+        contract,
+        ModelSelection("codex"),
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(request, run_root=tmp_path)
+    response = InteractionResponse("req-may-have-run", result={"value": "found"})
+    expected_prompt = canonical_json_bytes(response_document((response,))).decode("utf-8")
+
+    result = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(paused.outcome.resume_key, ResumeAction.CONTINUE, (response,)),
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(
+                native_resume_limit=native_resume_limit,
+                automatic_replacement_limit=0,
+            )
+        ),
+    )
+
+    assert continuation_prompts == [expected_prompt] * (1 + int(expects_completion))
+    assert "Original task prompt must not be retried." not in continuation_prompts
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1 + int(expects_completion)
+    repository = RunRepository(tmp_path)
+    context = RunContext(
+        repository,
+        repository.inspect(result.snapshot.run_id).snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    state = client.service._executor._task_store(context, request.task_id).read()
+    assert state is not None
+    assert state.current.native_resumes == int(expects_completion)
+    if expects_completion:
+        assert isinstance(result.outcome, LLMCompleted)
+        assert result.outcome.value == {"answer": 7}
+    else:
+        assert isinstance(result.outcome, LLMPaused)
+        assert result.outcome.reason is ResumeReason.SUPERVISION_REQUIRED
+        assert result.outcome.details["code"] == "recovery_limit_reached"
+
+
+def test_interactive_not_delivered_continuation_exhaustion_pauses(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "req-exhausted",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                },
+                handle="interactive-exhausted",
+            ),
+            ProviderFailure(
+                "continuation was not delivered",
+                category=FailureCategory.TRANSPORT,
+                delivery=DeliveryState.NOT_DELIVERED,
+            ),
+        ]
+    )
+
+    def resume(handle, request, observer, cancel):
+        adapter.resume_calls += 1
+        adapter.requests.append(request)
+        result = adapter.steps.popleft()
+        assert isinstance(result, ProviderFailure)
+        raise result
+
+    adapter.resume = resume
+    request = LLMRequest(
+        "interactive-exhausted",
+        "Solve.",
+        contract,
+        ModelSelection("codex"),
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(request, run_root=tmp_path)
+
+    exhausted = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(
+            paused.outcome.resume_key,
+            ResumeAction.CONTINUE,
+            (InteractionResponse("req-exhausted", result={"value": "found"}),),
+        ),
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(safe_retry_limit=0),
+        ),
+    )
+
+    assert isinstance(exhausted.outcome, LLMPaused)
+    assert exhausted.outcome.reason is ResumeReason.SUPERVISION_REQUIRED
+    assert exhausted.outcome.details["code"] == "recovery_limit_reached"
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+
+
+def test_interactive_continuation_missing_response_never_restarts_task_prompt(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "req-missing",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                },
+                handle="interactive-missing",
+            ),
+            ProviderFailure(
+                "continuation was not delivered",
+                category=FailureCategory.TRANSPORT,
+                delivery=DeliveryState.NOT_DELIVERED,
+            ),
+        ]
+    )
+
+    def resume(handle, request, observer, cancel):
+        adapter.resume_calls += 1
+        adapter.requests.append(request)
+        result = adapter.steps.popleft()
+        assert isinstance(result, ProviderFailure)
+        raise result
+
+    adapter.resume = resume
+    request = LLMRequest(
+        "interactive-missing",
+        "Original task prompt must not be retried.",
+        contract,
+        ModelSelection("codex"),
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(request, run_root=tmp_path)
+    exhausted = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(
+            paused.outcome.resume_key,
+            ResumeAction.CONTINUE,
+            (InteractionResponse("req-missing", result={"value": "found"}),),
+        ),
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(safe_retry_limit=0),
+        ),
+    )
+    assert isinstance(exhausted.outcome, LLMPaused)
+    repository = RunRepository(tmp_path)
+    context = RunContext(
+        repository,
+        repository.inspect(exhausted.snapshot.run_id).snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    state = client.service._executor._task_store(context, request.task_id).read()
+    assert state is not None
+    response_ref = client.service._executor._artifacts(
+        context, state.semantic_key
+    ).find("interactions/1/response.json")
+    assert response_ref is not None
+    (repository.run_directory(exhausted.snapshot.run_id) / response_ref.relative_path).unlink()
+
+    failed = client.resume(
+        run_root=tmp_path,
+        run_id=exhausted.snapshot.run_id,
+        input=ResumeInput(exhausted.outcome.resume_key, ResumeAction.CONTINUE),
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(safe_retry_limit=0),
+        ),
+    )
+
+    assert isinstance(failed.outcome, LLMFailed)
+    assert failed.outcome.error.code.value == "corrupt_state"
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+
+
+@pytest.mark.parametrize("safe_retry_limit", (0, 1))
+def test_exhausted_safe_retries_pause_without_replacement_and_manual_resume(
+    tmp_path: Path,
+    adapter,
+    registry,
+    safe_retry_limit: int,
+) -> None:
+    failures = safe_retry_limit + 1
+    adapter.steps.extend(
+        [
+            *(
+                ProviderFailure(
+                    "request was not delivered",
+                    category=FailureCategory.TRANSPORT,
+                    delivery=DeliveryState.NOT_DELIVERED,
+                )
+                for _ in range(failures)
+            ),
+            _completed({"answer": 42}),
+        ]
+    )
+
+    def start_before_delivery(request, observer, cancel):
+        adapter.start_calls += 1
+        adapter.requests.append(request)
+        result = adapter.steps.popleft()
+        if isinstance(result, ProviderFailure):
+            raise result
+        observer.before_delivery()
+        if result.native_handle is not None:
+            observer.native_handle(result.native_handle)
+        return result
+
+    adapter.start = start_before_delivery
+    client = LLMClient(registry=registry)
+    request = _request(f"safe-retry-{safe_retry_limit}")
+    options = LLMExecutionOptions(
+        limits=ExecutionLimits(safe_retry_limit=safe_retry_limit),
+        gate=ProviderGateOptions(enabled=False),
+    )
+
+    paused = client.generate(request, run_root=tmp_path, options=options)
+
+    assert isinstance(paused.outcome, LLMPaused)
+    assert paused.outcome.reason is ResumeReason.SUPERVISION_REQUIRED
+    assert paused.outcome.details["code"] == "recovery_limit_reached"
+    assert paused.outcome.input_required
+    assert paused.outcome.request_ref is not None
+    assert adapter.start_calls == failures
+    repository = RunRepository(tmp_path)
+    snapshot = repository.inspect(paused.snapshot.run_id).snapshot
+    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    state = client.service._executor._task_store(context, request.task_id).read()
+    assert state is not None
+    assert len(state.generations) == 1
+    assert state.current.safe_retries == safe_retry_limit
+    assert state.current.replacement_of is None
+    assert not state.current.possible_duplicate_execution
+    assert context.effects.read(state.current.effect_id).stage is EffectStage.PREPARED
+
+    resumed = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(paused.outcome.resume_key, ResumeAction.CONTINUE),
+        options=options,
+    )
+
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": 42}
+    assert adapter.start_calls == failures + 1
+
+
+def test_pre_delivery_local_io_failure_stops_without_recovery_or_circuit(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    def fail_before_delivery(request, observer, cancel):
+        adapter.start_calls += 1
+        adapter.requests.append(request)
+        raise ProviderFailure(
+            "durable observer write failed",
+            category=FailureCategory.LOCAL_IO,
+            delivery=DeliveryState.NOT_DELIVERED,
+        )
+
+    adapter.start = fail_before_delivery
+    client = LLMClient(registry=registry)
+    request = _request("local-io-before-delivery")
+
+    result = client.generate(request, run_root=tmp_path)
+
+    assert isinstance(result.outcome, LLMFailed)
+    assert result.outcome.error.code.value == "local_io"
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
+    repository = RunRepository(tmp_path)
+    snapshot = repository.inspect(result.snapshot.run_id).snapshot
+    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    state = client.service._executor._task_store(context, request.task_id).read()
+    assert state is not None
+    assert len(state.generations) == 1
+    assert state.current.replacement_of is None
+    assert not state.current.possible_duplicate_execution
+    circuits = tmp_path / "operational" / "llm" / "circuits"
+    assert not circuits.exists() or list(circuits.glob("*.json")) == []
 
 
 def test_adoption_proves_source_identity_and_requires_cross_semantic_authorization(

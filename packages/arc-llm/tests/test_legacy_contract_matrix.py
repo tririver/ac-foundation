@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -33,6 +34,7 @@ from arc_llm import (
 )
 from arc_llm.config import DEFAULT_MODELS, detect_host, resolve_model_selection
 from arc_llm.errors import CandidateConflictError, OutputInvalidError
+from arc_llm.executor import LLMTaskExecutor
 from arc_llm.identity import (
     canonical_json_bytes,
     execution_document,
@@ -658,6 +660,44 @@ def test_legacy_text_candidate_artifact_top_level_digest_remains_resumable(
     assert accepted.outcome.value == second_value
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 0
+
+
+def test_new_provider_material_omits_digest_and_legacy_material_still_recovers() -> None:
+    value = {"answer": 7}
+    document = LLMTaskExecutor._execution_document_value(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (CandidateMaterial(value=value, terminal=True),),
+        )
+    )
+
+    assert "digest" not in document["candidates"][0]
+
+    legacy_document = json.loads(json.dumps(document))
+    legacy_document["candidates"][0]["digest"] = "legacy-material-digest"
+    context = SimpleNamespace(
+        artifacts=SimpleNamespace(
+            read_bytes=lambda ref: json.dumps(legacy_document).encode("utf-8")
+        )
+    )
+    recovered = LLMTaskExecutor()._execution_from_raw(context, object(), "codex")
+    contract = JsonOutput(
+        {
+            "type": "object",
+            "properties": {"answer": {"type": "integer"}},
+            "required": ["answer"],
+            "additionalProperties": False,
+        }
+    )
+
+    assert (
+        select_output(
+            recovered.candidates,
+            contract,
+            selected_digest=candidate_digest(value),
+        )
+        == value
+    )
 
 
 def test_identity_matrix_separates_semantics_execution_and_operations() -> None:

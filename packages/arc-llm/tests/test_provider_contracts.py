@@ -675,6 +675,128 @@ def test_official_acp_runner_classifies_prompt_failure_as_may_have_run(
     assert observer.deliveries == 1
 
 
+@pytest.mark.parametrize("callback", ("native_handle", "before_delivery"))
+def test_official_acp_runner_classifies_durable_observer_failures_as_local(
+    monkeypatch,
+    callback: str,
+) -> None:
+    prompt_calls: list[object] = []
+    cleanup: list[bool] = []
+
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(agent_capabilities=SimpleNamespace())
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(session_id="durable-observer")
+
+        async def prompt(self, **kwargs: Any) -> Any:
+            prompt_calls.append(kwargs)
+            raise AssertionError("observer failure reached ACP prompt")
+
+    class FailingObserver(Observer):
+        def native_handle(self, handle: NativeResumeHandle) -> None:
+            if callback == "native_handle":
+                raise OSError("task-state write failed")
+            super().native_handle(handle)
+
+        def before_delivery(self) -> None:
+            if callback == "before_delivery":
+                raise OSError("effect write failed")
+            super().before_delivery()
+
+    @asynccontextmanager
+    async def spawn(*args: Any, **kwargs: Any):
+        try:
+            yield Connection(), SimpleNamespace()
+        finally:
+            cleanup.append(True)
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+
+    with pytest.raises(ProviderFailure) as caught:
+        OfficialACPRunner().run(
+            provider="kimi",
+            binary="fake-kimi",
+            model="default",
+            prompt="Review.",
+            inputs=(),
+            session_id=None,
+            idle_timeout_seconds=2,
+            observer=FailingObserver(),
+            cancel=Cancel(),
+            env={},
+        )
+
+    assert caught.value.category is FailureCategory.LOCAL_IO
+    assert caught.value.delivery is DeliveryState.NOT_DELIVERED
+    assert not caught.value.retryable
+    assert isinstance(caught.value.__cause__, OSError)
+    assert prompt_calls == []
+    assert cleanup == [True]
+
+
+@pytest.mark.parametrize("callback", ("native_handle", "before_delivery"))
+def test_official_acp_runner_preserves_cancellation_from_durable_observer(
+    monkeypatch,
+    callback: str,
+) -> None:
+    prompt_calls: list[object] = []
+    cleanup: list[bool] = []
+
+    class Connection:
+        async def initialize(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(agent_capabilities=SimpleNamespace())
+
+        async def new_session(self, **kwargs: Any) -> Any:
+            return SimpleNamespace(session_id="cancel-observer")
+
+        async def prompt(self, **kwargs: Any) -> Any:
+            prompt_calls.append(kwargs)
+            raise AssertionError("observer cancellation reached ACP prompt")
+
+    class CancellingObserver(Observer):
+        def native_handle(self, handle: NativeResumeHandle) -> None:
+            if callback == "native_handle":
+                raise CancelledError("cancelled while saving handle")
+            super().native_handle(handle)
+
+        def before_delivery(self) -> None:
+            if callback == "before_delivery":
+                raise CancelledError("cancelled while marking delivery")
+            super().before_delivery()
+
+    @asynccontextmanager
+    async def spawn(*args: Any, **kwargs: Any):
+        try:
+            yield Connection(), SimpleNamespace()
+        finally:
+            cleanup.append(True)
+
+    monkeypatch.setattr("acp.spawn_agent_process", spawn)
+    result = OfficialACPRunner().run(
+        provider="kimi",
+        binary="fake-kimi",
+        model="default",
+        prompt="Review.",
+        inputs=(),
+        session_id=None,
+        idle_timeout_seconds=2,
+        observer=CancellingObserver(),
+        cancel=Cancel(),
+        env={},
+    )
+
+    assert result.terminal_kind is ProviderTerminalKind.CANCELLED
+    assert result.native_handle == (
+        None
+        if callback == "native_handle"
+        else NativeResumeHandle("kimi", "cancel-observer")
+    )
+    assert prompt_calls == []
+    assert cleanup == [True]
+
+
 @pytest.mark.parametrize(
     "media_type",
     ("text/markdown", "application/json", "text/plain"),

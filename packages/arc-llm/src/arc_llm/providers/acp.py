@@ -258,15 +258,36 @@ class OfficialACPRunner:
                 )
                 active_session_id = session_id
             handle = NativeResumeHandle(provider, active_session_id)
-            observer.native_handle(handle)
+            try:
+                observer.native_handle(handle)
+            except CancelledError:
+                return ProviderExecution(ProviderTerminalKind.CANCELLED)
+            except Exception as exc:
+                raise ProviderFailure(
+                    "Unable to durably record the ACP native handle.",
+                    category=FailureCategory.LOCAL_IO,
+                    delivery=DeliveryState.NOT_DELIVERED,
+                ) from exc
             blocks = self._content_blocks(prompt, inputs)
             if self._cancel_requested(cancel):
                 return ProviderExecution(
                     ProviderTerminalKind.CANCELLED,
                     native_handle=handle,
                 )
+            try:
+                observer.before_delivery()
+            except CancelledError:
+                return ProviderExecution(
+                    ProviderTerminalKind.CANCELLED,
+                    native_handle=handle,
+                )
+            except Exception as exc:
+                raise ProviderFailure(
+                    "Unable to durably record ACP delivery.",
+                    category=FailureCategory.LOCAL_IO,
+                    delivery=DeliveryState.NOT_DELIVERED,
+                ) from exc
             delivery.started = True
-            observer.before_delivery()
             response = await self._prompt_with_supervision(
                 connection=connection,
                 session_id=active_session_id,
