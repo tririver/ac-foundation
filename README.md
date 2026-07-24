@@ -574,31 +574,29 @@ terminal state. Generic status, cancellation, and validation come from
 
 ### Research Domains
 
-A domain is a cached package built from a seed paper plus optional intent. It
-contains foundation selection, selected papers, citation graph data, an HTML
-network, an evidence pack, and a compact field briefing.
+A domain is a durable, cache-backed generation built from a seed paper plus
+optional intent. It contains foundation selection, selected papers, citation
+graph data, an HTML network, a paper pack, an evidence pack, and an optional
+field briefing. Domain citation data is fixed to INSPIRE; the CLI does not
+offer a citation provider, query, sort/filter, or refresh option.
 
 ```bash
-arc-domain llm-build arXiv:0911.3380 \
+arc-domain build arXiv:0911.3380 \
   --intent "quasi-single-field inflation observables" \
-  --provider auto \
-  --json
+  --llm-provider auto \
+  --model-tier medium
 
-arc-domain status arXiv:0911.3380 \
-  --intent "quasi-single-field inflation observables" \
-  --json
+arc-domain status --domain-id <domain-id>
 
-arc-domain get-summary arXiv:0911.3380 \
-  --intent "quasi-single-field inflation observables" \
-  --json
+arc-domain get-summary --domain-id <domain-id>
 
-arc-domain get-graph arXiv:0911.3380 \
-  --intent "quasi-single-field inflation observables" \
-  --json
+arc-domain get-graph --domain-id <domain-id>
 ```
 
-Use the exact same intent string when reading the cache. Different intent
-strings produce different domain IDs.
+`build` reports the durable run ID and domain ID. Use `resume <run-id>`,
+`cancel <run-id>`, and `validate <run-id>` for run control. The catalog's
+`latest` run backs `status --domain-id`; `get-*` reads the published `active`
+generation. Different trimmed intent strings produce different domain IDs.
 
 ### Direct LLM Checks
 
@@ -633,11 +631,13 @@ executes an allowlisted ARC argv without a shell, and works whether or not MCP
 is installed:
 
 ```bash
-arc-jobs submit --job-type domain_build --cwd <project-dir> --json -- \
-  arc-domain llm-build <seed-paper> --intent "<intent>" --json
-arc-jobs watch <job-id> --json
-arc-jobs result <job-id> --json
+arc-domain build <seed-paper> --intent "<intent>"
+arc-domain status --run-id <run-id>
+arc-domain resume <run-id>
 ```
+
+`arc-domain build` owns its durable run and should not be wrapped in a second
+`arc-jobs submit` job.
 
 ## Optional MCP Tools
 
@@ -673,16 +673,9 @@ summary_batch_export
 summary_batch_retry_failed
 ```
 
-Domain tools:
-
-```text
-llm_domain_build
-llm_domain_get_summary
-llm_domain_get_graph
-domain_status
-domain_get_summary
-domain_get_graph
-```
+Domain MCP tools are intentionally not listed here: `arc-mcp` still depends on
+the previous domain service/cache surface and is not migrated with the durable
+domain CLI. Use `arc-domain` directly until that later migration.
 
 Job and doctor tools:
 
@@ -818,13 +811,15 @@ export ARC_DOMAIN_CACHE=/path/to/arc-domain-cache
 export ARC_JOBS_CACHE=/path/to/arc-jobs-cache
 ```
 
-Use `--refresh` only when you intentionally want fresh source data or a forced
-rebuild:
+Use `--refresh` only for paper commands when you intentionally want fresh
+source data:
 
 ```bash
 arc-paper get-metadata arXiv:0911.3380 --refresh
-arc-domain llm-build arXiv:0911.3380 --intent "..." --refresh --json
 ```
+
+Domain builds are cache-first and do not accept `--refresh`; create a new
+durable run only through `arc-domain build`.
 
 Validate durable run state:
 
@@ -888,8 +883,8 @@ and persistence remain protocol-neutral.
 If a domain summary or graph is missing:
 
 ```bash
-arc-domain status <seed-paper> --intent "<same-intent>" --json
-arc-domain llm-build <seed-paper> --intent "<same-intent>" --json
+arc-domain status --domain-id <domain-id>
+arc-domain build <seed-paper> --intent "<same-intent>"
 ```
 
 Network integration tests are opt-in because they call external services:
