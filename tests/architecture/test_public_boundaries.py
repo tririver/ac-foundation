@@ -26,6 +26,21 @@ def _all_imports(path: Path):
             yield from (item.name for item in node.names)
 
 
+def _public_exports(package: str) -> set[str]:
+    facade = ROOT / "packages" / package / "src" / package.replace("-", "_") / "__init__.py"
+    tree = ast.parse(facade.read_text(encoding="utf-8"), filename=str(facade))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__all__"
+                for target in node.targets
+            )
+        ):
+            return set(ast.literal_eval(node.value))
+    raise AssertionError(f"{facade.relative_to(ROOT)} does not define a literal __all__")
+
+
 def test_new_core_packages_only_use_dependency_root_facades():
     rules = {
         "arc-llm": {"arc_jobs"},
@@ -49,6 +64,61 @@ def test_arc_paper_only_uses_public_dependency_facades():
             if root in dependencies:
                 assert module == root, (
                     f"{path.relative_to(ROOT)} imports private dependency module {module}"
+                )
+
+
+def test_arc_domain_only_uses_public_dependency_facades():
+    dependencies = {"arc_jobs", "arc_llm", "arc_paper"}
+    exports = {package: _public_exports(package.replace("_", "-")) for package in dependencies}
+    for path in _python_files("arc-domain"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root = alias.name.split(".", 1)[0]
+                    if root in dependencies:
+                        assert alias.name == root, (
+                            f"{path.relative_to(ROOT)} imports private dependency module {alias.name}"
+                        )
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                root = node.module.split(".", 1)[0]
+                if root not in dependencies:
+                    continue
+                assert node.module == root, (
+                    f"{path.relative_to(ROOT)} imports private dependency module {node.module}"
+                )
+                assert all(alias.name in exports[root] for alias in node.names), (
+                    f"{path.relative_to(ROOT)} imports non-facade symbols from {root}: "
+                    f"{[alias.name for alias in node.names if alias.name not in exports[root]]}"
+                )
+
+
+def test_arc_domain_owns_no_process_thread_or_file_lock_implementation():
+    forbidden = {
+        "threading",
+        "subprocess",
+        "fcntl",
+        "filelock",
+        "portalocker",
+        "fasteners",
+        "msvcrt",
+    }
+    for path in _python_files("arc-domain"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for module in _all_imports(path):
+            assert module.split(".", 1)[0] not in forbidden, (
+                f"{path.relative_to(ROOT)} imports process, thread, or file-lock machinery: {module}"
+            )
+        if path.name == "_cache_root.py":
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                assert not (
+                    node.value.id == "os" and node.attr in {"environ", "getenv"}
+                ), f"{path.relative_to(ROOT)} reads environment directly"
+            if isinstance(node, ast.ImportFrom) and node.module == "os":
+                assert not {alias.name for alias in node.names} & {"environ", "getenv"}, (
+                    f"{path.relative_to(ROOT)} reads environment directly"
                 )
 
 
