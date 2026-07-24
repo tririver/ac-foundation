@@ -44,6 +44,32 @@ def candidate_digest(value: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+def enumerate_valid_candidates(
+    materials: Iterable[CandidateMaterial],
+    contract: JsonOutput | InteractiveJsonOutput,
+) -> tuple[ValidCandidate, ...]:
+    """Return the selectable, schema-valid values in canonical digest order."""
+
+    by_digest: dict[str, ValidCandidate] = {}
+    for material in materials:
+        for value in _values(
+            material,
+            allow_repair=(
+                isinstance(contract, JsonOutput) and contract.repair == "local"
+            ),
+        ):
+            if not _valid_json_value(value, contract):
+                continue
+            digest = candidate_digest(value)
+            previous = by_digest.get(digest)
+            by_digest[digest] = ValidCandidate(
+                value,
+                digest,
+                material.terminal or (previous is not None and previous.terminal),
+            )
+    return tuple(by_digest[digest] for digest in sorted(by_digest))
+
+
 def select_output(
     materials: Iterable[CandidateMaterial],
     contract: OutputContract,
@@ -53,21 +79,10 @@ def select_output(
     material_list = tuple(materials)
     if isinstance(contract, TextOutput):
         return _select_text(material_list)
-    valid: list[ValidCandidate] = []
-    for material in material_list:
-        for value in _values(
-            material,
-            allow_repair=(
-                isinstance(contract, JsonOutput) and contract.repair == "local"
-            ),
-        ):
-            if _valid_json_value(value, contract):
-                valid.append(ValidCandidate(value, candidate_digest(value), material.terminal))
+    valid = enumerate_valid_candidates(material_list, contract)
     if not valid:
         raise OutputInvalidError()
-    by_digest: dict[str, ValidCandidate] = {}
-    for item in valid:
-        by_digest[item.digest] = item
+    by_digest = {item.digest: item for item in valid}
     if selected_digest is not None:
         try:
             return by_digest[selected_digest].value
@@ -75,11 +90,10 @@ def select_output(
             raise OutputInvalidError("The selected candidate is not a saved valid candidate.") from exc
     if len(by_digest) > 1:
         terminal = [item for item in valid if item.terminal]
-        terminal_digests = {item.digest for item in terminal}
-        if len(terminal_digests) == 1:
-            return terminal[-1].value
-        raise CandidateConflictError(tuple(sorted(by_digest)))
-    return valid[-1].value
+        if len(terminal) == 1:
+            return terminal[0].value
+        raise CandidateConflictError(tuple(by_digest))
+    return valid[0].value
 
 
 def validate_value(value: Any, contract: OutputContract) -> None:

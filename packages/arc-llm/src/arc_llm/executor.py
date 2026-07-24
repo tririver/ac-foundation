@@ -64,6 +64,7 @@ from .outcome import (
 from .output import (
     CandidateMaterial,
     candidate_digest,
+    enumerate_valid_candidates,
     provider_schema,
     select_output,
     validate_value,
@@ -715,12 +716,24 @@ class LLMTaskExecutor:
         try:
             value = select_output(execution.candidates, request.output)
         except CandidateConflictError as exc:
+            assert not isinstance(request.output, TextOutput)
+            candidates = enumerate_valid_candidates(
+                execution.candidates,
+                request.output,
+            )
+            candidate_digests = [item.digest for item in candidates]
+            assert tuple(candidate_digests) == exc.candidate_digests
             candidate_ref = self._artifacts(context, current.semantic_key).publish_json(
                 f"generations/{current.current_generation}/candidates.json",
                 {
-                    "candidate_digests": list(exc.candidate_digests),
+                    "candidate_digests": candidate_digests,
                     "candidates": [
-                        self._candidate_doc(item) for item in execution.candidates
+                        {
+                            "digest": item.digest,
+                            "value": item.value,
+                            "terminal": item.terminal,
+                        }
+                        for item in candidates
                     ],
                 },
             )

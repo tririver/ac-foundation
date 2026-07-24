@@ -11,7 +11,12 @@ from arc_llm import (
     OperationContract,
 )
 from arc_llm.interaction import decode_interactive_turn, validate_responses
-from arc_llm.output import CandidateMaterial, candidate_digest, select_output
+from arc_llm.output import (
+    CandidateMaterial,
+    candidate_digest,
+    enumerate_valid_candidates,
+    select_output,
+)
 
 
 def test_json_output_repairs_syntax_but_not_missing_business_fields() -> None:
@@ -40,6 +45,24 @@ def test_non_equivalent_valid_candidates_require_explicit_selection() -> None:
         select_output(candidates, contract)
     selected = candidate_digest({"x": 2})
     assert select_output(candidates, contract, selected_digest=selected) == {"x": 2}
+
+
+def test_valid_candidate_enumeration_deduplicates_and_merges_terminal_state() -> None:
+    contract = JsonOutput({"type": "object"})
+    value = {"x": 1}
+
+    candidates = enumerate_valid_candidates(
+        (
+            CandidateMaterial(text='{\n  "x": 1\n}', terminal=True),
+            CandidateMaterial(value=value),
+        ),
+        contract,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].value == value
+    assert candidates[0].digest == candidate_digest(value)
+    assert candidates[0].terminal
 
 
 def test_nested_object_is_not_misclassified_as_a_second_candidate() -> None:
