@@ -5,6 +5,8 @@ import json
 
 import pytest
 
+import arc_jobs.groups as group_storage
+
 from arc_jobs import (
     Awaiting,
     EffectRequestDigest,
@@ -194,6 +196,27 @@ def test_completed_group_units_replay_across_run_resume(tmp_path):
     second = engine.resume("run-1", handler)
     assert second.status is RunStatus.SUCCEEDED
     assert handler.worker_calls == 2
+
+
+def test_group_replay_reads_each_completed_unit_document_once(tmp_path, monkeypatch):
+    handler = ReplayGroupHandler()
+    engine = RunEngine(RunRepository(tmp_path))
+    first = engine.execute(RunSpec("run-1", handler.name, {}), handler)
+    assert first.status is RunStatus.PAUSED
+
+    reads = []
+    original = group_storage.read_json_object
+
+    def record_unit_read(path):
+        if path.parent.name == "units":
+            reads.append(path.name)
+        return original(path)
+
+    monkeypatch.setattr(group_storage, "read_json_object", record_unit_read)
+    second = engine.resume("run-1", handler)
+
+    assert second.status is RunStatus.SUCCEEDED
+    assert reads == ["a.json", "b.json"]
 
 
 class FailFastGroupHandler:

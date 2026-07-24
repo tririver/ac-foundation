@@ -99,22 +99,6 @@ def provider_schema(contract: OutputContract) -> dict[str, Any] | None:
     return _interactive_schema(contract)
 
 
-def enumerate_valid_candidates(
-    materials: Iterable[CandidateMaterial], contract: JsonOutput | InteractiveJsonOutput
-) -> tuple[ValidCandidate, ...]:
-    found: list[ValidCandidate] = []
-    for material in materials:
-        for value in _values(
-            material,
-            allow_repair=(
-                isinstance(contract, JsonOutput) and contract.repair == "local"
-            ),
-        ):
-            if _valid_json_value(value, contract):
-                found.append(ValidCandidate(value, candidate_digest(value), material.terminal))
-    return tuple(found)
-
-
 def _select_text(materials: tuple[CandidateMaterial, ...]) -> str:
     values = [
         item.text if item.text is not None else item.value

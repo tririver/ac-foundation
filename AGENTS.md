@@ -31,8 +31,10 @@ tools it names.
   including foundation/domain-paper selection, graph artifacts, evidence packs,
   HTML rendering, domain summaries, and paper JSON pack exports.
 - `packages/arc-llm`: Owns reusable host LLM execution, provider/model
-  selection, background jobs, proposer-reviewer batches, consensus execution,
-  and related benchmarking helpers.
+  selection, durable task recovery, and provider sessions.
+- `packages/arc-proposer-reviewer`: Owns typed proposer-reviewer batch
+  orchestration, rounds, dialogue artifacts, and consensus results. It uses
+  `arc-jobs` for durable execution and `arc-llm` for model calls.
 - `packages/arc-paper`: Owns deterministic paper access and caching, ID
   normalization, ar5iv/INSPIRE metadata, references, citers,
   full-text/equation search, paper summaries, and summary batches.
@@ -128,6 +130,8 @@ tools it names.
 - Commits created by agents in this repository use the author and committer
   identity `Yi Wang <tririverwangyi@gmail.com>`; this is also set in the
   repo-local git config.
+- After completing and verifying each functional change, agents must create a
+  git commit unless the user explicitly asks not to commit.
 
 ## Agent Host Portability
 
@@ -166,6 +170,9 @@ another.
 
 - `packages/arc-llm` owns reusable host LLM execution: host detection,
   provider selection, model defaults, and Codex/Claude prompt calls.
+- `packages/arc-proposer-reviewer` owns proposer-reviewer orchestration,
+  worker/reviewer rounds, dialogue artifacts, and consensus result contracts.
+  It should call `arc-jobs` for durable execution and `arc-llm` for model work.
 - `packages/arc-paper` owns deterministic paper data access, ID
   normalization, caching, parsing, paper-summary contracts, paper-summary
   orchestration, and batch execution.

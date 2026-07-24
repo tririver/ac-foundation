@@ -6,6 +6,7 @@ from typing import Any, cast
 from arc_jobs import JsonValue
 from arc_llm import CapabilityPolicy, ModelSelection
 
+from .identity import worker_contract_document
 from .models import (
     BATCH_SCHEMA_VERSION,
     RESULT_SCHEMA_VERSION,
@@ -191,21 +192,7 @@ def _encode_loop(loop: LoopSpec) -> dict[str, JsonValue]:
 
 
 def _encode_worker(worker: WorkerSpec) -> dict[str, JsonValue]:
-    return {
-        "worker_id": worker.worker_id,
-        "instructions": worker.instructions,
-        "output_schema": dict(worker.output_schema),
-        "model": {
-            "provider": worker.model.provider,
-            "model": worker.model.model,
-            "tier": worker.model.tier,
-        },
-        "capabilities": {
-            "internet": worker.capabilities.internet,
-            "inherit_host_config": worker.capabilities.inherit_host_config,
-            "allowed_tools": list(worker.capabilities.allowed_tools),
-        },
-    }
+    return worker_contract_document(worker)
 
 
 def _encode_loop_result(result: LoopResult) -> dict[str, JsonValue]:

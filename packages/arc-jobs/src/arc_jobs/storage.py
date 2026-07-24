@@ -15,6 +15,7 @@ from .errors import (
     StateConflictError,
     UnsupportedSchemaError,
 )
+from .artifacts import decode_artifact_digest, encode_artifact_digest
 from .identity import canonical_json_bytes, validate_artifact_id, validate_simple_id
 from .lease import FileLease
 from .models import (
@@ -255,11 +256,7 @@ class ImmutableArtifactStore:
         manifest: dict[str, JsonValue] = {
             "schema_version": "arc.jobs.artifact.v1",
             "artifact_id": logical_id,
-            "digest": {
-                "algorithm": "sha256",
-                "value": digest.value,
-                "size_bytes": digest.size_bytes,
-            },
+            "digest": encode_artifact_digest(digest),
             "media_type": media_type,
             "relative_path": relative_path,
             "reused_from": dict(reused_from) if reused_from is not None else None,
@@ -325,20 +322,10 @@ class ImmutableArtifactStore:
 
     @staticmethod
     def _digest_from_json(value: JsonValue) -> ArtifactDigest:
-        if not isinstance(value, dict):
-            raise CorruptStateError("artifact digest must be an object")
-        require_fields(value, required={"algorithm", "value", "size_bytes"})
-        algorithm, digest, size = value["algorithm"], value["value"], value["size_bytes"]
-        if (
-            algorithm != "sha256"
-            or not isinstance(digest, str)
-            or len(digest) != 64
-            or not isinstance(size, int)
-            or isinstance(size, bool)
-            or size < 0
-        ):
-            raise CorruptStateError("invalid artifact digest")
-        return ArtifactDigest("sha256", digest, size)
+        try:
+            return decode_artifact_digest(value)
+        except ValueError as exc:
+            raise CorruptStateError("invalid artifact digest") from exc
 
     def _ref_from_manifest(self, manifest: Mapping[str, JsonValue]) -> ArtifactRef:
         artifact_id = manifest["artifact_id"]
@@ -396,11 +383,7 @@ class ImmutableArtifactStore:
         provenance: dict[str, JsonValue] = {
             "source_run_id": source.source_run_id,
             "source_artifact_id": source.source_artifact_id,
-            "digest": {
-                "algorithm": verified.digest.algorithm,
-                "value": verified.digest.value,
-                "size_bytes": verified.digest.size_bytes,
-            },
+            "digest": encode_artifact_digest(verified.digest),
         }
         return self._publish(
             artifact_id,

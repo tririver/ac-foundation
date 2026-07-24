@@ -11,6 +11,8 @@ from arc_jobs import (
     ArtifactDigest,
     ArtifactSourceRef,
     InvalidRunIdError,
+    decode_artifact_digest,
+    encode_artifact_digest,
     validate_artifact_id,
     validate_simple_id,
 )
@@ -210,20 +212,14 @@ class LLMInputArtifact:
                 "inputs.source must contain valid run and artifact identifiers."
             ) from exc
         digest = self.source.expected_digest
-        if not isinstance(digest, ArtifactDigest) or digest.algorithm != "sha256":
+        if not isinstance(digest, ArtifactDigest):
             raise InvalidRequestError("inputs.source.expected_digest must use SHA-256.")
-        _validate_sha256(
-            digest.value,
-            field_name="inputs.source.expected_digest.value",
-        )
-        if (
-            isinstance(digest.size_bytes, bool)
-            or not isinstance(digest.size_bytes, int)
-            or digest.size_bytes < 0
-        ):
+        try:
+            encode_artifact_digest(digest)
+        except ValueError as exc:
             raise InvalidRequestError(
-                "inputs.source.expected_digest.size_bytes must be non-negative."
-            )
+                "inputs.source.expected_digest must use a lowercase SHA-256 digest."
+            ) from exc
         normalized_media_type = (
             self.media_type.strip().lower()
             if isinstance(self.media_type, str)
@@ -453,11 +449,9 @@ def request_to_document(request: LLMRequest) -> dict[str, Any]:
                 "source": {
                     "source_run_id": item.source.source_run_id,
                     "source_artifact_id": item.source.source_artifact_id,
-                    "expected_digest": {
-                        "algorithm": item.source.expected_digest.algorithm,
-                        "value": item.source.expected_digest.value,
-                        "size_bytes": item.source.expected_digest.size_bytes,
-                    },
+                    "expected_digest": encode_artifact_digest(
+                        item.source.expected_digest
+                    ),
                 },
                 "media_type": item.media_type,
             }
@@ -550,24 +544,19 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
             source_doc["expected_digest"],
             "input.source.expected_digest",
         )
-        _require_exact(
-            digest_doc,
-            {"algorithm", "value", "size_bytes"},
-            "input.source.expected_digest",
-        )
-        if digest_doc["algorithm"] != "sha256":
-            raise InvalidRequestError("input source digest must use SHA-256.")
+        try:
+            digest = decode_artifact_digest(digest_doc)
+        except ValueError as exc:
+            raise InvalidRequestError(
+                "input source digest must use a lowercase SHA-256 digest."
+            ) from exc
         inputs.append(
             LLMInputArtifact(
                 item["input_id"],
                 ArtifactSourceRef(
                     source_doc["source_run_id"],
                     source_doc["source_artifact_id"],
-                    ArtifactDigest(
-                        "sha256",
-                        digest_doc["value"],
-                        digest_doc["size_bytes"],
-                    ),
+                    digest,
                 ),
                 item["media_type"],
             )

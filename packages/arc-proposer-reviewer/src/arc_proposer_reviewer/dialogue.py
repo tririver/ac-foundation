@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from arc_jobs import ArtifactRef, JsonValue
+from arc_jobs import ArtifactRef, JsonValue, encode_artifact_ref
 
 
 @dataclass(frozen=True)
@@ -28,14 +28,7 @@ def encode_transcript_turn(turn: TranscriptTurn) -> dict[str, JsonValue]:
             _artifact_ref(ref) for ref in turn.interaction_provenance_refs
         ],
     }
+
+
 def _artifact_ref(ref: ArtifactRef) -> dict[str, JsonValue]:
-    return {
-        "artifact_id": ref.artifact_id,
-        "digest": {
-            "algorithm": ref.digest.algorithm,
-            "value": ref.digest.value,
-            "size_bytes": ref.digest.size_bytes,
-        },
-        "media_type": ref.media_type,
-        "relative_path": ref.relative_path,
-    }
+    return encode_artifact_ref(ref)

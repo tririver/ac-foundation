@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 from .cancellation import CancellationToken
+from .artifacts import encode_artifact_ref
 from .errors import CorruptStateError, ResumeMismatchError
 from .events import EventWriter
 from .identity import semantic_key, validate_simple_id
@@ -26,26 +27,16 @@ from .storage import atomic_write_json, read_json_object, require_fields
 
 
 def _artifact_value(ref: ArtifactRef) -> dict[str, JsonValue]:
-    return {
-        "artifact_id": ref.artifact_id,
-        "digest": {
-            "algorithm": ref.digest.algorithm,
-            "value": ref.digest.value,
-            "size_bytes": ref.digest.size_bytes,
-        },
-        "media_type": ref.media_type,
-        "relative_path": ref.relative_path,
-    }
+    return encode_artifact_ref(ref)
 
 
 def _unit_result(
-    path: Path,
+    document: Mapping[str, JsonValue],
     *,
     expected_unit_id: str,
     expected_semantic_key: str,
     replayed: bool,
 ) -> UnitResult:
-    document = read_json_object(path)
     require_fields(
         document,
         required={
@@ -133,7 +124,7 @@ def inspect_group(directory: Path, group_id: str) -> GroupView:
             views.append(GroupUnitView(unit_id, "pending"))
             continue
         result = _unit_result(
-            path,
+            read_json_object(path),
             expected_unit_id=unit_id,
             expected_semantic_key=semantic_key_sha256,
             replayed=False,
@@ -210,7 +201,7 @@ class WorkGroupRunner:
                 if document.get("semantic_key_sha256") != keys[unit.unit_id]:
                     raise ResumeMismatchError(f"unit {unit.unit_id!r} semantic input changed")
                 results[unit.unit_id] = _unit_result(
-                    path,
+                    document,
                     expected_unit_id=unit.unit_id,
                     expected_semantic_key=keys[unit.unit_id],
                     replayed=True,

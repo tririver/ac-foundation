@@ -8,7 +8,6 @@ from enum import StrEnum
 from typing import Any, Mapping
 
 from arc_jobs import (
-    ArtifactDigest,
     ArtifactRef,
     CorruptStateError,
     EffectStage,
@@ -16,6 +15,8 @@ from arc_jobs import (
     JsonValue,
     SemanticKeyDigest,
     ResumeReason,
+    decode_artifact_ref,
+    encode_artifact_ref,
 )
 
 TASK_SCHEMA_VERSION = "arc.llm.task.v2"
@@ -555,40 +556,16 @@ def _pause(value: JsonValue) -> TaskPause | None:
 def _ref_doc(value: ArtifactRef | None) -> JsonValue:
     if value is None:
         return None
-    return {
-        "artifact_id": value.artifact_id,
-        "digest": {
-            "algorithm": value.digest.algorithm,
-            "value": value.digest.value,
-            "size_bytes": value.digest.size_bytes,
-        },
-        "media_type": value.media_type,
-        "relative_path": value.relative_path,
-    }
+    return encode_artifact_ref(value)
 
 
 def _ref(value: JsonValue) -> ArtifactRef | None:
     if value is None:
         return None
-    if not isinstance(value, dict):
-        raise CorruptStateError("artifact ref must be an object")
-    _exact(value, {"artifact_id", "digest", "media_type", "relative_path"})
-    digest = value["digest"]
-    if not isinstance(digest, dict):
-        raise CorruptStateError("artifact digest must be an object")
-    _exact(digest, {"algorithm", "value", "size_bytes"})
-    if digest["algorithm"] != "sha256":
-        raise CorruptStateError("unsupported artifact digest")
-    return ArtifactRef(
-        _str(value["artifact_id"], "artifact id"),
-        ArtifactDigest(
-            "sha256",
-            _str(digest["value"], "artifact digest"),
-            _int(digest["size_bytes"], "artifact size"),
-        ),
-        _str(value["media_type"], "media type"),
-        _str(value["relative_path"], "artifact path"),
-    )
+    try:
+        return decode_artifact_ref(value)
+    except ValueError as exc:
+        raise CorruptStateError("invalid artifact ref") from exc
 
 
 def _required_ref(value: JsonValue) -> ArtifactRef:

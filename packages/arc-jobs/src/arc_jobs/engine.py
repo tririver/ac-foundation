@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Callable, Mapping, Protocol, TypeVar
 
 from .cancellation import CancellationToken
+from .artifacts import (
+    decode_artifact_ref,
+    encode_artifact_ref,
+)
 from .contracts import StateContract
 from .effects import EffectJournal
 from .errors import (
@@ -28,7 +32,6 @@ from .groups import WorkGroupRunner, inspect_group
 from .identity import canonical_json_bytes, semantic_key, validate_simple_id
 from .lease import FileLease
 from .models import (
-    ArtifactDigest,
     ArtifactRef,
     Awaiting,
     CancelRequest,
@@ -77,60 +80,33 @@ class _SliceExpired(Exception):
     pass
 
 
-def _digest_json(value: ArtifactDigest) -> dict[str, JsonValue]:
-    return {
-        "algorithm": value.algorithm,
-        "value": value.value,
-        "size_bytes": value.size_bytes,
-    }
+def _cancel_snapshot(snapshot: RunSnapshot, *, updated_at: str) -> RunSnapshot:
+    """Return the common durable transition for a requested cancellation."""
+
+    return replace(
+        snapshot,
+        revision=snapshot.revision + 1,
+        status=RunStatus.CANCELLED,
+        updated_at=updated_at,
+        awaiting=None,
+        error=None,
+        interrupted=snapshot.status is RunStatus.RUNNING or snapshot.interrupted,
+    )
 
 
 def _ref_json(value: ArtifactRef | None) -> JsonValue:
     if value is None:
         return None
-    return {
-        "artifact_id": value.artifact_id,
-        "digest": _digest_json(value.digest),
-        "media_type": value.media_type,
-        "relative_path": value.relative_path,
-    }
-
-
-def _decode_digest(value: JsonValue) -> ArtifactDigest:
-    if not isinstance(value, dict):
-        raise CorruptStateError("digest must be an object")
-    require_fields(value, required={"algorithm", "value", "size_bytes"})
-    algorithm, digest, size = value["algorithm"], value["value"], value["size_bytes"]
-    if (
-        algorithm != "sha256"
-        or not isinstance(digest, str)
-        or len(digest) != 64
-        or not isinstance(size, int)
-        or isinstance(size, bool)
-        or size < 0
-    ):
-        raise CorruptStateError("invalid digest")
-    return ArtifactDigest("sha256", digest, size)
+    return encode_artifact_ref(value)
 
 
 def _decode_ref(value: JsonValue) -> ArtifactRef | None:
     if value is None:
         return None
-    if not isinstance(value, dict):
-        raise CorruptStateError("artifact ref must be an object")
-    require_fields(
-        value, required={"artifact_id", "digest", "media_type", "relative_path"}
-    )
-    artifact_id, media_type, relative_path = (
-        value["artifact_id"],
-        value["media_type"],
-        value["relative_path"],
-    )
-    if not all(isinstance(part, str) for part in (artifact_id, media_type, relative_path)):
-        raise CorruptStateError("invalid artifact ref strings")
-    return ArtifactRef(
-        artifact_id, _decode_digest(value["digest"]), media_type, relative_path
-    )
+    try:
+        return decode_artifact_ref(value)
+    except ValueError as exc:
+        raise CorruptStateError("invalid artifact ref") from exc
 
 
 def _awaiting_json(value: Awaiting | None) -> JsonValue:
@@ -517,15 +493,7 @@ class RunRepository:
             if snapshot.status in _TERMINAL:
                 return self.inspect(run_id)
             events.emit("run_cancelled", {"reason": reason})
-            cancelled = replace(
-                snapshot,
-                revision=snapshot.revision + 1,
-                status=RunStatus.CANCELLED,
-                updated_at=utc_now(),
-                awaiting=None,
-                error=None,
-                interrupted=snapshot.status is RunStatus.RUNNING or snapshot.interrupted,
-            )
+            cancelled = _cancel_snapshot(snapshot, updated_at=utc_now())
             self._snapshot_store(run_id).compare_and_swap(snapshot.revision, cancelled)
             return self.inspect(run_id)
         finally:
@@ -776,18 +744,7 @@ class RunEngine:
                     "run_cancelled",
                     {"reason": cancel_request.reason},
                 )
-                cancelled = replace(
-                    snapshot,
-                    revision=snapshot.revision + 1,
-                    status=RunStatus.CANCELLED,
-                    updated_at=utc_now(),
-                    awaiting=None,
-                    error=None,
-                    interrupted=(
-                        snapshot.interrupted
-                        or snapshot.status is RunStatus.RUNNING
-                    ),
-                )
+                cancelled = _cancel_snapshot(snapshot, updated_at=utc_now())
                 return store.compare_and_swap(snapshot.revision, cancelled)
             if snapshot.status is RunStatus.PAUSED:
                 assert snapshot.awaiting is not None

@@ -99,6 +99,26 @@ def test_request_v2_input_codec_and_content_identity() -> None:
 
 
 @pytest.mark.parametrize(
+    "digest",
+    ("A" * 64, "g" * 64, "a" * 63),
+)
+def test_request_v2_rejects_invalid_artifact_digests(digest: str) -> None:
+    with pytest.raises(InvalidRequestError):
+        _input("paper", digest)
+
+    request = LLMRequest(
+        "with-input",
+        "Review.",
+        JsonOutput({"type": "object"}),
+        inputs=(_input("paper", "a" * 64),),
+    )
+    document = request_to_document(request)
+    document["inputs"][0]["source"]["expected_digest"]["value"] = digest
+    with pytest.raises(InvalidRequestError):
+        decode_request(document)
+
+
+@pytest.mark.parametrize(
     ("field", "value"),
     (
         ("source_run_id", "../source"),

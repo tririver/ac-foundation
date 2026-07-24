@@ -914,8 +914,11 @@ This repository is organized as Python packages plus thin agent adapters.
 Package boundaries:
 
 - `packages/arc-llm` owns reusable host LLM execution: host detection,
-  provider selection, model defaults, direct prompt calls, and
-  proposers-reviewer runners.
+  provider selection, model defaults, direct prompt calls, and durable task
+  recovery.
+- `packages/arc-proposer-reviewer` owns typed proposer-reviewer orchestration,
+  worker/reviewer rounds, dialogue artifacts, and consensus result contracts.
+  It uses `arc-jobs` for durable execution and `arc-llm` for model calls.
 - `packages/arc-paper` owns deterministic paper data access, ID normalization,
   cache layout, ar5iv parsing, INSPIRE access, paper-summary contracts,
   paper-summary orchestration, full-text search, and summary batches.

@@ -1,6 +1,13 @@
 """Durable, protocol-neutral run kernel for ARC packages."""
 
 from .cancellation import CancellationToken
+from .artifacts import (
+    decode_artifact_digest,
+    decode_artifact_ref,
+    encode_artifact_digest,
+    encode_artifact_ref,
+)
+from .cli import main as run_control_main
 from .contracts import StateContract
 from .effects import EffectJournal, EffectRecoveryPolicy
 from .engine import RunContext, RunEngine, RunHandler, RunRepository
@@ -163,9 +170,14 @@ __all__ = [
     "command_result_json",
     "decode_command_result",
     "decode_progress_event",
+    "decode_artifact_digest",
+    "decode_artifact_ref",
+    "encode_artifact_digest",
+    "encode_artifact_ref",
     "encode_command_result",
     "encode_progress_event",
     "resume_from_awaiting",
+    "run_control_main",
     "semantic_key",
     "snapshot_data",
     "validate_artifact_id",

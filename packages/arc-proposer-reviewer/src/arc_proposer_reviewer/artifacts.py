@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
-
-from arc_jobs import ArtifactDigest, ArtifactRef, JsonValue
+from arc_jobs import ArtifactRef, JsonValue, decode_artifact_ref, encode_artifact_ref
 
 
 def request_artifact_id() -> str:
@@ -31,52 +29,14 @@ def batch_result_artifact_id() -> str:
 
 
 def artifact_ref_to_document(ref: ArtifactRef) -> dict[str, JsonValue]:
-    return {
-        "artifact_id": ref.artifact_id,
-        "digest": {
-            "algorithm": ref.digest.algorithm,
-            "value": ref.digest.value,
-            "size_bytes": ref.digest.size_bytes,
-        },
-        "media_type": ref.media_type,
-        "relative_path": ref.relative_path,
-    }
+    return encode_artifact_ref(ref)
 
 
 def artifact_ref_from_document(value: JsonValue) -> ArtifactRef:
-    if not isinstance(value, Mapping) or set(value) != {
-        "artifact_id",
-        "digest",
-        "media_type",
-        "relative_path",
-    }:
-        raise ValueError("invalid artifact reference")
-    digest = value["digest"]
-    if not isinstance(digest, Mapping) or set(digest) != {
-        "algorithm",
-        "value",
-        "size_bytes",
-    }:
-        raise ValueError("invalid artifact digest")
-    if (
-        digest["algorithm"] != "sha256"
-        or not isinstance(digest["value"], str)
-        or type(digest["size_bytes"]) is not int
-        or not isinstance(value["artifact_id"], str)
-        or not isinstance(value["media_type"], str)
-        or not isinstance(value["relative_path"], str)
-    ):
-        raise ValueError("invalid artifact reference fields")
-    return ArtifactRef(
-        artifact_id=value["artifact_id"],
-        digest=ArtifactDigest(
-            algorithm="sha256",
-            value=digest["value"],
-            size_bytes=digest["size_bytes"],
-        ),
-        media_type=value["media_type"],
-        relative_path=value["relative_path"],
-    )
+    try:
+        return decode_artifact_ref(value)
+    except ValueError as exc:
+        raise ValueError("invalid artifact reference") from exc
 
 
 def read_json_artifact(store: object, ref: ArtifactRef) -> JsonValue:

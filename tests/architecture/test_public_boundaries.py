@@ -41,11 +41,13 @@ def test_new_core_packages_only_use_dependency_root_facades():
                     )
 
 
-def test_arc_paper_only_uses_the_arc_llm_public_facade():
+def test_arc_paper_only_uses_public_dependency_facades():
+    dependencies = {"arc_jobs", "arc_llm"}
     for path in _python_files("arc-paper"):
         for module in _all_imports(path):
-            if module == "arc_llm" or module.startswith("arc_llm."):
-                assert module == "arc_llm", (
+            root = module.split(".", 1)[0]
+            if root in dependencies:
+                assert module == root, (
                     f"{path.relative_to(ROOT)} imports private dependency module {module}"
                 )
 

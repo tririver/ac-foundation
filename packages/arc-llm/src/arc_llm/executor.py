@@ -690,10 +690,32 @@ class LLMTaskExecutor:
             changes["native_handle"] = execution.native_handle.value
         current = self._update_current(current, **changes)
         store.compare_and_swap(current.revision - 1, current)
+        return self._consume_candidates(
+            context,
+            request,
+            current,
+            store,
+            execution,
+            options,
+            allow_replacement=True,
+        )
+
+    def _consume_candidates(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        execution: ProviderExecution,
+        options: LLMExecutionOptions,
+        *,
+        allow_replacement: bool,
+    ) -> LLMTaskOutcome | None:
+        current = store.read() or state
         try:
             value = select_output(execution.candidates, request.output)
         except CandidateConflictError as exc:
-            candidate_ref = scoped.publish_json(
+            candidate_ref = self._artifacts(context, current.semantic_key).publish_json(
                 f"generations/{current.current_generation}/candidates.json",
                 {
                     "candidate_digests": list(exc.candidate_digests),
@@ -711,6 +733,17 @@ class LLMTaskExecutor:
                 request_ref=candidate_ref,
             )
         except OutputInvalidError:
+            if not allow_replacement:
+                return self._pause(
+                    store,
+                    current,
+                    ResumeReason.SUPERVISION_REQUIRED,
+                    "output_invalid",
+                    input_required=True,
+                    request_ref=self._supervision_artifact(
+                        context, current, "output_invalid"
+                    ),
+                )
             replacements = sum(
                 item.replacement_of is not None for item in current.generations
             )
@@ -763,57 +796,17 @@ class LLMTaskExecutor:
         if raw_ref is None:
             return LLMFailed(OutputInvalidError("Saved output has no artifact reference."))
         execution = self._execution_from_raw(context, raw_ref, state.resolved_provider or "")
-        outcome = self._consume_saved_candidates(
-            context, request, state, store, execution, options
+        outcome = self._consume_candidates(
+            context,
+            request,
+            state,
+            store,
+            execution,
+            options,
+            allow_replacement=False,
         )
+        assert outcome is not None
         return outcome
-
-    def _consume_saved_candidates(
-        self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
-        store: Any,
-        execution: ProviderExecution,
-        options: LLMExecutionOptions,
-    ) -> LLMTaskOutcome:
-        try:
-            value = select_output(execution.candidates, request.output)
-        except CandidateConflictError as exc:
-            ref = self._artifacts(context, state.semantic_key).publish_json(
-                f"generations/{state.current_generation}/candidates.json",
-                {
-                    "candidate_digests": list(exc.candidate_digests),
-                    "candidates": [self._candidate_doc(item) for item in execution.candidates],
-                },
-            )
-            return self._pause(
-                store,
-                state,
-                ResumeReason.SUPERVISION_REQUIRED,
-                "candidate_selection_required",
-                input_required=True,
-                request_ref=ref,
-            )
-        except OutputInvalidError:
-            return self._pause(
-                store,
-                state,
-                ResumeReason.SUPERVISION_REQUIRED,
-                "output_invalid",
-                input_required=True,
-                request_ref=self._supervision_artifact(context, state, "output_invalid"),
-            )
-        if isinstance(request.output, InteractiveJsonOutput):
-            turn = decode_interactive_turn(
-                value, request.output, seen_request_ids=set(state.seen_request_ids)
-            )
-            if turn.state == "interact":
-                return self._handle_interaction(
-                    context, request, state, store, turn, execution, options
-                )
-            value = turn.result
-        return self._accept(context, request, state, store, value, execution)
 
     def _handle_interaction(
         self,

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Mapping, Protocol
 
 from .cancellation import CancellationToken
+from .artifacts import decode_artifact_ref, encode_artifact_ref
 from .contracts import StateContract
 from .errors import (
     CorruptStateError,
@@ -14,7 +15,6 @@ from .errors import (
 )
 from .identity import validate_simple_id
 from .models import (
-    ArtifactDigest,
     ArtifactRef,
     EffectRecord,
     EffectRequestDigest,
@@ -29,60 +29,17 @@ class EffectRecoveryPolicy(Protocol):
     def classify(self, record: EffectRecord) -> RecoveryDecision: ...
 
 
-def _digest_json(value: ArtifactDigest) -> dict[str, JsonValue]:
-    return {
-        "algorithm": value.algorithm,
-        "value": value.value,
-        "size_bytes": value.size_bytes,
-    }
-
-
 def _ref_json(value: ArtifactRef) -> dict[str, JsonValue]:
-    return {
-        "artifact_id": value.artifact_id,
-        "digest": _digest_json(value.digest),
-        "media_type": value.media_type,
-        "relative_path": value.relative_path,
-    }
-
-
-def _decode_digest(value: JsonValue) -> ArtifactDigest:
-    if not isinstance(value, dict):
-        raise CorruptStateError("artifact digest must be an object")
-    require_fields(value, required={"algorithm", "value", "size_bytes"})
-    if (
-        value["algorithm"] != "sha256"
-        or not isinstance(value["value"], str)
-        or len(value["value"]) != 64
-        or any(character not in "0123456789abcdef" for character in value["value"])
-        or not isinstance(value["size_bytes"], int)
-        or isinstance(value["size_bytes"], bool)
-        or value["size_bytes"] < 0
-    ):
-        raise CorruptStateError("invalid artifact digest")
-    return ArtifactDigest("sha256", value["value"], value["size_bytes"])
+    return encode_artifact_ref(value)
 
 
 def _decode_ref(value: JsonValue) -> ArtifactRef | None:
     if value is None:
         return None
-    if not isinstance(value, dict):
-        raise CorruptStateError("artifact ref must be an object")
-    require_fields(
-        value,
-        required={"artifact_id", "digest", "media_type", "relative_path"},
-    )
-    if not all(
-        isinstance(value[key], str)
-        for key in ("artifact_id", "media_type", "relative_path")
-    ):
-        raise CorruptStateError("invalid artifact ref")
-    return ArtifactRef(
-        value["artifact_id"],
-        _decode_digest(value["digest"]),
-        value["media_type"],
-        value["relative_path"],
-    )
+    try:
+        return decode_artifact_ref(value)
+    except ValueError as exc:
+        raise CorruptStateError("invalid artifact ref") from exc
 
 
 class _EffectContract(StateContract[EffectRecord]):

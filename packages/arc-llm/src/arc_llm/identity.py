@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from arc_jobs import ExecutionFingerprint, SemanticKeyDigest
+from arc_jobs import ExecutionFingerprint, SemanticKeyDigest, canonical_json_bytes
 
 from .request import (
     LLMRequest,
@@ -40,16 +39,6 @@ class AdoptionAuthorization:
                 int(digest.sha256, 16)
             except ValueError as exc:
                 raise ValueError(f"{name} must contain a SHA-256 digest.") from exc
-
-
-def canonical_json_bytes(value: Any) -> bytes:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
 
 
 def document_sha256(value: Any) -> str:

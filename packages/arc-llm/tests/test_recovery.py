@@ -5,6 +5,7 @@ import pytest
 from arc_jobs import (
     ArtifactDigest,
     ArtifactRef,
+    CorruptStateError,
     EffectStage,
     ExecutionFingerprint,
     ResumeReason,
@@ -44,6 +45,29 @@ def _state() -> LLMTaskState:
         (GenerationRecord(1, effect_id_for("task", 1), fingerprint),),
         _ref("request"),
     )
+
+
+@pytest.mark.parametrize(
+    "digest",
+    (
+        "A" * 64,
+        "g" * 64,
+        "a" * 63,
+    ),
+)
+def test_task_state_contract_rejects_invalid_artifact_reference_digest(digest: str) -> None:
+    contract = TaskStateContract()
+    document = dict(contract.encode(_state()))
+    request_ref = dict(document["request_ref"])
+    request_ref["digest"] = {
+        "algorithm": "sha256",
+        "value": digest,
+        "size_bytes": 1,
+    }
+    document["request_ref"] = request_ref
+
+    with pytest.raises(CorruptStateError):
+        contract.decode(document)
 
 
 def test_recovery_decision_is_bounded_and_delivery_aware() -> None:

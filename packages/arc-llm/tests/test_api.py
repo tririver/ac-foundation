@@ -13,12 +13,14 @@ from arc_jobs import (
     ArtifactSourceRef,
     RunContext,
     RunRepository,
+    ResumeReason,
     RunSpec,
     RunStatus,
 )
 from arc_jobs import EffectStage
 from arc_llm import (
     AdoptionAuthorization,
+    ExecutionLimits,
     InteractiveJsonOutput,
     InteractionResponse,
     JsonOutput,
@@ -136,6 +138,158 @@ def test_client_generate_replays_accepted_result_without_provider_call(
     assert isinstance(second.outcome, LLMCompleted)
     assert second.outcome.value == {"answer": 42}
     assert adapter.start_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("replacement_limit", "replaces"),
+    (
+        (1, True),
+        (0, False),
+    ),
+)
+def test_live_invalid_output_replacement_or_pause_matrix(
+    tmp_path: Path,
+    adapter,
+    registry,
+    replacement_limit: int,
+    replaces: bool,
+) -> None:
+    adapter.steps.append(_completed({"not_answer": True}))
+    if replacement_limit:
+        adapter.steps.append(_completed({"answer": 42}, handle="replacement"))
+
+    result = LLMClient(registry=registry).generate(
+        _request("live-invalid"),
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(automatic_replacement_limit=replacement_limit)
+        ),
+    )
+
+    if replaces:
+        assert isinstance(result.outcome, LLMCompleted)
+        assert result.outcome.value == {"answer": 42}
+        assert adapter.start_calls == 2
+    else:
+        assert isinstance(result.outcome, LLMPaused)
+        assert result.outcome.details["code"] == "output_invalid"
+        assert adapter.start_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("case", "execution", "llm_request", "reason", "code"),
+    (
+        (
+            "conflict",
+            ProviderExecution(
+                ProviderTerminalKind.COMPLETED,
+                (
+                    CandidateMaterial(value={"answer": 1}),
+                    CandidateMaterial(value={"answer": 2}),
+                ),
+                NativeResumeHandle("codex", "saved-conflict"),
+            ),
+            _request("saved-conflict"),
+            ResumeReason.SUPERVISION_REQUIRED,
+            "candidate_selection_required",
+        ),
+        (
+            "invalid",
+            _completed({"not_answer": True}, handle="saved-invalid"),
+            _request("saved-invalid"),
+            ResumeReason.SUPERVISION_REQUIRED,
+            "output_invalid",
+        ),
+        (
+            "interactive",
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "saved-request",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                },
+                handle="saved-interaction",
+            ),
+            LLMRequest(
+                "saved-interaction",
+                "Solve.",
+                InteractiveJsonOutput(
+                    {"type": "object", "required": ["answer"]},
+                    {
+                        "lookup": OperationContract(
+                            {"type": "object", "required": ["query"]},
+                            {"type": "object", "required": ["value"]},
+                        )
+                    },
+                ),
+                ModelSelection("codex"),
+            ),
+            ResumeReason.INTERACTION_REQUIRED,
+            "operation_requests_pending",
+        ),
+    ),
+)
+def test_saved_output_recovery_pauses_without_provider_replay(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+    case: str,
+    execution: ProviderExecution,
+    llm_request: LLMRequest,
+    reason: ResumeReason,
+    code: str,
+) -> None:
+    adapter.steps.append(execution)
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_consume_candidates = executor._consume_candidates
+
+    def crash_after_raw_output(*args, **kwargs):
+        raise KeyboardInterrupt("simulated crash after saving raw provider output")
+
+    monkeypatch.setattr(executor, "_consume_candidates", crash_after_raw_output)
+    run_id = f"saved-output-{case}"
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(
+            llm_request,
+            run_root=tmp_path,
+            run_id=run_id,
+            options=LLMExecutionOptions(
+                limits=ExecutionLimits(automatic_replacement_limit=3)
+            ),
+        )
+
+    repository = RunRepository(tmp_path)
+    snapshot = repository.inspect(run_id).snapshot
+    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    state = executor._task_store(context, llm_request.task_id).read()
+    assert state is not None
+    effect = context.effects.read(state.current.effect_id)
+    assert effect is not None
+    assert effect.stage is EffectStage.OUTPUT_SAVED
+
+    monkeypatch.setattr(executor, "_consume_candidates", original_consume_candidates)
+    recovered = client.resume(
+        run_root=tmp_path,
+        run_id=run_id,
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(automatic_replacement_limit=3)
+        ),
+    )
+
+    assert isinstance(recovered.outcome, LLMPaused)
+    assert recovered.outcome.reason is reason
+    assert recovered.outcome.details["code"] == code
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
 
 
 def test_same_task_id_with_changed_semantics_fails_before_provider(
