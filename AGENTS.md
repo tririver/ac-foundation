@@ -107,12 +107,16 @@ tools it names.
 
 ## Complexity Review Gate
 
-- Before implementing a new capability, assess whether it would materially
-  increase ARC's architectural, state-machine, dependency, operational, or
-  maintenance complexity.
-- If it would, stop before implementation and discuss the design with the user.
-  Explain the essential need, simpler alternatives, affected package
-  boundaries, durable-state implications, and expected verification burden.
+- Before implementing any change other than a very simple one, distinguish the
+  essential complexity required by the capability from accidental complexity
+  introduced by the proposed design or implementation. Consider architectural,
+  state-machine, dependency, operational, and maintenance complexity.
+- First redesign to eliminate or reduce accidental complexity. If the capability
+  would still materially increase complexity, or substantial non-essential
+  complexity cannot be improved through design, stop before implementation and
+  discuss it with the user. Explain the essential need, simpler alternatives,
+  affected package boundaries, durable-state implications, and expected
+  verification burden.
 - Approval of a high-level capability does not imply approval of an
   unexpectedly more complex implementation. Routine work within an explicitly
   approved design may proceed unless its complexity materially exceeds that
