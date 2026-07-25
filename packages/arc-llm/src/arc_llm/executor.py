@@ -126,6 +126,15 @@ from .schema_formatter import (
 )
 
 HANDLER_NAME = "arc.llm.task.v2"
+_WINDOWS = os.name == "nt"
+
+
+def _set_readonly(path: Path) -> None:
+    try:
+        os.chmod(path, 0o400)
+    except OSError:
+        if not _WINDOWS:
+            raise
 
 
 class LLMTaskExecutor:
@@ -1861,7 +1870,7 @@ class LLMTaskExecutor:
     @staticmethod
     def _publish_readonly_input(path: Path, content: bytes) -> None:
         if path.exists() and path.read_bytes() == content:
-            os.chmod(path, 0o400)
+            _set_readonly(path)
             return
         descriptor, temporary = tempfile.mkstemp(
             prefix=f".{path.name}.",
@@ -1873,13 +1882,14 @@ class LLMTaskExecutor:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.chmod(temporary_path, 0o400)
+            _set_readonly(temporary_path)
             os.replace(temporary_path, path)
-            directory_descriptor = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
+            if not _WINDOWS:
+                directory_descriptor = os.open(path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_descriptor)
+                finally:
+                    os.close(directory_descriptor)
         finally:
             temporary_path.unlink(missing_ok=True)
 
