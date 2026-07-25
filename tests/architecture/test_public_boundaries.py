@@ -210,8 +210,7 @@ def test_package_source_does_not_depend_on_arc_skill_or_plugin_files():
                 )
 
 
-def test_arc_jobs_public_facade_has_no_raw_filesystem_helpers():
-    namespace: dict[str, object] = {}
+def test_arc_jobs_public_facade_has_no_private_storage_helpers():
     facade = ROOT / "packages/arc-jobs/src/arc_jobs/__init__.py"
     tree = ast.parse(facade.read_text(encoding="utf-8"))
     exports = None
@@ -222,8 +221,9 @@ def test_arc_jobs_public_facade_has_no_raw_filesystem_helpers():
         ):
             exports = ast.literal_eval(node.value)
     assert exports is not None
-    forbidden = {"read_json", "write_json", "atomic_write_json", "JobPaths", "_fs"}
+    forbidden = {"read_json", "write_json", "JobPaths", "_fs"}
     assert not forbidden.intersection(exports)
+    assert {"atomic_write_bytes", "atomic_write_json", "file_lease"} <= set(exports)
 
 
 def test_old_proposer_reviewer_implementation_is_absent_from_arc_llm():
