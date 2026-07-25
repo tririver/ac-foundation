@@ -972,6 +972,40 @@ def test_auto_local_separates_checkout_identity_from_fallback_pin(
         == first_values["source_content_sha256"]
     )
 
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=ARC Test",
+            "-c",
+            "user.email=arc-test@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "revision-only",
+        ],
+        cwd=checkout,
+        check=True,
+    )
+    next_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=checkout,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.strip()
+    changed_head = _run(runtime_home, "doctor", extra_env=local_env)
+    changed_values = dict(
+        line.split("=", 1)
+        for line in changed_head.stdout.splitlines()
+    )
+    assert changed_values["source_revision"] == next_revision != revision
+    assert (
+        changed_values["source_content_sha256"]
+        == first_values["source_content_sha256"]
+    )
+    assert changed_values["fingerprint"] != first_values["fingerprint"]
+
     forced_git = _run(
         runtime_home,
         "doctor",
