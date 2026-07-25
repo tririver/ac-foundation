@@ -132,6 +132,11 @@ service commands it names.
   unexpectedly more complex implementation. Routine work within an explicitly
   approved design may proceed unless its complexity materially exceeds that
   design.
+- After an approach is abandoned or shown to be unsound, audit the code, tests,
+  documentation, and artifacts introduced for it and remove obsolete paths.
+  Retain such implementation only when it serves a current, documented fallback
+  or an independently used capability; do not keep a failed approach as latent
+  compatibility code.
 
 ## Implementation Planning
 
