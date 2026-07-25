@@ -28,6 +28,7 @@ from arc_jobs import (
     Succeeded,
     UnitResult,
     UnsafeEffectRecoveryError,
+    UnsupportedSchemaError,
     WorkUnit,
     canonical_json_bytes,
     validate_artifact_id,
@@ -183,7 +184,7 @@ class BlockingHandler:
         return Succeeded()
 
 
-def test_cancel_running_handler_is_visible_and_cooperative(tmp_path):
+def test_stop_running_handler_is_visible_and_cooperative(tmp_path):
     repository = RunRepository(tmp_path)
     engine = RunEngine(repository)
     handler = BlockingHandler()
@@ -196,29 +197,85 @@ def test_cancel_running_handler_is_visible_and_cooperative(tmp_path):
     thread.start()
     assert handler.started.wait(timeout=5)
 
-    view = repository.request_cancel("run-1", reason="stop")
+    view = repository.request_stop("run-1", reason="stop")
     assert view.snapshot.status is RunStatus.RUNNING
-    assert view.cancel_request is not None
+    assert view.stop_request is not None
+    assert view.stop_request.reason == "stop"
 
     handler.release.set()
     thread.join(timeout=5)
     assert not thread.is_alive()
-    assert result[0].status is RunStatus.CANCELLED
+    assert result[0].status is RunStatus.PAUSED
+    assert result[0].awaiting is not None
+    assert result[0].awaiting.reason is ResumeReason.EXECUTION_STOPPED
+    assert result[0].awaiting.details["reason"] == "stop"
 
 
-def test_resume_observes_preexisting_cancel_before_handler(tmp_path):
+def test_repeated_stop_keeps_first_request_metadata(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = BlockingHandler()
+    result = []
+    thread = threading.Thread(
+        target=lambda: result.append(
+            engine.execute(RunSpec("run-1", handler.name, {}), handler)
+        )
+    )
+    thread.start()
+    assert handler.started.wait(timeout=5)
+
+    first = repository.request_stop("run-1", reason="first")
+    second = repository.request_stop("run-1", reason="later")
+
+    assert first.stop_request is not None
+    assert second.stop_request == first.stop_request
+    assert second.stop_request.reason == "first"
+    handler.release.set()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert result[0].awaiting is not None
+    assert result[0].awaiting.details["reason"] == "first"
+    assert "requested_at" in result[0].awaiting.details
+
+    events = EventWriter(
+        repository.run_directory("run-1") / "events.jsonl", run_id="run-1"
+    ).tail()
+    requests = [event for event in events if event["event"] == "attempt_stop_requested"]
+    assert len(requests) == 1
+    assert requests[0]["data"]["reason"] == "first"
+
+
+def test_stop_is_idempotent_for_an_already_paused_run(tmp_path):
+    repository = RunRepository(tmp_path)
+    handler = ReplayGroupHandler()
+    paused = RunEngine(repository).execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+
+    view = repository.request_stop("run-1", reason="too late")
+
+    assert paused.status is RunStatus.PAUSED
+    assert view.snapshot == paused
+    assert view.stop_request is None
+
+
+def test_resume_ignores_stop_request_for_previous_attempt(tmp_path):
     repository = RunRepository(tmp_path)
     handler = ReplayGroupHandler()
     engine = RunEngine(repository)
     paused = engine.execute(RunSpec("run-1", handler.name, {}), handler)
     assert paused.status is RunStatus.PAUSED
-    from arc_jobs import CancellationToken
+    from arc_jobs import StopToken
 
-    CancellationToken(repository.run_directory("run-1") / "cancel.json").request(
-        reason="stop before resume"
+    StopToken(
+        repository.run_directory("run-1") / "stop-requests" / "1.json",
+        target_attempt=1,
+    ).request(
+        reason="stale stop"
     )
-    cancelled = engine.resume("run-1", handler)
-    assert cancelled.status is RunStatus.CANCELLED
+    resumed = engine.resume("run-1", handler)
+    assert resumed.status is RunStatus.SUCCEEDED
+    assert resumed.attempt == 2
     assert handler.worker_calls == 2
 
 
@@ -264,6 +321,34 @@ def test_completed_group_units_replay_across_run_resume(tmp_path):
     second = engine.resume("run-1", handler)
     assert second.status is RunStatus.SUCCEEDED
     assert handler.worker_calls == 2
+
+
+def test_group_documents_use_v2_and_reject_legacy_v1(tmp_path):
+    repository = RunRepository(tmp_path)
+    handler = ReplayGroupHandler()
+    snapshot = RunEngine(repository).execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+    assert snapshot.status is RunStatus.PAUSED
+    group_directory = repository.run_directory("run-1") / "groups" / "group"
+    state_path = group_directory / "state.json"
+    unit_path = group_directory / "units" / "a.json"
+    state = json.loads(state_path.read_text())
+    unit = json.loads(unit_path.read_text())
+    assert state["schema_version"] == "arc.jobs.group.v2"
+    assert unit["schema_version"] == "arc.jobs.group_unit.v2"
+
+    state["schema_version"] = "arc.jobs.group.v1"
+    state_path.write_text(json.dumps(state))
+    with pytest.raises(UnsupportedSchemaError):
+        repository.inspect_group("run-1", "group")
+
+    state["schema_version"] = "arc.jobs.group.v2"
+    state_path.write_text(json.dumps(state))
+    unit["schema_version"] = "arc.jobs.group_unit.v1"
+    unit_path.write_text(json.dumps(unit))
+    with pytest.raises(UnsupportedSchemaError):
+        repository.inspect_group("run-1", "group")
 
 
 def test_group_replay_reads_each_completed_unit_document_once(tmp_path, monkeypatch):

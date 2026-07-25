@@ -4,7 +4,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Mapping, Protocol
 
-from .cancellation import CancellationToken
 from .artifacts import decode_artifact_ref, encode_artifact_ref
 from .contracts import StateContract
 from .errors import (
@@ -23,6 +22,7 @@ from .models import (
     RecoveryDecision,
 )
 from .storage import AtomicStateStore, ImmutableArtifactStore, require_fields
+from .stopping import StopToken
 
 
 class EffectRecoveryPolicy(Protocol):
@@ -153,11 +153,11 @@ class EffectJournal:
         directory: Path,
         *,
         artifacts: ImmutableArtifactStore,
-        cancel: CancellationToken,
+        stop: StopToken,
     ):
         self.directory = directory
         self.artifacts = artifacts
-        self.cancel = cancel
+        self.stop = stop
 
     def _store(self, effect_id: str) -> AtomicStateStore[EffectRecord]:
         validate_simple_id(effect_id, label="effect id")
@@ -173,7 +173,7 @@ class EffectJournal:
         effect_request_digest: EffectRequestDigest,
         details: Mapping[str, JsonValue] | None = None,
     ) -> EffectRecord:
-        self.cancel.raise_if_requested()
+        self.stop.raise_if_requested()
         record = EffectRecord(
             effect_id,
             0,
@@ -190,7 +190,7 @@ class EffectJournal:
             raise
 
     def _advance(self, effect_id: str, stage: EffectStage, **changes: object) -> EffectRecord:
-        self.cancel.raise_if_requested()
+        self.stop.raise_if_requested()
         store = self._store(effect_id)
         current = store.read()
         if current is None:

@@ -1,6 +1,5 @@
 """Durable, protocol-neutral run kernel for ARC packages."""
 
-from .cancellation import CancellationToken
 from .artifacts import (
     decode_artifact_digest,
     decode_artifact_ref,
@@ -14,7 +13,6 @@ from .engine import RunContext, RunEngine, RunHandler, RunRepository
 from .errors import (
     ArcJobsError,
     ArtifactConflictError,
-    CancelledError,
     CorruptStateError,
     IdempotencyConflictError,
     InvalidRunIdError,
@@ -26,9 +24,11 @@ from .errors import (
     RunBusyError,
     RunNotFoundError,
     StateConflictError,
+    StoppedError,
     UnsafeEffectRecoveryError,
     UnsupportedSchemaError,
 )
+from .stopping import StopToken
 from .events import EventWriter
 from .lease_pool import BoundedLease, BoundedLeasePool
 from .identity import (
@@ -42,7 +42,6 @@ from .models import (
     ArtifactRef,
     ArtifactSourceRef,
     Awaiting,
-    CancelRequest,
     EffectRecord,
     EffectRequestDigest,
     EffectStage,
@@ -65,6 +64,7 @@ from .models import (
     RunStatus,
     RunView,
     SemanticKeyDigest,
+    StopRequest,
     Succeeded,
     UnitResult,
     ValidationIssue,
@@ -106,8 +106,6 @@ __all__ = [
     "Awaiting",
     "BoundedLease",
     "BoundedLeasePool",
-    "CancellationToken",
-    "CancelledError",
     "CommandArtifact",
     "CommandError",
     "CommandResult",
@@ -158,6 +156,9 @@ __all__ = [
     "SemanticKeyDigest",
     "StateConflictError",
     "StateContract",
+    "StoppedError",
+    "StopRequest",
+    "StopToken",
     "Succeeded",
     "UnitResult",
     "UnsafeEffectRecoveryError",

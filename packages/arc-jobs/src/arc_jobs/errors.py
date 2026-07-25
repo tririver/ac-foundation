@@ -57,7 +57,7 @@ class ResumeMismatchError(ArcJobsError):
     pass
 
 
-class CancelledError(ArcJobsError):
+class StoppedError(ArcJobsError):
     pass
 
 

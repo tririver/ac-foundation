@@ -31,10 +31,10 @@ def _parser() -> argparse.ArgumentParser:
         command = commands.add_parser(name)
         command.add_argument("--run-root", required=True)
         command.add_argument("--run-id", required=True)
-    cancel = commands.add_parser("cancel")
-    cancel.add_argument("--run-root", required=True)
-    cancel.add_argument("--run-id", required=True)
-    cancel.add_argument("--reason")
+    stop = commands.add_parser("stop")
+    stop.add_argument("--run-root", required=True)
+    stop.add_argument("--run-id", required=True)
+    stop.add_argument("--reason")
     return parser
 
 
@@ -52,15 +52,15 @@ def main(argv: list[str] | None = None) -> int:
                 repository.inspect(args.run_id).snapshot, query=True
             )
             return _emit(result, exit_code=0)
-        if args.command == "cancel":
-            view = repository.request_cancel(args.run_id, reason=args.reason)
+        if args.command == "stop":
+            view = repository.request_stop(args.run_id, reason=args.reason)
             result = CommandResult(
                 CommandStatus.COMPLETED,
                 CommandRun(view.snapshot.run_id, view.snapshot.revision),
                 {
                     "run": {
                         "status": view.snapshot.status.value,
-                        "cancel_requested": view.cancel_request is not None,
+                        "stop_requested": view.stop_request is not None,
                     }
                 },
             )

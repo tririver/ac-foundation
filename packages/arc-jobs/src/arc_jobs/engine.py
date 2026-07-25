@@ -8,7 +8,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Mapping, Protocol, TypeVar
 
-from .cancellation import CancellationToken
 from .artifacts import (
     decode_artifact_ref,
     encode_artifact_ref,
@@ -16,7 +15,6 @@ from .artifacts import (
 from .contracts import StateContract
 from .effects import EffectJournal
 from .errors import (
-    CancelledError,
     CorruptStateError,
     IdempotencyConflictError,
     InvalidTransitionError,
@@ -24,6 +22,7 @@ from .errors import (
     ResumeMismatchError,
     RevisionConflictError,
     RunNotFoundError,
+    StoppedError,
     UnsafeEffectRecoveryError,
     UnsupportedSchemaError,
 )
@@ -34,7 +33,6 @@ from .lease import FileLease
 from .models import (
     ArtifactRef,
     Awaiting,
-    CancelRequest,
     ExecutionSlice,
     Failed,
     FailureMode,
@@ -50,12 +48,14 @@ from .models import (
     RunSpec,
     RunStatus,
     RunView,
+    StopRequest,
     Succeeded,
     UnitResult,
     ValidationIssue,
     ValidationReport,
     WorkUnit,
 )
+from .stopping import StopToken
 from .storage import (
     AtomicStateStore,
     ImmutableArtifactStore,
@@ -66,7 +66,7 @@ from .storage import (
 )
 
 T = TypeVar("T")
-_TERMINAL = {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED}
+_TERMINAL = {RunStatus.SUCCEEDED, RunStatus.FAILED}
 _PROCESS_START_IDENTITY = f"{os.getpid()}-{time.time_ns()}"
 
 
@@ -80,16 +80,37 @@ class _SliceExpired(Exception):
     pass
 
 
-def _cancel_snapshot(snapshot: RunSnapshot, *, updated_at: str) -> RunSnapshot:
-    """Return the common durable transition for a requested cancellation."""
+def _stop_details(snapshot: RunSnapshot, request: StopRequest | None) -> dict[str, JsonValue]:
+    details: dict[str, JsonValue] = {
+        "code": "attempt_stop_requested",
+        "attempt": snapshot.attempt,
+    }
+    if request is not None:
+        details["requested_at"] = request.requested_at[:64]
+        if request.reason is not None:
+            details["reason"] = request.reason[:300]
+    return details
+
+
+def _stopped_snapshot(
+    snapshot: RunSnapshot,
+    *,
+    updated_at: str,
+    request: StopRequest | None = None,
+) -> RunSnapshot:
+    """Return the durable pause caused by a stop request for this attempt."""
 
     return replace(
         snapshot,
         revision=snapshot.revision + 1,
-        status=RunStatus.CANCELLED,
+        status=RunStatus.PAUSED,
         updated_at=updated_at,
-        awaiting=None,
-        error=None,
+        awaiting=Awaiting(
+            ResumeReason.EXECUTION_STOPPED,
+            f"stopped-{snapshot.attempt}",
+            False,
+            details=_stop_details(snapshot, request),
+        ),
         interrupted=snapshot.status is RunStatus.RUNNING or snapshot.interrupted,
     )
 
@@ -185,7 +206,7 @@ class _SnapshotStore:
 
     def _encode(self, value: RunSnapshot) -> dict[str, JsonValue]:
         return {
-            "schema_version": "arc.jobs.run_snapshot.v1",
+            "schema_version": "arc.jobs.run_snapshot.v2",
             "run_id": value.run_id,
             "revision": value.revision,
             "status": value.status.value,
@@ -223,7 +244,7 @@ class _SnapshotStore:
                 "interrupted",
             },
         )
-        if document["schema_version"] != "arc.jobs.run_snapshot.v1":
+        if document["schema_version"] != "arc.jobs.run_snapshot.v2":
             raise UnsupportedSchemaError(str(document["schema_version"]))
         try:
             status = RunStatus(str(document["status"]))
@@ -312,14 +333,13 @@ class _SnapshotStore:
         if next_value.run_id != previous.run_id or next_value.created_at != previous.created_at:
             raise InvalidTransitionError("run identity and created_at are immutable")
         allowed = {
-            RunStatus.PENDING: {RunStatus.RUNNING, RunStatus.CANCELLED},
+            RunStatus.PENDING: {RunStatus.RUNNING, RunStatus.PAUSED},
             RunStatus.RUNNING: {
                 RunStatus.SUCCEEDED,
                 RunStatus.PAUSED,
                 RunStatus.FAILED,
-                RunStatus.CANCELLED,
             },
-            RunStatus.PAUSED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+            RunStatus.PAUSED: {RunStatus.RUNNING},
         }
         if next_value.status not in allowed.get(previous.status, set()):
             raise InvalidTransitionError(
@@ -460,41 +480,89 @@ class RunRepository:
 
     def inspect(self, run_id: str) -> RunView:
         snapshot = self._snapshot_store(run_id).read()
-        cancel = CancellationToken(self.run_directory(run_id) / "cancel.json").read()
-        return RunView(snapshot, cancel)
+        stop = StopToken(
+            self.run_directory(run_id)
+            / "stop-requests"
+            / f"{snapshot.attempt}.json",
+            target_attempt=snapshot.attempt,
+        ).read()
+        return RunView(snapshot, stop)
 
     def inspect_group(self, run_id: str, group_id: str) -> GroupView:
         self._snapshot_store(run_id).read()
         return inspect_group(self.run_directory(run_id) / "groups", group_id)
 
-    def request_cancel(self, run_id: str, *, reason: str | None = None) -> RunView:
-        snapshot = self._snapshot_store(run_id).read()
-        if snapshot.status in _TERMINAL:
-            return self.inspect(run_id)
-        token = CancellationToken(self.run_directory(run_id) / "cancel.json")
-        persisted_request = token.request(reason=reason)
-        events = EventWriter(self.run_directory(run_id) / "events.jsonl", run_id=run_id)
-        if persisted_request.reason != reason:
-            events.emit(
-                "cancel_warning",
-                {"code": "cancel_reason_not_replaced"},
+    def request_stop(self, run_id: str, *, reason: str | None = None) -> RunView:
+        """Cooperatively pause the current attempt without affecting a later one."""
+
+        store = self._snapshot_store(run_id)
+        run_directory = self.run_directory(run_id)
+        events = EventWriter(run_directory / "events.jsonl", run_id=run_id)
+
+        def persist(snapshot: RunSnapshot) -> StopRequest:
+            token = StopToken(
+                run_directory / "stop-requests" / f"{snapshot.attempt}.json",
+                target_attempt=snapshot.attempt,
             )
-        lease = FileLease(self.run_directory(run_id) / "lease.lock")
+            existing = token.read()
+            request = token.request(reason=reason)
+            if existing is None:
+                events.emit(
+                    "attempt_stop_requested",
+                    _stop_details(snapshot, request),
+                )
+            return request
+
+        snapshot = store.read()
+        if snapshot.status in _TERMINAL or snapshot.status is RunStatus.PAUSED:
+            return self.inspect(run_id)
+        if snapshot.status is RunStatus.RUNNING:
+            persist(snapshot)
+            return self.inspect(run_id)
+
+        # A pending run has no live handler.  Serialize its direct transition
+        # with a possible concurrent executor; if it has already started, the
+        # running branch above (or its retry below) persists a token instead.
+        lease = FileLease(run_directory / "lease.lock")
         try:
             lease.acquire()
         except Exception as exc:
             from .errors import RunBusyError
 
-            if isinstance(exc, RunBusyError):
-                return self.inspect(run_id)
-            raise
+            if not isinstance(exc, RunBusyError):
+                raise
+            current = store.read()
+            # An executor owns the lease only briefly while changing PENDING
+            # to RUNNING.  Wait for that linearization point so the request
+            # targets the attempt that will actually execute, rather than
+            # leaving a stale attempt-0 request behind.
+            deadline = time.monotonic() + 1.0
+            while (
+                current.status is RunStatus.PENDING
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.001)
+                current = store.read()
+            if current.status is RunStatus.PENDING:
+                raise exc
+            if current.status is RunStatus.RUNNING:
+                persist(current)
+            return self.inspect(run_id)
         try:
-            snapshot = self._snapshot_store(run_id).read()
-            if snapshot.status in _TERMINAL:
+            snapshot = store.read()
+            if snapshot.status in _TERMINAL or snapshot.status is RunStatus.PAUSED:
                 return self.inspect(run_id)
-            events.emit("run_cancelled", {"reason": reason})
-            cancelled = _cancel_snapshot(snapshot, updated_at=utc_now())
-            self._snapshot_store(run_id).compare_and_swap(snapshot.revision, cancelled)
+            request = persist(snapshot)
+            paused = _stopped_snapshot(
+                snapshot,
+                updated_at=utc_now(),
+                request=request,
+            )
+            events.emit(
+                "run_paused",
+                {"status": paused.status.value, "attempt": paused.attempt},
+            )
+            store.compare_and_swap(snapshot.revision, paused)
             return self.inspect(run_id)
         finally:
             lease.release()
@@ -542,7 +610,10 @@ class RunContext:
         self.resume_input = resume_input
         self.execution_slice = execution_slice
         self.run_directory = repository.run_directory(self.run_id)
-        self.cancel = CancellationToken(self.run_directory / "cancel.json")
+        self.stop = StopToken(
+            self.run_directory / "stop-requests" / f"{self.attempt}.json",
+            target_attempt=self.attempt,
+        )
         self.events = EventWriter(
             self.run_directory / "events.jsonl", run_id=self.run_id
         )
@@ -552,7 +623,7 @@ class RunContext:
         self.effects = EffectJournal(
             self.run_directory / "effects",
             artifacts=self.artifacts,
-            cancel=self.cancel,
+            stop=self.stop,
         )
 
     def state(
@@ -564,7 +635,7 @@ class RunContext:
         )
 
     def checkpoint(self) -> None:
-        self.cancel.raise_if_requested()
+        self.stop.raise_if_requested()
         if (
             self.execution_slice is not None
             and self.execution_slice.monotonic_deadline is not None
@@ -585,7 +656,7 @@ class RunContext:
     ) -> GroupExecutionResult:
         return WorkGroupRunner(
             self.run_directory / "groups",
-            cancel=self.cancel,
+            stop=self.stop,
             events=self.events,
             checkpoint=self.checkpoint,
         ).run(
@@ -717,6 +788,22 @@ class RunEngine:
                 if resume_input is not None:
                     self._validate_replayed_resume_input(run_directory, resume_input)
                 return snapshot
+            stop_token = StopToken(
+                run_directory / "stop-requests" / f"{snapshot.attempt}.json",
+                target_attempt=snapshot.attempt,
+            )
+            request = stop_token.read()
+            if snapshot.status is not RunStatus.PAUSED and request is not None:
+                stopped = _stopped_snapshot(
+                    snapshot,
+                    updated_at=utc_now(),
+                    request=request,
+                )
+                events.emit(
+                    "run_paused",
+                    {"status": stopped.status.value, "attempt": stopped.attempt},
+                )
+                return store.compare_and_swap(snapshot.revision, stopped)
             if snapshot.status is RunStatus.RUNNING:
                 awaiting = Awaiting(
                     ResumeReason.EXECUTION_INTERRUPTED,
@@ -737,15 +824,6 @@ class RunEngine:
                     {"attempt": snapshot.attempt, "code": "orphaned_running_attempt"},
                 )
                 snapshot = store.compare_and_swap(snapshot.revision, recovered)
-            cancel_token = CancellationToken(run_directory / "cancel.json")
-            cancel_request = cancel_token.read()
-            if cancel_request is not None:
-                events.emit(
-                    "run_cancelled",
-                    {"reason": cancel_request.reason},
-                )
-                cancelled = _cancel_snapshot(snapshot, updated_at=utc_now())
-                return store.compare_and_swap(snapshot.revision, cancelled)
             if snapshot.status is RunStatus.PAUSED:
                 assert snapshot.awaiting is not None
                 resume_input = self._persist_resume_input(
@@ -815,12 +893,11 @@ class RunEngine:
                     )
                 else:
                     raise TypeError("handler returned an invalid RunOutcome")
-            except CancelledError:
-                next_snapshot = replace(
+            except StoppedError:
+                next_snapshot = _stopped_snapshot(
                     snapshot,
-                    revision=snapshot.revision + 1,
-                    status=RunStatus.CANCELLED,
                     updated_at=utc_now(),
+                    request=context.stop.read(),
                 )
             except _SliceExpired:
                 next_snapshot = replace(

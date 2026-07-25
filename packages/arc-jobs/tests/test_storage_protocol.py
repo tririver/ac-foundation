@@ -17,6 +17,7 @@ from arc_jobs import (
     RunRepository,
     RunSpec,
     RevisionConflictError,
+    UnsupportedSchemaError,
     command_result_json,
     decode_command_result,
     decode_progress_event,
@@ -83,11 +84,16 @@ def test_command_codec_is_closed_and_enforces_invariants():
         error=CommandError("bad", "broken"),
     )
     document = encode_command_result(result)
+    assert document["schema_version"] == "arc.command_result.v2"
     assert decode_command_result(document) == result
     assert json.loads(command_result_json(result)) == document
 
     with pytest.raises(CorruptStateError):
         decode_command_result({**document, "future_optional": None})
+    with pytest.raises(CorruptStateError):
+        decode_command_result(
+            {**document, "schema_version": "arc.command_result.v1"}
+        )
 
 
 def test_progress_rejects_partial_output_and_runless_events():
@@ -149,3 +155,24 @@ def test_cli_status_and_usage_emit_one_shared_envelope(tmp_path, capsys):
     assert exit_code == 2
     assert len(lines) == 1
     assert json.loads(lines[0])["error"]["code"] == "invalid_request"
+
+    exit_code = main(
+        ["cancel", "--run-root", str(tmp_path), "--run-id", "run-1"]
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert exit_code == 2
+    assert len(lines) == 1
+    assert json.loads(lines[0])["error"]["code"] == "invalid_request"
+
+
+def test_run_snapshot_v2_rejects_legacy_v1_document(tmp_path):
+    repository = RunRepository(tmp_path)
+    repository.create(RunSpec("run-1", "example.v1", {}))
+    path = repository.run_directory("run-1") / "snapshot.json"
+    document = json.loads(path.read_text())
+    assert document["schema_version"] == "arc.jobs.run_snapshot.v2"
+    document["schema_version"] = "arc.jobs.run_snapshot.v1"
+    path.write_text(json.dumps(document))
+
+    with pytest.raises(UnsupportedSchemaError):
+        repository.inspect("run-1")

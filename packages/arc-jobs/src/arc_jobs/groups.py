@@ -5,9 +5,8 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Callable, Mapping
 
-from .cancellation import CancellationToken
 from .artifacts import encode_artifact_ref
-from .errors import CorruptStateError, ResumeMismatchError
+from .errors import CorruptStateError, ResumeMismatchError, StoppedError, UnsupportedSchemaError
 from .events import EventWriter
 from .identity import semantic_key, validate_simple_id
 from .models import (
@@ -24,6 +23,7 @@ from .models import (
     WorkUnit,
 )
 from .storage import atomic_write_json, read_json_object, require_fields
+from .stopping import StopToken
 
 
 def _artifact_value(ref: ArtifactRef) -> dict[str, JsonValue]:
@@ -48,8 +48,8 @@ def _unit_result(
             "error",
         },
     )
-    if document["schema_version"] != "arc.jobs.group_unit.v1":
-        raise CorruptStateError("unsupported group unit schema")
+    if document["schema_version"] != "arc.jobs.group_unit.v2":
+        raise UnsupportedSchemaError(str(document["schema_version"]))
     unit_id, semantic_key_sha256, status, value, error_json = (
         document["unit_id"],
         document["semantic_key_sha256"],
@@ -60,7 +60,7 @@ def _unit_result(
     if (
         unit_id != expected_unit_id
         or semantic_key_sha256 != expected_semantic_key
-        or status not in {"succeeded", "failed", "cancelled"}
+        or status not in {"succeeded", "failed"}
     ):
         raise CorruptStateError("invalid group unit document")
     error = None
@@ -93,8 +93,8 @@ def inspect_group(directory: Path, group_id: str) -> GroupView:
         document,
         required={"schema_version", "group_id", "units"},
     )
-    if document["schema_version"] != "arc.jobs.group.v1":
-        raise CorruptStateError("unsupported group schema")
+    if document["schema_version"] != "arc.jobs.group.v2":
+        raise UnsupportedSchemaError(str(document["schema_version"]))
     if document["group_id"] != group_id or not isinstance(document["units"], list):
         raise CorruptStateError("invalid group document")
 
@@ -145,12 +145,12 @@ class WorkGroupRunner:
         self,
         directory: Path,
         *,
-        cancel: CancellationToken,
+        stop: StopToken,
         events: EventWriter,
         checkpoint: Callable[[], None],
     ):
         self.directory = directory
-        self.cancel = cancel
+        self.stop = stop
         self.events = events
         self.checkpoint = checkpoint
 
@@ -179,7 +179,7 @@ class WorkGroupRunner:
         group_directory = self.directory / group_id
         state_path = group_directory / "state.json"
         state: dict[str, JsonValue] = {
-            "schema_version": "arc.jobs.group.v1",
+            "schema_version": "arc.jobs.group.v2",
             "group_id": group_id,
             "units": [
                 {"unit_id": unit.unit_id, "semantic_key_sha256": keys[unit.unit_id]}
@@ -187,7 +187,12 @@ class WorkGroupRunner:
             ],
         }
         if state_path.exists():
-            if read_json_object(state_path) != state:
+            existing_state = read_json_object(state_path)
+            if existing_state.get("schema_version") != "arc.jobs.group.v2":
+                raise UnsupportedSchemaError(
+                    str(existing_state.get("schema_version"))
+                )
+            if existing_state != state:
                 raise ResumeMismatchError(f"group {group_id!r} unit set changed")
         else:
             atomic_write_json(state_path, state, exclusive=True)
@@ -211,7 +216,7 @@ class WorkGroupRunner:
 
         def invoke(unit: WorkUnit) -> UnitResult | Paused:
             try:
-                self.cancel.raise_if_requested()
+                self.stop.raise_if_requested()
                 value = worker(unit)
                 if isinstance(value, Paused):
                     return value
@@ -229,24 +234,20 @@ class WorkGroupRunner:
                     result = UnitResult(unit.unit_id, "succeeded", _artifact_value(value))
                 else:
                     result = UnitResult(unit.unit_id, "succeeded", value)
+            except StoppedError:
+                # A stop is a run-level pause, not a durable failed unit.
+                raise
             except Exception as exc:
-                from .errors import CancelledError
-
-                if isinstance(exc, CancelledError):
-                    result = UnitResult(
-                        unit.unit_id,
-                        "cancelled",
-                        error=RunError("cancelled", str(exc)),
-                    )
-                else:
-                    result = UnitResult(
-                        unit.unit_id,
-                        "failed",
-                        error=RunError(
-                            "worker_unhandled_exception",
-                            f"{type(exc).__name__}: {str(exc)[:300]}",
-                        ),
-                    )
+                result = UnitResult(
+                    unit.unit_id,
+                    "failed",
+                    error=RunError(
+                        "worker_unhandled_exception",
+                        f"{type(exc).__name__}: {str(exc)[:300]}",
+                    ),
+                )
+            if result.status not in {"succeeded", "failed"}:
+                raise ValueError("worker UnitResult.status is invalid")
             error_json = (
                 {
                     "code": result.error.code,
@@ -257,7 +258,7 @@ class WorkGroupRunner:
                 else None
             )
             document: dict[str, JsonValue] = {
-                "schema_version": "arc.jobs.group_unit.v1",
+                "schema_version": "arc.jobs.group_unit.v2",
                 "unit_id": unit.unit_id,
                 "semantic_key_sha256": keys[unit.unit_id],
                 "status": result.status,
@@ -285,7 +286,7 @@ class WorkGroupRunner:
             while pending or in_flight:
                 self.checkpoint()
                 while pending and len(in_flight) < max_workers and not stop_submitting:
-                    self.cancel.raise_if_requested()
+                    self.stop.raise_if_requested()
                     unit = pending.popleft()
                     in_flight[executor.submit(invoke, unit)] = unit
                 if not in_flight:
@@ -302,7 +303,7 @@ class WorkGroupRunner:
                     if failure_mode is FailureMode.FAIL_FAST and result.status != "succeeded":
                         stop_submitting = True
             # Context manager joins every submitted future before returning.
-        self.cancel.raise_if_requested()
+        self.stop.raise_if_requested()
         if pauses:
             for unit in units:
                 if unit.unit_id in pauses:

@@ -15,7 +15,6 @@ class CommandStatus(StrEnum):
     COMPLETED = "completed"
     PAUSED = "paused"
     FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True)
@@ -125,7 +124,7 @@ def validate_command_result(value: CommandResult) -> None:
         if value.error is not None or value.resume is None:
             raise ValueError("paused result requires resume and forbids error")
     elif value.error is not None or value.resume is not None:
-        raise ValueError("completed/cancelled result forbids error and resume")
+        raise ValueError("completed result forbids error and resume")
     if value.resume is not None:
         descriptor = value.resume
         try:
@@ -147,7 +146,7 @@ def validate_command_result(value: CommandResult) -> None:
 def encode_command_result(value: CommandResult) -> dict[str, JsonValue]:
     validate_command_result(value)
     return {
-        "schema_version": "arc.command_result.v1",
+        "schema_version": "arc.command_result.v2",
         "status": value.status.value,
         "run": (
             {"id": value.run.id, "revision": value.run.revision}
@@ -246,7 +245,7 @@ def decode_command_result(document: Mapping[str, JsonValue]) -> CommandResult:
             "resume",
         },
     )
-    if document["schema_version"] != "arc.command_result.v1":
+    if document["schema_version"] != "arc.command_result.v2":
         raise CorruptStateError("unsupported command result schema")
     try:
         status = CommandStatus(str(document["status"]))
@@ -402,7 +401,6 @@ def command_result_from_snapshot(
         RunStatus.SUCCEEDED: CommandStatus.COMPLETED,
         RunStatus.PAUSED: CommandStatus.PAUSED,
         RunStatus.FAILED: CommandStatus.FAILED,
-        RunStatus.CANCELLED: CommandStatus.CANCELLED,
     }
     if snapshot.status not in mapping:
         raise ValueError("blocking result cannot be pending or running")

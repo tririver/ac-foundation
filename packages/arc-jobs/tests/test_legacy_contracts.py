@@ -12,7 +12,6 @@ import pytest
 
 from arc_jobs import (
     AtomicStateStore,
-    CancelledError,
     EventWriter,
     Failed,
     FailureMode,
@@ -43,13 +42,6 @@ class _Failure:
 
     def execute(self, context):
         return Failed(RunError("expected_failure", "expected"))
-
-
-class _Cancelled:
-    name = "legacy-cancelled.v1"
-
-    def execute(self, context):
-        raise CancelledError("expected")
 
 
 @dataclass(frozen=True)
@@ -145,7 +137,6 @@ def test_concurrent_create_is_idempotent_and_changed_semantics_conflict(tmp_path
     [
         (_Success(), RunStatus.SUCCEEDED),
         (_Failure(), RunStatus.FAILED),
-        (_Cancelled(), RunStatus.CANCELLED),
     ],
 )
 def test_terminal_event_precedes_terminal_snapshot_commit(
@@ -178,19 +169,19 @@ def test_terminal_event_precedes_terminal_snapshot_commit(
     assert observed == [expected_status.value]
 
 
-def test_terminal_cancel_is_idempotent_and_does_not_replace_success(tmp_path):
+def test_stop_terminal_run_is_idempotent_and_does_not_replace_success(tmp_path):
     repository = RunRepository(tmp_path)
     succeeded = RunEngine(repository).execute(
         RunSpec("run-1", _Success.name, {}), _Success()
     )
 
-    first = repository.request_cancel("run-1", reason="too late")
-    second = repository.request_cancel("run-1", reason="different")
+    first = repository.request_stop("run-1", reason="too late")
+    second = repository.request_stop("run-1", reason="different")
 
     assert first == second
     assert first.snapshot == succeeded
     assert first.snapshot.status is RunStatus.SUCCEEDED
-    assert first.cancel_request is None
+    assert first.stop_request is None
 
 
 def test_os_releases_execution_lease_when_owner_exits(tmp_path):
@@ -323,7 +314,7 @@ def test_cli_commands_queries_and_unexpected_errors_use_one_envelope(
         ["status", "--run-root", str(tmp_path), "--run-id", "failed"],
         ["validate", "--run-root", str(tmp_path), "--run-id", "failed"],
         [
-            "cancel",
+            "stop",
             "--run-root",
             str(tmp_path),
             "--run-id",
@@ -352,7 +343,7 @@ def test_cli_commands_queries_and_unexpected_errors_use_one_envelope(
     assert result["error"]["code"] == "internal_error"
 
 
-def test_group_cancel_stops_submissions_and_joins_started_workers(tmp_path):
+def test_group_stop_stops_submissions_and_joins_started_workers(tmp_path):
     repository = RunRepository(tmp_path)
     engine = RunEngine(repository)
     started = []
@@ -360,7 +351,7 @@ def test_group_cancel_stops_submissions_and_joins_started_workers(tmp_path):
     release = threading.Event()
 
     class GroupHandler:
-        name = "legacy-cancel-group.v1"
+        name = "legacy-stop-group.v1"
 
         def execute(self, context):
             def worker(unit):
@@ -391,13 +382,21 @@ def test_group_cancel_stops_submissions_and_joins_started_workers(tmp_path):
     thread.start()
     assert workers_started.wait(timeout=5)
 
-    repository.request_cancel("run-1", reason="stop")
+    repository.request_stop("run-1", reason="stop")
     release.set()
     thread.join(timeout=5)
 
     assert not thread.is_alive()
-    assert snapshots[0].status is RunStatus.CANCELLED
+    assert snapshots[0].status is RunStatus.PAUSED
     assert set(started) == {"0", "1"}
+    view = repository.inspect_group("run-1", "group")
+    assert [unit.status for unit in view.units] == [
+        "succeeded",
+        "succeeded",
+        "pending",
+        "pending",
+        "pending",
+    ]
 
 
 def test_context_events_persist_safe_protocol_neutral_progress(tmp_path):

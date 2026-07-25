@@ -13,7 +13,6 @@ class RunStatus(StrEnum):
     PAUSED = "paused"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class ResumeReason(StrEnum):
@@ -22,6 +21,7 @@ class ResumeReason(StrEnum):
     EXECUTION_BUDGET_EXHAUSTED = "execution_budget_exhausted"
     EXTERNAL_CONDITION = "external_condition"
     EXECUTION_INTERRUPTED = "execution_interrupted"
+    EXECUTION_STOPPED = "execution_stopped"
 
 
 @dataclass(frozen=True)
@@ -109,7 +109,8 @@ class RunSnapshot:
 
 
 @dataclass(frozen=True)
-class CancelRequest:
+class StopRequest:
+    target_attempt: int
     requested_at: str
     reason: str | None
 
@@ -117,7 +118,7 @@ class CancelRequest:
 @dataclass(frozen=True)
 class RunView:
     snapshot: RunSnapshot
-    cancel_request: CancelRequest | None
+    stop_request: StopRequest | None
 
 
 @dataclass(frozen=True)
@@ -198,7 +199,7 @@ class WorkUnit:
 @dataclass(frozen=True)
 class UnitResult:
     unit_id: str
-    status: Literal["succeeded", "failed", "cancelled"]
+    status: Literal["succeeded", "failed"]
     value: JsonValue = None
     error: RunError | None = None
     replayed: bool = False
@@ -207,7 +208,7 @@ class UnitResult:
 @dataclass(frozen=True)
 class GroupUnitView:
     unit_id: str
-    status: Literal["pending", "succeeded", "failed", "cancelled"]
+    status: Literal["pending", "succeeded", "failed"]
     value: JsonValue = None
     error: RunError | None = None
 

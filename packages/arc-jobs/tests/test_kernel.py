@@ -111,16 +111,17 @@ def test_pause_resume_input_is_keyed_and_idempotent(tmp_path):
         )
 
 
-def test_cancel_paused_run_is_immediately_terminal(tmp_path):
+def test_stop_pending_run_is_immediately_paused(tmp_path):
     repository = RunRepository(tmp_path)
-    engine = RunEngine(repository)
-    handler = InteractiveHandler()
-    engine.execute(RunSpec("run-1", handler.name, {"x": 1}), handler)
+    repository.create(RunSpec("run-1", InteractiveHandler.name, {"x": 1}))
 
-    view = repository.request_cancel("run-1", reason="no longer needed")
+    view = repository.request_stop("run-1", reason="no longer needed")
 
-    assert view.snapshot.status is RunStatus.CANCELLED
-    assert view.cancel_request is not None
+    assert view.snapshot.status is RunStatus.PAUSED
+    assert view.snapshot.attempt == 0
+    assert view.stop_request is not None
+    assert view.stop_request.reason == "no longer needed"
+    assert view.snapshot.awaiting.reason is ResumeReason.EXECUTION_STOPPED
     assert repository.inspect("run-1") == view
 
 
