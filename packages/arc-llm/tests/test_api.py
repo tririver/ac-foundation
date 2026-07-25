@@ -1724,7 +1724,7 @@ def test_session_commit_closes_hard_crash_window_before_task_accepted_cas(
 
 
 @pytest.mark.parametrize("max_interaction_turns", [1, 2])
-def test_interaction_limit_auto_resolves_allowance_then_pauses_next_turn(
+def test_interaction_limit_pause_carries_request_and_can_resume(
     tmp_path: Path, adapter, registry, max_interaction_turns: int
 ) -> None:
     class AutoResolver:
