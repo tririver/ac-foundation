@@ -107,6 +107,32 @@ class FakeRunner:
         return ProcessResult(self.returncode, self.stdout, self.stderr)
 
 
+def _captured_codex_invalid_schema_stdout(event_type: str) -> bytes:
+    """Reproduce Codex 0.145.0's JSON-string HTTP error wrappers."""
+
+    encoded_error = json.dumps(
+        {
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "code": "invalid_json_schema",
+                "message": (
+                    "Invalid schema for response_format 'codex_output_schema'. "
+                    "Authorization: Bearer secret-token"
+                ),
+                "param": "text.format.schema",
+            },
+            "status": 400,
+        }
+    )
+    if event_type == "error":
+        event = {"type": "error", "message": encoded_error}
+    else:
+        assert event_type == "turn.failed"
+        event = {"type": "turn.failed", "error": {"message": encoded_error}}
+    return json.dumps(event).encode("utf-8") + b"\n"
+
+
 class FakeACPRunner:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -264,21 +290,17 @@ def test_codex_projects_native_schema_without_relaxing_local_contract() -> None:
 
 
 @pytest.mark.parametrize(
-    "stdout",
+    "event_type",
     (
-        b'{"type":"error","error":{"code":"invalid_json_schema",'
-        b'"message":"Unsupported schema. Authorization: Bearer secret-token",'
-        b'"param":"response_format.json_schema"}}\n',
-        b'{"type":"turn.failed","error":{"type":"invalid_json_schema",'
-        b'"message":"Unsupported schema. Authorization: Bearer secret-token",'
-        b'"field":"response_format.json_schema"}}\n',
+        "error",
+        "turn.failed",
     ),
 )
 def test_codex_stdout_invalid_schema_failure_is_terminal_not_recovery(
-    tmp_path: Path, stdout: bytes
+    tmp_path: Path, event_type: str
 ) -> None:
     runner = FakeRunner(
-        stdout,
+        _captured_codex_invalid_schema_stdout(event_type),
         returncode=1,
     )
     adapter = CodexAdapter(binary=sys.executable, runner=runner, env={})
@@ -300,9 +322,34 @@ def test_codex_stdout_invalid_schema_failure_is_terminal_not_recovery(
     assert error.delivery is DeliveryState.NOT_DELIVERED
     assert not error.retryable
     assert error.details["provider_code"] == "invalid_json_schema"
-    assert error.details["param"] == "response_format.json_schema"
+    assert error.details["param"] == "text.format.schema"
+    assert error.details["diagnostic"].startswith(
+        "invalid_json_schema Invalid schema for response_format"
+    )
     assert "secret-token" not in error.details["diagnostic"]
     assert len(runner.calls) == 1
+
+
+def test_codex_observed_error_pair_yields_one_terminal_failure() -> None:
+    runner = FakeRunner(
+        _captured_codex_invalid_schema_stdout("error")
+        + _captured_codex_invalid_schema_stdout("turn.failed"),
+        returncode=1,
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.INVALID_REQUEST
+    assert execution.failure.delivery is DeliveryState.NOT_DELIVERED
+    assert execution.failure.details["provider_code"] == "invalid_json_schema"
+    assert execution.failure.details["param"] == "text.format.schema"
+    assert len(execution.diagnostics["raw_events"]) == 2
 
 
 def test_kimi_acp_client_denies_reverse_permission_and_filesystem_requests() -> None:

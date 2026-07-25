@@ -204,8 +204,7 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
 
     if event.get("type") not in {"error", "turn.failed"}:
         return None
-    error = event.get("error")
-    payload = error if isinstance(error, Mapping) else event
+    payload = _structured_error_payload(event) or event
     code = _error_string(payload, event, "code")
     message = _error_string(payload, event, "message")
     parameter = _error_string(payload, event, "param") or _error_string(
@@ -236,6 +235,57 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
         retryable=retryable,
         details=details,
     )
+
+
+_MAX_ERROR_JSON_DEPTH = 3
+_MAX_ERROR_JSON_CHARS = 16 * 1024
+
+
+def _structured_error_payload(event: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return Codex's innermost structured error payload when present.
+
+    Codex 0.145.0 wraps its HTTP error object as a JSON string both in an
+    ``error`` event's top-level ``message`` and in ``turn.failed.error``'s
+    ``message``.  Decode only those error-message wrappers and cap both depth
+    and size so provider diagnostics cannot turn into an unbounded parser.
+    """
+
+    return _structured_error_payload_at(event, depth=_MAX_ERROR_JSON_DEPTH)
+
+
+def _structured_error_payload_at(
+    value: Mapping[str, Any], *, depth: int
+) -> Mapping[str, Any] | None:
+    if depth <= 0:
+        return None
+    error = value.get("error")
+    if isinstance(error, Mapping):
+        nested = _structured_error_payload_at(error, depth=depth - 1)
+        if nested is not None:
+            return nested
+        return error
+    for key in ("error", "message"):
+        decoded = _decode_error_json(value.get(key))
+        if decoded is None:
+            continue
+        nested = _structured_error_payload_at(decoded, depth=depth - 1)
+        if nested is not None:
+            return nested
+        return decoded
+    return None
+
+
+def _decode_error_json(value: Any) -> Mapping[str, Any] | None:
+    if (
+        not isinstance(value, str)
+        or len(value) > _MAX_ERROR_JSON_CHARS
+    ):
+        return None
+    try:
+        decoded = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return decoded if isinstance(decoded, Mapping) else None
 
 
 def _error_string(
