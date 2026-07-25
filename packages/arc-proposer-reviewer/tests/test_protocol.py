@@ -142,7 +142,7 @@ def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
         decode_batch_request(encoded)
 
 
-def test_default_worker_protocol_shape_remains_v1_compatible() -> None:
+def test_default_worker_protocol_uses_the_complete_current_shape() -> None:
     encoded = encode_batch_request(request())
     proposer_document = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
     assert set(proposer_document) == {
@@ -151,7 +151,27 @@ def test_default_worker_protocol_shape_remains_v1_compatible() -> None:
         "output_schema",
         "model",
         "capabilities",
+        "interaction_operations",
+        "max_interaction_turns",
     }
+    assert proposer_document["interaction_operations"] == {}
+    assert proposer_document["max_interaction_turns"] == 2
+    assert decode_batch_request(encoded) == request()
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ("interaction_operations", "max_interaction_turns"),
+)
+def test_worker_protocol_requires_the_complete_current_shape(
+    missing_field: str,
+) -> None:
+    document = encode_batch_request(request())
+    worker = document["loops"][0]["proposers"][0]  # type: ignore[index]
+    del worker[missing_field]
+
+    with pytest.raises(RequestValidationError, match="required field is missing"):
+        decode_batch_request(document)
 
 
 @pytest.mark.parametrize(

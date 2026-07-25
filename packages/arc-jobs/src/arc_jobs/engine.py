@@ -942,9 +942,8 @@ class RunEngine:
                 details = {
                     "code": "unsafe_effect_recovery",
                     "message": str(exc)[:300],
+                    "effect_id": exc.effect_id,
                 }
-                if exc.effect_id is not None:
-                    details["effect_id"] = exc.effect_id
                 next_snapshot = replace(
                     snapshot,
                     revision=snapshot.revision + 1,

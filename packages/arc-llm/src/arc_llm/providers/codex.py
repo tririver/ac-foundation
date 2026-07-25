@@ -28,7 +28,7 @@ from .process import ProcessRunner
 
 class CodexAdapter:
     name = "codex"
-    compatibility_version = "codex-jsonl.v2"
+    compatibility_version = "codex-jsonl.v3"
 
     def __init__(
         self,
@@ -121,7 +121,6 @@ class CodexAdapter:
                 runner=self.runner,
                 env=self.env,
                 validate_terminal=False,
-                fallback_stdout_candidate=False,
             )
             # Codex JSONL may contain several completed agent-message items.
             # They are progress/diagnostic material rather than an unambiguous
@@ -175,7 +174,7 @@ def _parse_event(
     event: Mapping[str, Any],
 ) -> tuple[CandidateMaterial | None, str | None, ProviderUsage | None]:
     kind = event.get("type")
-    handle = event.get("thread_id") if kind in {"thread.started", "thread_started"} else None
+    handle = event.get("thread_id") if kind == "thread.started" else None
     usage_doc = event.get("usage")
     usage = None
     if isinstance(usage_doc, Mapping):

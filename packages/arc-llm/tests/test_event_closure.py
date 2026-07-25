@@ -99,7 +99,7 @@ def test_codex_events_are_not_terminal_candidates() -> None:
             },
         )
     )
-    accumulator.finish()
+    accumulator.finish(validate_terminal=False)
     assert accumulator.candidates == []
 
 

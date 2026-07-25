@@ -14,7 +14,7 @@ from arc_llm import (
 )
 
 
-BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v1"
+BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v2"
 REVIEW_SCHEMA_VERSION = "arc.proposer_reviewer.review.v1"
 RESULT_SCHEMA_VERSION = "arc.proposer_reviewer.result.v1"
 
@@ -61,7 +61,7 @@ class LoopSpec:
 
 @dataclass(frozen=True)
 class BatchRequest:
-    schema_version: Literal["arc.proposer_reviewer.batch.v1"]
+    schema_version: Literal["arc.proposer_reviewer.batch.v2"]
     batch_id: str
     loops: tuple[LoopSpec, ...]
     failure_policy: BatchFailurePolicy = BatchFailurePolicy.COLLECT

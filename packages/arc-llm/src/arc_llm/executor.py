@@ -2139,31 +2139,143 @@ class LLMTaskExecutor:
     def _execution_from_raw(
         self, context: Any, ref: ArtifactRef, provider: str
     ) -> ProviderExecution:
-        document = json.loads(context.artifacts.read_bytes(ref).decode("utf-8"))
-        candidates = tuple(
-            (
-                CandidateMaterial(value=item["value"], terminal=item["terminal"])
-                if item["kind"] == "value"
-                else CandidateMaterial(text=item["text"], terminal=item["terminal"])
+        try:
+            document = json.loads(
+                context.artifacts.read_bytes(ref).decode("utf-8")
             )
-            for item in document["candidates"]
-        )
-        from .providers import ProviderUsage
+            return self._decode_execution_document(document, provider)
+        except CorruptTaskStateError:
+            raise
+        except Exception as exc:
+            raise _provider_material_error(
+                "Saved provider material is corrupt."
+            ) from exc
 
-        usage_doc = document["usage"]
-        usage = (
-            None
-            if usage_doc is None
-            else ProviderUsage(
-                usage_doc["input_tokens"],
-                usage_doc["output_tokens"],
-                usage_doc["cached_input_tokens"],
-            )
+    @staticmethod
+    def _decode_execution_document(
+        value: Any,
+        provider: str,
+    ) -> ProviderExecution:
+        document = _closed_provider_material_object(
+            value,
+            {
+                "schema_version",
+                "terminal_kind",
+                "candidates",
+                "native_handle",
+                "usage",
+                "diagnostics",
+            },
+            "provider material",
         )
+        if document["schema_version"] != "arc.llm.provider_material.v1":
+            raise _provider_material_error(
+                "Saved provider material has an unsupported schema."
+            )
+        if document["terminal_kind"] != ProviderTerminalKind.COMPLETED.value:
+            raise _provider_material_error(
+                "Saved provider material is not a completed execution."
+            )
+
+        raw_candidates = document["candidates"]
+        if not isinstance(raw_candidates, list):
+            raise _provider_material_error(
+                "Saved provider candidates must be an array."
+            )
+        candidates: list[CandidateMaterial] = []
+        for index, raw_candidate in enumerate(raw_candidates):
+            candidate = _closed_provider_material_object(
+                raw_candidate,
+                {"kind", "value", "text", "terminal"},
+                f"provider candidate {index}",
+            )
+            terminal = candidate["terminal"]
+            if type(terminal) is not bool:
+                raise _provider_material_error(
+                    "Saved provider candidate terminal must be a boolean."
+                )
+            kind = candidate["kind"]
+            if kind == "value":
+                if candidate["text"] is not None:
+                    raise _provider_material_error(
+                        "Saved value candidate must have null text."
+                    )
+                candidates.append(
+                    CandidateMaterial(
+                        value=candidate["value"],
+                        terminal=terminal,
+                    )
+                )
+            elif kind == "text":
+                text = candidate["text"]
+                if candidate["value"] is not None or not isinstance(text, str):
+                    raise _provider_material_error(
+                        "Saved text candidate must have null value and string text."
+                    )
+                candidates.append(CandidateMaterial(text=text, terminal=terminal))
+            else:
+                raise _provider_material_error(
+                    "Saved provider candidate has an unknown kind."
+                )
+
+        raw_handle = document["native_handle"]
+        native_handle = None
+        if raw_handle is not None:
+            handle = _closed_provider_material_object(
+                raw_handle,
+                {"provider", "value"},
+                "provider native handle",
+            )
+            handle_provider = handle["provider"]
+            handle_value = handle["value"]
+            if (
+                not isinstance(handle_provider, str)
+                or not handle_provider
+                or handle_provider != provider
+                or not isinstance(handle_value, str)
+                or not handle_value
+            ):
+                raise _provider_material_error(
+                    "Saved provider native handle is invalid."
+                )
+            native_handle = NativeResumeHandle(handle_provider, handle_value)
+
+        raw_usage = document["usage"]
+        usage = None
+        if raw_usage is not None:
+            usage_document = _closed_provider_material_object(
+                raw_usage,
+                {
+                    "input_tokens",
+                    "output_tokens",
+                    "cached_input_tokens",
+                },
+                "provider usage",
+            )
+            usage = ProviderUsage(
+                _provider_usage_value(
+                    usage_document["input_tokens"], "input_tokens"
+                ),
+                _provider_usage_value(
+                    usage_document["output_tokens"], "output_tokens"
+                ),
+                _provider_usage_value(
+                    usage_document["cached_input_tokens"],
+                    "cached_input_tokens",
+                ),
+            )
+
+        diagnostics = document["diagnostics"]
+        if not isinstance(diagnostics, Mapping):
+            raise _provider_material_error(
+                "Saved provider diagnostics must be an object."
+            )
         return ProviderExecution(
             ProviderTerminalKind.COMPLETED,
-            candidates,
+            tuple(candidates),
+            native_handle=native_handle,
             usage=usage,
+            diagnostics=dict(diagnostics),
         )
 
     def _supervision_artifact(
@@ -2200,6 +2312,35 @@ class LLMTaskExecutor:
         if isinstance(request.output, TextOutput):
             return content.decode("utf-8")
         return json.loads(content.decode("utf-8"))
+
+
+def _closed_provider_material_object(
+    value: Any,
+    fields: set[str],
+    label: str,
+) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise _provider_material_error(
+            f"Saved {label} does not use the current closed shape."
+        )
+    return value
+
+
+def _provider_usage_value(value: Any, field: str) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or value < 0:
+        raise _provider_material_error(
+            f"Saved provider usage {field} must be a non-negative integer or null."
+        )
+    return value
+
+
+def _provider_material_error(message: str) -> CorruptTaskStateError:
+    return CorruptTaskStateError(
+        message,
+        details={"code": "provider_material_corrupt"},
+    )
 
 
 def _result_contract(contract: InteractiveJsonOutput) -> Any:

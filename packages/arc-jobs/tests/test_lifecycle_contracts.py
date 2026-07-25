@@ -727,8 +727,11 @@ def test_uncertain_effect_pauses_for_supervision_without_retry(tmp_path):
     )
     assert snapshot.status is RunStatus.PAUSED
     assert snapshot.awaiting.reason is ResumeReason.SUPERVISION_REQUIRED
-    assert snapshot.awaiting.details["code"] == "unsafe_effect_recovery"
-    assert snapshot.awaiting.details["effect_id"] == "call"
+    assert snapshot.awaiting.details == {
+        "code": "unsafe_effect_recovery",
+        "message": "effect 'call' may have run and requires supervision",
+        "effect_id": "call",
+    }
 
 
 class PolicyPauseEffectHandler:
@@ -757,36 +760,13 @@ def test_policy_pause_for_uncertain_effect_maps_to_supervision_with_effect_id(tm
 
     assert snapshot.status is RunStatus.PAUSED
     assert snapshot.awaiting is not None
-    assert snapshot.awaiting.details["code"] == "unsafe_effect_recovery"
-    assert snapshot.awaiting.details["effect_id"] == "call"
-
-
-@pytest.mark.parametrize(
-    ("error_args", "message"),
-    (
-        ((), ""),
-        (("legacy recovery needs supervision",), "legacy recovery needs supervision"),
-        (("legacy", "recovery"), "('legacy', 'recovery')"),
-    ),
-)
-def test_legacy_unsafe_effect_error_preserves_exception_args_and_pauses(
-    tmp_path, error_args, message
-):
-    class LegacyUnsafeEffectHandler:
-        name = "legacy-unsafe-effect.v1"
-
-        def execute(self, context):
-            raise UnsafeEffectRecoveryError(*error_args)
-
-    snapshot = RunEngine(RunRepository(tmp_path)).execute(
-        RunSpec("run-1", "legacy-unsafe-effect.v1", {}), LegacyUnsafeEffectHandler()
-    )
-
-    assert snapshot.status is RunStatus.PAUSED
-    assert snapshot.awaiting is not None
     assert snapshot.awaiting.details == {
         "code": "unsafe_effect_recovery",
-        "message": message,
+        "message": (
+            "effect 'call' recovery decision 'pause_uncertain' "
+            "requires supervision"
+        ),
+        "effect_id": "call",
     }
 
 

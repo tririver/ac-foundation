@@ -56,7 +56,7 @@ class EventAccumulator:
                 delivery=DeliveryState.MAY_HAVE_RUN,
                 details={"code": "invalid_terminal_closure"},
             )
-        if self.candidates and not terminal:
+        if not terminal:
             raise ProviderFailure(
                 "Provider event stream ended without terminal material.",
                 category=FailureCategory.SCHEMA,
@@ -76,7 +76,6 @@ class EventAccumulator:
                 "text": text[:4096],
             }
             self._record_raw(raw)
-            self.candidates.append(CandidateMaterial(text=text))
             return
         if not isinstance(event, Mapping):
             self._record_raw({"kind": "value"})
@@ -120,7 +119,6 @@ def run_cli(
     runner: ProcessRunner,
     env: Mapping[str, str] | None,
     validate_terminal: bool = True,
-    fallback_stdout_candidate: bool = True,
 ) -> ProviderExecution:
     accumulator = EventAccumulator(provider, observer, parse_event)
     result = runner.run(
@@ -150,10 +148,6 @@ def run_cli(
                 "returncode": result.returncode,
                 **accumulator.diagnostics(),
             },
-        )
-    if fallback_stdout_candidate and not accumulator.candidates and result.stdout.strip():
-        accumulator.candidates.append(
-            CandidateMaterial(text=result.stdout.decode("utf-8", "replace"), terminal=True)
         )
     return ProviderExecution(
         ProviderTerminalKind.COMPLETED,

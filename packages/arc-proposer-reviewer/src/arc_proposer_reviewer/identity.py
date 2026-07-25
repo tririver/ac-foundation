@@ -7,12 +7,12 @@ from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
 from .models import LoopSpec, WorkerSpec
 
 
-WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v1"
-LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v1"
+WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v2"
+LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v2"
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
-    document: dict[str, JsonValue] = {
+    return {
         "worker_id": worker.worker_id,
         "instructions": worker.instructions,
         "output_schema": dict(worker.output_schema),
@@ -26,11 +26,7 @@ def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
             "inherit_host_config": worker.capabilities.inherit_host_config,
             "allowed_tools": list(worker.capabilities.allowed_tools),
         },
-    }
-    # Preserve the v1 no-interaction durable bytes and semantic keys. Once
-    # configured, the interaction contract is closed and order-independent.
-    if worker.interaction_operations:
-        document["interaction_operations"] = {
+        "interaction_operations": {
             name: {
                 "arguments_schema": cast(
                     JsonValue, dict(contract.arguments_schema)
@@ -40,9 +36,9 @@ def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
                 ),
             }
             for name, contract in sorted(worker.interaction_operations.items())
-        }
-        document["max_interaction_turns"] = worker.max_interaction_turns
-    return document
+        },
+        "max_interaction_turns": worker.max_interaction_turns,
+    }
 
 
 def loop_semantic_projection(loop: LoopSpec) -> dict[str, JsonValue]:
@@ -121,7 +117,7 @@ def derive_batch_run_id(batch_id: str) -> str:
     digest = semantic_key(
         {
             "semantic_key_schema": "arc.proposer_reviewer.run_id.v1",
-            "handler": "arc.proposer_reviewer.batch.v1",
+            "handler": "arc.proposer_reviewer.batch.v2",
             "batch_id": batch_id,
         }
     )

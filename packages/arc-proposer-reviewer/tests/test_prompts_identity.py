@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 from arc_llm import OperationContract
-from arc_proposer_reviewer.identity import worker_contract_document, worker_semantic_key
+from arc_proposer_reviewer.identity import (
+    LOOP_SEMANTIC_KEY_SCHEMA,
+    WORKER_SEMANTIC_KEY_SCHEMA,
+    worker_contract_document,
+    worker_semantic_key,
+)
 from arc_proposer_reviewer.models import LoopSpec, WorkerSpec
 from arc_proposer_reviewer.prompts import (
     render_delta_proposer_prompt,
@@ -148,6 +153,14 @@ def test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops() ->
 
 
 def test_worker_identity_includes_the_closed_interaction_contract() -> None:
+    assert (
+        WORKER_SEMANTIC_KEY_SCHEMA
+        == "arc.proposer_reviewer.worker_semantic_key.v2"
+    )
+    assert (
+        LOOP_SEMANTIC_KEY_SCHEMA
+        == "arc.proposer_reviewer.loop_semantic_key.v2"
+    )
     value = loop()
     worker = value.proposers[0]
     configured = replace(
@@ -170,6 +183,13 @@ def test_worker_identity_includes_the_closed_interaction_contract() -> None:
         upstream_digests={},
     )
     assert configured_key != base
+    assert base != worker_semantic_key(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=replace(worker, max_interaction_turns=3),
+        upstream_digests={},
+    )
     assert configured_key != worker_semantic_key(
         role="proposer",
         loop=value,

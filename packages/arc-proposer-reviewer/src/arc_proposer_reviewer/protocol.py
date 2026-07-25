@@ -133,18 +133,17 @@ def _decode_loop(value: JsonValue, path: tuple[str | int, ...]) -> LoopSpec:
 
 def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
     document = _object(value, path)
-    base_fields = {
-        "worker_id",
-        "instructions",
-        "output_schema",
-        "model",
-        "capabilities",
-    }
-    interaction_fields = {"interaction_operations", "max_interaction_turns"}
-    has_interactions = bool(set(document).intersection(interaction_fields))
     _exact(
         document,
-        base_fields | interaction_fields if has_interactions else base_fields,
+        {
+            "worker_id",
+            "instructions",
+            "output_schema",
+            "model",
+            "capabilities",
+            "interaction_operations",
+            "max_interaction_turns",
+        },
         path,
     )
     raw_schema = document["output_schema"]
@@ -171,54 +170,47 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
     raw_exact_model = raw_model["model"]
     if raw_exact_model is not None and not isinstance(raw_exact_model, str):
         raise RequestValidationError("must be a string or null", path + ("model", "model"))
+    raw_operations = document["interaction_operations"]
+    if not isinstance(raw_operations, Mapping):
+        raise RequestValidationError(
+            "must be an object", path + ("interaction_operations",)
+        )
     interaction_operations: dict[str, OperationContract] = {}
-    max_interaction_turns = 2
-    if has_interactions:
-        raw_operations = document["interaction_operations"]
-        if not isinstance(raw_operations, Mapping):
+    for name, raw_operation in raw_operations.items():
+        if not isinstance(name, str) or not name:
             raise RequestValidationError(
-                "must be an object", path + ("interaction_operations",)
-            )
-        if not raw_operations:
-            raise RequestValidationError(
-                "must contain at least one operation",
+                "operation names must be non-empty strings",
                 path + ("interaction_operations",),
             )
-        for name, raw_operation in raw_operations.items():
-            if not isinstance(name, str) or not name:
-                raise RequestValidationError(
-                    "operation names must be non-empty strings",
-                    path + ("interaction_operations",),
-                )
-            operation_path = path + ("interaction_operations", name)
-            operation = _object(raw_operation, operation_path)
-            _exact(
-                operation,
-                {"arguments_schema", "response_schema"},
-                operation_path,
-            )
-            raw_arguments = operation["arguments_schema"]
-            raw_response = operation["response_schema"]
-            if not isinstance(raw_arguments, Mapping):
-                raise RequestValidationError(
-                    "must be an object", operation_path + ("arguments_schema",)
-                )
-            if not isinstance(raw_response, Mapping):
-                raise RequestValidationError(
-                    "must be an object", operation_path + ("response_schema",)
-                )
-            try:
-                interaction_operations[name] = OperationContract(
-                    dict(raw_arguments), dict(raw_response)
-                )
-            except (ArcLLMError, TypeError, ValueError) as exc:
-                raise RequestValidationError(str(exc), operation_path) from exc
-        max_interaction_turns = document["max_interaction_turns"]
-        if type(max_interaction_turns) is not int or max_interaction_turns < 1:
+        operation_path = path + ("interaction_operations", name)
+        operation = _object(raw_operation, operation_path)
+        _exact(
+            operation,
+            {"arguments_schema", "response_schema"},
+            operation_path,
+        )
+        raw_arguments = operation["arguments_schema"]
+        raw_response = operation["response_schema"]
+        if not isinstance(raw_arguments, Mapping):
             raise RequestValidationError(
-                "must be an integer greater than or equal to 1",
-                path + ("max_interaction_turns",),
+                "must be an object", operation_path + ("arguments_schema",)
             )
+        if not isinstance(raw_response, Mapping):
+            raise RequestValidationError(
+                "must be an object", operation_path + ("response_schema",)
+            )
+        try:
+            interaction_operations[name] = OperationContract(
+                dict(raw_arguments), dict(raw_response)
+            )
+        except (ArcLLMError, TypeError, ValueError) as exc:
+            raise RequestValidationError(str(exc), operation_path) from exc
+    max_interaction_turns = document["max_interaction_turns"]
+    if type(max_interaction_turns) is not int or max_interaction_turns < 1:
+        raise RequestValidationError(
+            "must be an integer greater than or equal to 1",
+            path + ("max_interaction_turns",),
+        )
     return WorkerSpec(
         worker_id=_required_text(document, "worker_id", path),
         instructions=_required_text(document, "instructions", path),

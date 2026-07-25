@@ -41,6 +41,8 @@ def _request() -> BatchRequest:
 def test_prepare_derives_run_id_and_read_request_validates_closed_spec(
     tmp_path: Path,
 ) -> None:
+    assert BATCH_SCHEMA_VERSION == "arc.proposer_reviewer.batch.v2"
+    assert ProposerReviewerHandler.name == "arc.proposer_reviewer.batch.v2"
     runner = BatchRunner()
     request = _request()
 

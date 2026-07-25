@@ -24,7 +24,7 @@ from .process import ProcessRunner
 
 class ClaudeAdapter:
     name = "claude"
-    compatibility_version = "claude-stream-json.v1"
+    compatibility_version = "claude-stream-json.v2"
 
     def __init__(
         self,

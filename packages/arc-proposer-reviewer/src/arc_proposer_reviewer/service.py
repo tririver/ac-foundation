@@ -707,7 +707,7 @@ def _worker_output(
     worker: WorkerSpec,
     result_schema: Mapping[str, JsonValue],
 ) -> JsonOutput | InteractiveJsonOutput:
-    """Build the worker's declared output contract without changing v1 defaults."""
+    """Build the worker's declared output contract."""
     if not worker.interaction_operations:
         return JsonOutput(result_schema)
     return InteractiveJsonOutput(

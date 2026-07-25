@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from arc_jobs import ImmutableArtifactStore
 from arc_llm import (
     CapabilityPolicy,
+    CorruptTaskStateError,
     ExecutionLimits,
     InvalidRequestError,
     JsonOutput,
@@ -580,129 +580,64 @@ def test_text_candidate_artifact_maps_each_value_digest_for_resume(
     assert adapter.resume_calls == 0
 
 
-def test_legacy_text_candidate_artifact_top_level_digest_remains_resumable(
-    tmp_path: Path, adapter: Any, registry: Any, monkeypatch: Any
-) -> None:
-    second_value = {"answer": 2}
-    raw_text = 'draft {"answer":1} revised {"answer":2}'
-    raw_digest = hashlib.sha256(raw_text.encode()).hexdigest()
-    original_publish_json = ImmutableArtifactStore.publish_json
-
-    def publish_legacy_candidate_artifact(
-        store: ImmutableArtifactStore,
-        artifact_id: str,
-        value: Any,
-    ) -> Any:
-        if artifact_id.endswith("/candidates.json"):
-            value = {
-                **value,
-                "candidates": [
-                    {
-                        "kind": "text",
-                        "value": None,
-                        "text": raw_text,
-                        "terminal": True,
-                        "digest": raw_digest,
-                    }
-                ],
-            }
-        return original_publish_json(store, artifact_id, value)
-
-    monkeypatch.setattr(
-        ImmutableArtifactStore,
-        "publish_json",
-        publish_legacy_candidate_artifact,
-    )
-    adapter.steps.append(
-        ProviderExecution(
-            ProviderTerminalKind.COMPLETED,
-            (CandidateMaterial(text=raw_text, terminal=True),),
-            NativeResumeHandle("codex", "thread-legacy-text-conflict"),
-        )
-    )
-    request = LLMRequest(
-        "legacy-text-candidate-conflict",
-        "Return one answer.",
-        JsonOutput(
-            {
-                "type": "object",
-                "properties": {"answer": {"type": "integer"}},
-                "required": ["answer"],
-                "additionalProperties": False,
-            }
-        ),
-        ModelSelection("codex"),
-    )
-    client = LLMClient(registry=registry)
-
-    paused = client.generate(request, run_root=tmp_path)
-
-    assert isinstance(paused.outcome, LLMPaused)
-    assert paused.outcome.request_ref is not None
-    candidate_path = (
-        tmp_path
-        / "runs"
-        / paused.snapshot.run_id
-        / paused.outcome.request_ref.relative_path
-    )
-    legacy_doc = json.loads(candidate_path.read_text(encoding="utf-8"))
-    selected_digest = candidate_digest(second_value)
-    assert selected_digest in legacy_doc["candidate_digests"]
-    assert legacy_doc["candidates"][0]["digest"] == raw_digest
-    assert raw_digest not in legacy_doc["candidate_digests"]
-
-    accepted = client.resume(
-        run_root=tmp_path,
-        run_id=paused.snapshot.run_id,
-        input=ResumeInput(
-            paused.outcome.resume_key,
-            ResumeAction.ACCEPT_CANDIDATE,
-            candidate_digest=selected_digest,
-        ),
-    )
-
-    assert isinstance(accepted.outcome, LLMCompleted)
-    assert accepted.outcome.value == second_value
-    assert adapter.start_calls == 1
-    assert adapter.resume_calls == 0
-
-
-def test_new_provider_material_omits_digest_and_legacy_material_still_recovers() -> None:
+def test_provider_material_round_trips_the_closed_current_shape() -> None:
     value = {"answer": 7}
-    document = LLMTaskExecutor._execution_document_value(
-        ProviderExecution(
-            ProviderTerminalKind.COMPLETED,
-            (CandidateMaterial(value=value, terminal=True),),
-        )
+    execution = ProviderExecution(
+        ProviderTerminalKind.COMPLETED,
+        (
+            CandidateMaterial(value=value, terminal=True),
+            CandidateMaterial(text='{"answer":8}', terminal=False),
+        ),
+        NativeResumeHandle("codex", "thread-current"),
+        ProviderUsage(11, 5, 3),
+        diagnostics={"source": "fixture"},
     )
+    document = LLMTaskExecutor._execution_document_value(execution)
 
     assert "digest" not in document["candidates"][0]
 
-    legacy_document = json.loads(json.dumps(document))
-    legacy_document["candidates"][0]["digest"] = "legacy-material-digest"
     context = SimpleNamespace(
         artifacts=SimpleNamespace(
-            read_bytes=lambda ref: json.dumps(legacy_document).encode("utf-8")
+            read_bytes=lambda ref: json.dumps(document).encode("utf-8")
         )
     )
     recovered = LLMTaskExecutor()._execution_from_raw(context, object(), "codex")
-    contract = JsonOutput(
-        {
-            "type": "object",
-            "properties": {"answer": {"type": "integer"}},
-            "required": ["answer"],
-            "additionalProperties": False,
-        }
+
+    assert recovered == execution
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda document: document.update({"unknown": True}),
+        lambda document: document.pop("diagnostics"),
+        lambda document: document["candidates"][0].update(
+            {"digest": "removed-field"}
+        ),
+        lambda document: document["candidates"][0].pop("text"),
+        lambda document: document.update({"schema_version": "unknown"}),
+        lambda document: document["usage"].update({"unknown": 1}),
+    ),
+)
+def test_provider_material_rejects_old_or_open_shapes(mutation: Any) -> None:
+    document = LLMTaskExecutor._execution_document_value(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (CandidateMaterial(value={"answer": 7}, terminal=True),),
+            usage=ProviderUsage(1, 2, 0),
+        )
+    )
+    mutation(document)
+    context = SimpleNamespace(
+        artifacts=SimpleNamespace(
+            read_bytes=lambda ref: json.dumps(document).encode("utf-8")
+        )
     )
 
-    assert (
-        select_output(
-            recovered.candidates,
-            contract,
-            selected_digest=candidate_digest(value),
-        )
-        == value
-    )
+    with pytest.raises(CorruptTaskStateError) as caught:
+        LLMTaskExecutor()._execution_from_raw(context, object(), "codex")
+
+    assert caught.value.details["code"] == "provider_material_corrupt"
 
 
 def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
@@ -756,7 +691,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
         provider="codex",
         model="gpt",
         capabilities={"internet": False, "allowed_tools": ["read"]},
-        adapter_compatibility_version="codex-jsonl.v2",
+        adapter_compatibility_version="codex-jsonl.v3",
         session_compatibility={"native": True},
     )
     recipe_fingerprint = execution_fingerprint(recipe)
@@ -764,7 +699,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
         {**recipe, "provider": "claude"},
         {**recipe, "model": "other"},
         {**recipe, "capabilities": {"internet": True, "allowed_tools": ["read"]}},
-        {**recipe, "adapter_compatibility_version": "codex-jsonl.v1"},
+        {**recipe, "adapter_compatibility_version": "codex-jsonl.v2"},
         {**recipe, "session_compatibility": {"native": False}},
     )
     assert all(
@@ -773,7 +708,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
     )
     reordered = {
         "session_compatibility": {"native": True},
-        "adapter_compatibility_version": "codex-jsonl.v2",
+        "adapter_compatibility_version": "codex-jsonl.v3",
         "capabilities": {"allowed_tools": ["read"], "internet": False},
         "model": "gpt",
         "provider": "codex",

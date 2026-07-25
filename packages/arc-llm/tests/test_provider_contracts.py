@@ -331,7 +331,7 @@ def test_codex_uses_last_message_as_its_only_terminal_candidate() -> None:
         Stop(),
     )
 
-    assert CodexAdapter.compatibility_version == "codex-jsonl.v2"
+    assert CodexAdapter.compatibility_version == "codex-jsonl.v3"
     assert result.native_handle == NativeResumeHandle("codex", "thread-1")
     assert result.usage is not None
     assert result.usage.input_tokens == 7
@@ -527,6 +527,7 @@ def test_claude_start_resume_and_structured_output_preference() -> None:
         b'"usage":{"input_tokens":4,"output_tokens":2}}\n'
     )
     adapter = ClaudeAdapter(binary="fake-claude", runner=runner, env={})
+    assert ClaudeAdapter.compatibility_version == "claude-stream-json.v2"
 
     started = adapter.start(
         ProviderRequest("prompt", "claude-test", schema, {}, 11),
@@ -575,6 +576,39 @@ def test_claude_start_resume_and_structured_output_preference() -> None:
     assert runner.calls[1]["stdin"] == b"continue"
     assert "--no-session-persistence" not in runner.calls[0]["argv"]
     assert "--no-session-persistence" not in runner.calls[1]["argv"]
+
+
+def test_claude_rejects_plain_stdout_as_missing_structured_terminal() -> None:
+    observer = Observer()
+    adapter = ClaudeAdapter(
+        binary="fake-claude",
+        runner=FakeRunner(b'{"ok":true}\nnot-json output\n'),
+        env={},
+    )
+
+    with pytest.raises(ProviderFailure) as caught:
+        adapter.start(
+            ProviderRequest("prompt", "claude-test", {"type": "object"}, {}, 2),
+            observer,
+            Stop(),
+        )
+
+    assert caught.value.category is FailureCategory.SCHEMA
+    assert caught.value.details["code"] == "incomplete_terminal_closure"
+    assert observer.raw == [
+        {"ok": True},
+        {"kind": "unparsed", "text": "not-json output"},
+    ]
+
+
+def test_codex_ignores_removed_underscored_thread_event_alias() -> None:
+    candidate, handle, usage = parse_codex_event(
+        {"type": "thread_started", "thread_id": "old-thread"}
+    )
+
+    assert candidate is None
+    assert handle is None
+    assert usage is None
 
 
 def test_claude_start_and_resume_deliver_inputs_through_read_paths(
