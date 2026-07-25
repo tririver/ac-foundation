@@ -26,6 +26,16 @@ request = LLMRequest(
 outcome = LLMTaskService().execute_or_resume(context, request)
 ```
 
+`JsonOutput` defaults to `repair="format"`: ARC first performs local JSON
+syntax repair, then makes at most one isolated, tool-free formatting call when
+substantive provider content still does not match the schema. The formatter
+cannot retry the original worker and its result is revalidated against the
+target schema. Use `repair="local"` to permit only deterministic local repair,
+or `repair="strict"` to reject any invalid provider output. Formatter usage and
+the child raw/accepted artifact references are recorded in the outer
+generation's formatting artifact. A formatter external-condition pause remains
+resumable without input and never replays the original worker.
+
 Resume keys are opaque outside `arc-llm`. A parent workflow that contains
 multiple child LLM tasks should call
 `resume_input_matches(request, resume_input)` to identify the target task,

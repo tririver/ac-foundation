@@ -40,8 +40,10 @@ from arc_llm import (
     OperationContract,
     ProviderExecution,
     ProviderFailure,
+    ProviderDiagnostic,
     ProviderGateOptions,
     ProviderTerminalKind,
+    ProviderUsage,
     DeliveryState,
     FailureCategory,
     ResumeAction,
@@ -55,11 +57,11 @@ from arc_llm.output import CandidateMaterial
 from arc_llm.recovery import effect_id_for
 
 
-def _request(task_id: str = "task") -> LLMRequest:
+def _request(task_id: str = "task", *, repair: str = "format") -> LLMRequest:
     return LLMRequest(
         task_id,
         "Return an object.",
-        JsonOutput({"type": "object", "required": ["answer"]}),
+        JsonOutput({"type": "object", "required": ["answer"]}, repair=repair),
         ModelSelection("codex"),
     )
 
@@ -192,7 +194,7 @@ def test_live_invalid_output_replacement_or_pause_matrix(
         adapter.steps.append(_completed({"answer": 42}, handle="replacement"))
 
     result = LLMClient(registry=registry).generate(
-        _request("live-invalid"),
+        _request("live-invalid", repair="local"),
         run_root=tmp_path,
         options=LLMExecutionOptions(
             limits=ExecutionLimits(automatic_replacement_limit=replacement_limit)
@@ -207,6 +209,272 @@ def test_live_invalid_output_replacement_or_pause_matrix(
         assert isinstance(result.outcome, LLMPaused)
         assert result.outcome.details["code"] == "output_invalid"
         assert adapter.start_calls == 1
+
+
+def test_content_rich_invalid_output_uses_formatter_without_worker_replacement(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"answer_text": "the complete answer is present"}),
+            replace(
+                _completed(
+                    {
+                        "action": "format",
+                        "reason": "required content is present",
+                        "formatted_output": {
+                            "answer": "the complete answer is present"
+                        },
+                    },
+                    handle="formatter",
+                ),
+                usage=ProviderUsage(11, 7, 3),
+            ),
+        )
+    )
+
+    result = LLMClient(registry=registry).generate(
+        _request("format-rich"),
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(automatic_replacement_limit=3)
+        ),
+    )
+
+    assert isinstance(result.outcome, LLMCompleted)
+    assert result.outcome.value == {"answer": "the complete answer is present"}
+    assert adapter.start_calls == 2
+    formatter_request = adapter.requests[1]
+    assert formatter_request.model == adapter.requests[0].model
+    assert formatter_request.capabilities == {
+        "internet": False,
+        "inherit_host_config": False,
+        "allowed_tools": [],
+    }
+    records = []
+    for path in tmp_path.rglob("*"):
+        if not path.is_file() or path.name.endswith(".lock"):
+            continue
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(document, dict)
+            and document.get("schema_version") == "arc.llm.output_formatting.v1"
+        ):
+            records.append(document)
+    assert len(records) == 1
+    record = records[0]
+    assert record["status"] == "formatted"
+    assert record["child_accepted_ref"] is not None
+    assert record["formatter_usage"] == {
+        "input_tokens": 11,
+        "output_tokens": 7,
+        "cached_input_tokens": 3,
+    }
+
+
+def test_formatter_insufficient_allows_worker_replacement(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"partial_answer": "substantive but incomplete material"}),
+            _completed(
+                {
+                    "action": "insufficient",
+                    "reason": "required answer is absent",
+                    "formatted_output": None,
+                },
+                handle="formatter",
+            ),
+            _completed({"answer": "replacement answer"}, handle="replacement"),
+        )
+    )
+
+    result = LLMClient(registry=registry).generate(
+        _request("format-insufficient"),
+        run_root=tmp_path,
+    )
+
+    assert isinstance(result.outcome, LLMCompleted)
+    assert result.outcome.value == {"answer": "replacement answer"}
+    assert adapter.start_calls == 3
+
+
+def test_invalid_formatter_result_pauses_without_worker_replacement(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"answer_text": "the complete answer is present"}),
+            _completed(
+                {
+                    "action": "format",
+                    "reason": "bad formatting",
+                    "formatted_output": {"wrong": "shape"},
+                },
+                handle="formatter",
+            ),
+        )
+    )
+
+    result = LLMClient(registry=registry).generate(
+        _request("format-invalid"),
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(automatic_replacement_limit=3)
+        ),
+    )
+
+    assert isinstance(result.outcome, LLMPaused)
+    assert result.outcome.details["code"] == "output_formatting_failed"
+    assert adapter.start_calls == 2
+
+
+def test_malformed_formatter_envelope_pauses_without_worker_replacement(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"answer_text": "the complete answer is present"}),
+            _completed({"not_a_formatter_decision": True}, handle="formatter"),
+        )
+    )
+
+    result = LLMClient(registry=registry).generate(
+        _request("format-envelope-invalid"),
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(automatic_replacement_limit=3)
+        ),
+    )
+
+    assert isinstance(result.outcome, LLMPaused)
+    assert result.outcome.details["code"] == "output_formatting_failed"
+    assert adapter.start_calls == 2
+
+
+def test_formatter_stop_propagates_without_worker_replacement(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"answer_text": "the complete answer is present"}),
+            ProviderExecution(ProviderTerminalKind.STOPPED),
+        )
+    )
+
+    result = LLMClient(registry=registry).generate(
+        _request("format-stopped"),
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            limits=ExecutionLimits(automatic_replacement_limit=3)
+        ),
+    )
+
+    assert isinstance(result.outcome, LLMStopped)
+    assert adapter.start_calls == 2
+
+
+def test_formatter_external_pause_resumes_without_replaying_worker(
+    tmp_path: Path, adapter, registry, monkeypatch
+) -> None:
+    available = True
+
+    def doctor():
+        return ProviderDiagnostic("codex", available, "fake-codex")
+
+    monkeypatch.setattr(adapter, "doctor", doctor)
+    adapter.steps.append(
+        _completed({"answer_text": "the complete answer is present"})
+    )
+    client = LLMClient(registry=registry)
+
+    available = False
+    # Admit the original call before making only the formatter unavailable.
+    original_doctor = adapter.doctor
+    doctor_calls = 0
+
+    def staged_doctor():
+        nonlocal doctor_calls
+        doctor_calls += 1
+        if doctor_calls == 1:
+            return ProviderDiagnostic("codex", True, "fake-codex")
+        return original_doctor()
+
+    monkeypatch.setattr(adapter, "doctor", staged_doctor)
+    paused = client.generate(
+        _request("format-external-pause"),
+        run_root=tmp_path,
+        run_id="format-external-pause-run",
+    )
+
+    assert isinstance(paused.outcome, LLMPaused)
+    assert paused.outcome.reason is ResumeReason.EXTERNAL_CONDITION
+    assert not paused.outcome.input_required
+    assert adapter.start_calls == 1
+
+    available = True
+    adapter.steps.append(
+        _completed(
+            {
+                "action": "format",
+                "reason": "required content is present",
+                "formatted_output": {"answer": "the complete answer is present"},
+            },
+            handle="formatter",
+        )
+    )
+    resumed = client.resume(
+        run_root=tmp_path,
+        run_id="format-external-pause-run",
+    )
+
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": "the complete answer is present"}
+    assert adapter.start_calls == 2
+
+
+def test_formatter_completion_replays_after_outer_acceptance_crash(
+    tmp_path: Path, adapter, registry, monkeypatch
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"answer_text": "the complete answer is present"}),
+            _completed(
+                {
+                    "action": "format",
+                    "reason": "required content is present",
+                    "formatted_output": {"answer": "the complete answer is present"},
+                },
+                handle="formatter",
+            ),
+        )
+    )
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_accept = executor._accept
+
+    def crash_before_outer_accept(*args, **kwargs):
+        raise KeyboardInterrupt("simulated crash after formatter completion")
+
+    monkeypatch.setattr(executor, "_accept", crash_before_outer_accept)
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(
+            _request("format-replay"),
+            run_root=tmp_path,
+            run_id="format-replay-run",
+        )
+    assert adapter.start_calls == 2
+
+    monkeypatch.setattr(executor, "_accept", original_accept)
+    resumed = client.resume(run_root=tmp_path, run_id="format-replay-run")
+
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": "the complete answer is present"}
+    assert adapter.start_calls == 2
 
 
 @pytest.mark.parametrize(
@@ -229,7 +497,7 @@ def test_live_invalid_output_replacement_or_pause_matrix(
         (
             "invalid",
             _completed({"not_answer": True}, handle="saved-invalid"),
-            _request("saved-invalid"),
+            _request("saved-invalid", repair="local"),
             ResumeReason.SUPERVISION_REQUIRED,
             "output_invalid",
         ),

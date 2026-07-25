@@ -242,12 +242,12 @@ class TextOutput:
 @dataclass(frozen=True)
 class JsonOutput:
     schema: Mapping[str, Any]
-    repair: Literal["strict", "local"] = "local"
+    repair: Literal["strict", "local", "format"] = "format"
     kind: Literal["json"] = "json"
 
     def __post_init__(self) -> None:
-        if self.repair not in {"strict", "local"}:
-            raise InvalidRequestError("output.repair must be strict or local.")
+        if self.repair not in {"strict", "local", "format"}:
+            raise InvalidRequestError("output.repair must be strict, local, or format.")
         _check_schema(self.schema)
         object.__setattr__(self, "schema", _frozen_mapping(self.schema))
 

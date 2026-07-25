@@ -55,7 +55,8 @@ def enumerate_valid_candidates(
         for value in _values(
             material,
             allow_repair=(
-                isinstance(contract, JsonOutput) and contract.repair == "local"
+                isinstance(contract, JsonOutput)
+                and contract.repair in {"local", "format"}
             ),
         ):
             if not _valid_json_value(value, contract):

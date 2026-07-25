@@ -15,12 +15,13 @@ from arc_jobs import (
     ArtifactSourceRef,
     BoundedLeasePool,
     EffectRequestDigest,
-        EffectStage,
+    EffectStage,
     ResumeReason,
     RevisionConflictError,
     SemanticKeyDigest,
     StateConflictError,
     StoppedError,
+    encode_artifact_ref,
 )
 
 from .config import resolve_model_selection
@@ -81,6 +82,7 @@ from .providers import (
     ProviderRequest,
     ProviderResumeRequest,
     ProviderTerminalKind,
+    ProviderUsage,
     default_registry,
 )
 from .recovery import (
@@ -104,12 +106,23 @@ from .request import (
     InteractionResponse,
     LLMExecutionOptions,
     LLMRequest,
+    JsonOutput,
+    ModelSelection,
     ResumeAction,
     ResumeInput,
     SessionRef,
     TextOutput,
     decode_request,
     request_to_document,
+)
+from .schema_formatter import (
+    FORMATTER_DECISION_SCHEMA,
+    FormattingDecision,
+    SchemaFormatterError,
+    decode_formatting_decision,
+    formatter_prompt,
+    formatter_task_id,
+    select_formatting_source,
 )
 
 HANDLER_NAME = "arc.llm.task.v2"
@@ -793,6 +806,30 @@ class LLMTaskExecutor:
                 request_ref=candidate_ref,
             )
         except OutputInvalidError:
+            if isinstance(request.output, JsonOutput) and request.output.repair == "format":
+                formatted = self._format_invalid_output(
+                    context,
+                    request,
+                    current,
+                    store,
+                    execution,
+                    options,
+                )
+                if isinstance(formatted, FormattingDecision):
+                    if formatted.action == "format":
+                        return self._accept(
+                            context,
+                            request,
+                            store.read() or current,
+                            store,
+                            formatted.value,
+                            execution,
+                        )
+                    # The formatter found that required content is absent. This
+                    # is a substantive output failure, so the ordinary
+                    # replacement policy remains applicable.
+                elif formatted is not None:
+                    return formatted
             if not allow_replacement:
                 return self._pause(
                     store,
@@ -843,6 +880,246 @@ class LLMTaskExecutor:
         return self._accept(
             context, request, store.read() or current, store, value, execution
         )
+
+    def _format_invalid_output(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        execution: ProviderExecution,
+        options: LLMExecutionOptions,
+    ) -> FormattingDecision | LLMTaskOutcome | None:
+        assert isinstance(request.output, JsonOutput)
+        source = select_formatting_source(execution.candidates)
+        if source is None:
+            return None
+        current = store.read() or state
+        task_id = formatter_task_id(
+            outer_semantic_key=current.semantic_key.sha256,
+            generation=current.current_generation,
+            source_sha256=source.sha256,
+        )
+        formatter_request = LLMRequest(
+            task_id,
+            formatter_prompt(source, schema=request.output.schema),
+            JsonOutput(FORMATTER_DECISION_SCHEMA, repair="strict"),
+            ModelSelection(
+                provider=current.resolved_provider or "",
+                model=current.resolved_model,
+            ),
+        )
+        formatter_options = replace(
+            options,
+            limits=replace(
+                options.limits,
+                automatic_replacement_limit=0,
+            ),
+            interaction_resolver=None,
+        )
+        formatter_executor = LLMTaskExecutor(self.registry)
+        formatter_store = formatter_executor._task_store(context, task_id)
+        child_state = formatter_store.read()
+        if (
+            child_state is not None
+            and child_state.pause is not None
+            and not child_state.pause.input_required
+        ):
+            outcome = formatter_executor.resume(
+                context,
+                task_id,
+                input=None,
+                options=formatter_options,
+            )
+        else:
+            outcome = formatter_executor.execute(
+                context,
+                formatter_request,
+                options=formatter_options,
+            )
+        child_state = formatter_store.read()
+        accepted_ref = (
+            None
+            if child_state is None or child_state.accepted is None
+            else child_state.accepted.artifact_ref
+        )
+        raw_ref = (
+            None
+            if child_state is None or not child_state.generations
+            else child_state.current.raw_response
+        )
+        formatter_usage = outcome.usage if isinstance(outcome, LLMCompleted) else None
+        if formatter_usage is None and raw_ref is not None:
+            formatter_usage = self._execution_from_raw(
+                context,
+                raw_ref,
+                current.resolved_provider or "",
+            ).usage
+        child_revision = 0 if child_state is None else child_state.revision
+        if isinstance(outcome, LLMStopped):
+            return outcome
+        if isinstance(outcome, LLMCompleted):
+            try:
+                decision = decode_formatting_decision(
+                    outcome.value,
+                    source=source,
+                    target_schema=request.output.schema,
+                )
+            except SchemaFormatterError as exc:
+                record_ref = self._publish_formatting_record(
+                    context,
+                    current,
+                    formatter_task_id=task_id,
+                    source_sha256=source.sha256,
+                    status="invalid",
+                    reason=str(exc),
+                    child_ref=accepted_ref,
+                    child_request_ref=None,
+                    child_raw_ref=raw_ref,
+                    child_revision=child_revision,
+                    formatter_usage=formatter_usage,
+                )
+                return self._pause(
+                    store,
+                    store.read() or current,
+                    ResumeReason.SUPERVISION_REQUIRED,
+                    "output_formatting_failed",
+                    input_required=True,
+                    request_ref=record_ref,
+                )
+            status = "formatted" if decision.action == "format" else "insufficient"
+            record_ref = self._publish_formatting_record(
+                context,
+                current,
+                formatter_task_id=task_id,
+                source_sha256=source.sha256,
+                status=status,
+                reason=decision.reason,
+                child_ref=accepted_ref,
+                child_request_ref=None,
+                child_raw_ref=raw_ref,
+                child_revision=child_revision,
+                formatter_usage=formatter_usage,
+            )
+            self._emit_formatting_event(
+                context,
+                status=status,
+                generation=current.current_generation,
+                formatter_task_id=task_id,
+                record_ref=record_ref,
+            )
+            return decision
+        if isinstance(outcome, LLMPaused):
+            status = "paused"
+            reason = str(outcome.details.get("code", "formatter_paused"))
+            child_request_ref = outcome.request_ref
+        else:
+            assert isinstance(outcome, LLMFailed)
+            status = "failed"
+            reason = outcome.error.code.value
+            child_request_ref = None
+        record_ref = self._publish_formatting_record(
+            context,
+            current,
+            formatter_task_id=task_id,
+            source_sha256=source.sha256,
+            status=status,
+            reason=reason,
+            child_ref=accepted_ref,
+            child_request_ref=child_request_ref,
+            child_raw_ref=raw_ref,
+            child_revision=child_revision,
+            formatter_usage=formatter_usage,
+        )
+        return self._pause(
+            store,
+            store.read() or current,
+            (
+                outcome.reason
+                if isinstance(outcome, LLMPaused) and not outcome.input_required
+                else ResumeReason.SUPERVISION_REQUIRED
+            ),
+            "output_formatting_failed",
+            input_required=not (
+                isinstance(outcome, LLMPaused) and not outcome.input_required
+            ),
+            request_ref=record_ref,
+        )
+
+    def _publish_formatting_record(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        *,
+        formatter_task_id: str,
+        source_sha256: str,
+        status: str,
+        reason: str,
+        child_ref: ArtifactRef | None,
+        child_request_ref: ArtifactRef | None,
+        child_raw_ref: ArtifactRef | None,
+        child_revision: int,
+        formatter_usage: ProviderUsage | None,
+    ) -> ArtifactRef:
+        return self._artifacts(context, state.semantic_key).publish_json(
+            (
+                f"generations/{state.current_generation}/formatting/"
+                f"{child_revision:08d}-{status}.json"
+            ),
+            {
+                "schema_version": "arc.llm.output_formatting.v1",
+                "formatter_task_id": formatter_task_id,
+                "source_sha256": source_sha256,
+                "status": status,
+                "reason": reason,
+                "child_accepted_ref": (
+                    None if child_ref is None else encode_artifact_ref(child_ref)
+                ),
+                "child_request_ref": (
+                    None
+                    if child_request_ref is None
+                    else encode_artifact_ref(child_request_ref)
+                ),
+                "child_raw_response_ref": (
+                    None if child_raw_ref is None else encode_artifact_ref(child_raw_ref)
+                ),
+                "formatter_usage": (
+                    None
+                    if formatter_usage is None
+                    else {
+                        "input_tokens": formatter_usage.input_tokens,
+                        "output_tokens": formatter_usage.output_tokens,
+                        "cached_input_tokens": formatter_usage.cached_input_tokens,
+                    }
+                ),
+            },
+        )
+
+    @staticmethod
+    def _emit_formatting_event(
+        context: Any,
+        *,
+        status: str,
+        generation: int,
+        formatter_task_id: str,
+        record_ref: ArtifactRef,
+    ) -> None:
+        try:
+            context.events.emit(
+                "llm_output_formatted",
+                {
+                    "code": (
+                        "schema_formatter_used"
+                        if status == "formatted"
+                        else "schema_formatter_insufficient"
+                    ),
+                    "generation": generation,
+                    "formatter_task_id": formatter_task_id,
+                    "record_artifact_id": record_ref.artifact_id,
+                },
+            )
+        except Exception:
+            pass
 
     def _recover_saved(
         self,
