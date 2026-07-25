@@ -522,25 +522,25 @@ def test_stale_install_lock_is_recovered_and_live_lock_is_preserved(tmp_path: Pa
     assert "Recovered stale ARC runtime install lock" in installed.stderr
     assert not lock_dir.exists()
 
-    legacy_home = tmp_path / "legacy-runtimes"
-    legacy_runtime = _runtime_dir(legacy_home)
-    legacy_lock = legacy_runtime / "install.lock"
-    legacy_lock.mkdir(parents=True)
+    abandoned_home = tmp_path / "abandoned-runtimes"
+    abandoned_runtime = _runtime_dir(abandoned_home)
+    abandoned_lock = abandoned_runtime / "install.lock"
+    abandoned_lock.mkdir(parents=True)
     old = time.time() - 30
-    os.utime(legacy_lock, (old, old))
-    legacy_calls = tmp_path / "legacy-uv.log"
-    legacy = _run(
-        legacy_home,
+    os.utime(abandoned_lock, (old, old))
+    abandoned_calls = tmp_path / "abandoned-uv.log"
+    recovered = _run(
+        abandoned_home,
         "setup",
-        uv=_fake_uv(tmp_path / "legacy-uv"),
+        uv=_fake_uv(tmp_path / "abandoned-uv"),
         extra_env={
             "ARC_INSTALL_LOCK_INIT_GRACE_SEC": "1",
-            "UV_CALLS": str(legacy_calls),
+            "UV_CALLS": str(abandoned_calls),
         },
     )
-    assert legacy.returncode == 0, legacy.stderr
-    assert "Recovered stale ARC runtime install lock" in legacy.stderr
-    assert not legacy_lock.exists()
+    assert recovered.returncode == 0, recovered.stderr
+    assert "Recovered stale ARC runtime install lock" in recovered.stderr
+    assert not abandoned_lock.exists()
 
     live_home = tmp_path / "live-runtimes"
     live_runtime = _runtime_dir(live_home)
