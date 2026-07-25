@@ -24,7 +24,70 @@ def test_cli_unexpected_dispatch_error_is_one_failed_envelope(
     result = json.loads(lines[0])
     assert result["schema_version"] == "arc.command_result.v2"
     assert result["status"] == "failed"
+    assert result["error"]["code"] == "internal_error"
+
+
+def test_cli_local_io_error_is_not_misreported_as_invalid_request(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        "arc_llm.cli._dispatch",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError("disk unavailable")
+        ),
+    )
+
+    assert main(["doctor"], registry=ProviderRegistry()) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "local_io_error"
+
+
+def test_cli_rejects_invalid_explicit_run_id_before_dispatch(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        "arc_llm.cli._dispatch",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("invalid run ID must not reach dispatch")
+        ),
+    )
+
+    assert (
+        main(
+            [
+                "status",
+                "--run-root",
+                "runs",
+                "--run-id",
+                "../outside",
+            ],
+            registry=ProviderRegistry(),
+        )
+        == 2
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "failed"
     assert result["error"]["code"] == "invalid_request"
+
+
+def test_cli_preserves_typed_jobs_failure_code(tmp_path, capsys) -> None:
+    assert (
+        main(
+            [
+                "status",
+                "--run-root",
+                str(tmp_path / "runs"),
+                "--run-id",
+                "missing-run",
+            ],
+            registry=ProviderRegistry(),
+        )
+        == 1
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "failed"
+    assert result["error"]["code"] == "run_not_found"
 
 
 def test_cli_rejects_removed_cancel_command(capsys) -> None:

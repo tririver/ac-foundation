@@ -9,16 +9,19 @@ from pathlib import Path
 from typing import Sequence
 
 from arc_jobs import (
+    ArcJobsError,
     CommandError,
     CommandResult,
     CommandRun,
     CommandStatus,
     EventWriter,
+    InvalidRunIdError,
     ProgressEvent,
     RunRepository,
     command_result_from_snapshot,
     command_result_json,
     encode_progress_event,
+    validate_simple_id,
 )
 
 from .api import LLMClient
@@ -161,8 +164,23 @@ def _failure(exc: Exception) -> CommandResult:
     if isinstance(exc, ArcLLMError):
         code = exc.code.value
         details = exc.details
-    else:
+    elif isinstance(exc, _UsageError):
         code = ErrorCode.INVALID_REQUEST.value
+        details = {}
+    elif isinstance(exc, OSError):
+        code = "local_io_error"
+        details = {}
+    elif isinstance(exc, ArcJobsError):
+        code = {
+            "RunNotFoundError": "run_not_found",
+            "RunBusyError": "run_busy",
+            "IdempotencyConflictError": "idempotency_conflict",
+            "ResumeInputConflictError": "resume_input_conflict",
+            "UnsupportedSchemaError": "unsupported_state_version",
+        }.get(type(exc).__name__, "arc_jobs_error")
+        details = {}
+    else:
+        code = "internal_error"
         details = {}
     return CommandResult(
         CommandStatus.FAILED,
@@ -178,6 +196,12 @@ def main(
 ) -> int:
     try:
         args = _build_parser().parse_args(argv)
+        run_id = getattr(args, "run_id", None)
+        if run_id is not None:
+            try:
+                validate_simple_id(run_id, label="run id")
+            except InvalidRunIdError as exc:
+                raise _UsageError(str(exc)) from exc
         providers = registry or default_registry()
         result = _dispatch(
             args,
