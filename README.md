@@ -10,10 +10,6 @@ agents, while each Python package and CLI can also be used independently. The
 agent-facing Skill lives in `plugins/arc/skills/arc/`; reusable implementations
 live in `packages/`.
 
-Academic reference: Yanjiao Ma, Yi Wang, and Xingkai Zhang, *ARC: An LLM-Native
-Agent Workflow for Theoretical Physics Research*, ChinaXiv:202606.00234 (2026),
-<https://chinaxiv.org/abs/202606.00234>.
-
 ## Who ARC is for
 
 Use ARC when you need to:
@@ -30,6 +26,34 @@ briefings, proposal/review loops, translation, and companion generation use a
 supported host LLM and may consume substantial tokens.
 
 ## Install
+
+### Remarks:
+
+- Permission: the same as many heavy skills/plugins, ARC will need permissions to run Python scripts. Accepting permissions could be annoying. We recommend installing ARC within docker or a virtual machine, and allow all permissions in that virtual environment. As always for working with AI agents, be aware of risk to your data and system.
+
+- Token usage. As measured using Claude + DeepSeek, a typical run of domain build + idea generation consumes about 1M uncached input tokens, and 0.5M output tokens, in about an hour's running time. The token usage may vary depending on the specific tasks and LLM used. Be aware of token usage and costs.
+
+- If ARC has played a role in your research, please consider citing the ARC manual.
+
+### Citation
+
+Yanjiao Ma, Yi Wang, and Xingkai Zhang. _ARC: An LLM-Native Agent
+Workflow for Theoretical Physics Research_. ChinaXiv:202606.00234, 2026.
+https://chinaxiv.org/abs/202606.00234
+
+```bibtex
+@misc{ma2026arc,
+  title         = {{ARC}: An {LLM}-Native Agent Workflow for Theoretical Physics Research},
+  author        = {Ma, Yanjiao and Wang, Yi and Zhang, Xingkai},
+  year          = {2026},
+  month         = jun,
+  publisher     = {ChinaXiv},
+  eprint        = {202606.00234},
+  archivePrefix = {ChinaXiv},
+  url           = {https://chinaxiv.org/abs/202606.00234},
+  note          = {Version 1}
+}
+```
 
 ARC requires Python 3.11 or newer. Plugin and standalone-Skill installations
 use `uv` when available and fall back to Python `venv` plus `pip`. Network
