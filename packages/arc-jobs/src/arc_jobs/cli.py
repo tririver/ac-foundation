@@ -33,9 +33,9 @@ class _Parser(argparse.ArgumentParser):
         super().exit(status, message)
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(*, prog: str = "arc-jobs") -> argparse.ArgumentParser:
     parser = _Parser(
-        prog="arc-jobs",
+        prog=prog,
         description=(
             "Inspect and control durable ARC runs created by higher-level "
             "ARC commands."
@@ -66,21 +66,25 @@ def _emit(result: CommandResult, *, exit_code: int) -> int:
     return exit_code
 
 
-def _help_command(arguments: list[str]) -> str:
+def _help_command(arguments: list[str], *, prog: str) -> str:
     command = (
         arguments[0]
         if arguments and arguments[0] in {"status", "stop", "validate"}
         else None
     )
     return " ".join(
-        part for part in ("arc-jobs", command, "--help") if part is not None
+        part for part in (prog, command, "--help") if part is not None
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    prog: str = "arc-jobs",
+) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     try:
-        args = _parser().parse_args(arguments)
+        args = _parser(prog=prog).parse_args(arguments)
         repository = RunRepository(args.run_root)
         if args.command == "status":
             result = command_result_from_snapshot(
@@ -127,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
                 error=CommandError(
                     "invalid_request",
                     str(exc),
-                    {"help_command": _help_command(arguments)},
+                    {"help_command": _help_command(arguments, prog=prog)},
                 ),
             ),
             exit_code=2,
