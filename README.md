@@ -14,7 +14,8 @@ ARC is CLI-first. Its workflow Skill uses the supported package CLIs:
 - `arc-companion`: builds source-faithful, chapter-aware PDF and static-web
   original/translation/commentary readers for papers, lecture notes, and books
   from a paired rich source and PDF.
-- `arc-jobs`: protocol-neutral persistent background execution for ARC CLIs.
+- `arc-jobs`: protocol-neutral inspection, stop requests, and validation for
+  durable ARC runs.
 - `plugins/arc/skills/arc`: agent-facing workflow instructions for domain
   building, idea generation, and research calculations.
 
@@ -236,197 +237,35 @@ arc-paper get-title arXiv:0911.3380
 Export a Markdown report to PDF with the canonical Pandoc command in
 `plugins/arc/skills/arc/rules/math_typeset.md`.
 
-Build or resume companion-reading PDF and static-web readers for a paper,
-lecture note, or book. A
-formal build pairs a rich Markdown/TeX/HTML source with its PDF: the rich source
-provides faithful content and the PDF is authoritative for hierarchy, printed
-pages, and chapter-boundary reconciliation. If `--annotation-language` is
-omitted, ARC prints a language-switch notice and continues in Chinese:
+Build a source-anchored Companion from Markdown, HTML, flattened TeX, or a
+paper identifier. A PDF may be supplied as a validator, while the rich source
+remains authoritative for content:
 
 ```bash
 arc-companion build arXiv:0911.3380 \
-  --project-dir ./arc-tests/companion/0911.3380 --json
-arc-companion render-web \
-  --project-dir ./arc-tests/companion/0911.3380 --json
+  --project-dir ./local/companion/0911.3380 \
+  --target-language zh-CN --json
+arc-companion status --project-dir ./local/companion/0911.3380 --json
+arc-companion resume --project-dir ./local/companion/0911.3380 --json
+arc-companion stop --project-dir ./local/companion/0911.3380 --json
+arc-companion render --project-dir ./local/companion/0911.3380 \
+  --format all --json
 arc-companion validate \
-  --project-dir ./arc-tests/companion/0911.3380 --json
+  --project-dir ./local/companion/0911.3380 --json
 ```
 
-To use an already cached parsed translation as a chapter-aligned working
-draft, add `--reference-translation-id <cached-reference-id>`. Automatic
-alignment requires complete, unique `1..N` leading chapter ordinals; otherwise
-repeat
-`--reference-translation-map <source-chapter-id>=<reference-chapter-id>` for
-every source chapter. Reference mode is cache-only, cannot be combined with
-`--skip-translation`, and keeps the original source authoritative. Recovery is
-bound to the immutable reference manifest and chapter objects.
+`build`, `status`, `resume`, `stop`, `render`, and `validate` are the complete
+public Companion command set. Completed child LLM work replays within the same
+durable run; `render` and `validate` do not start model calls. See
+`plugins/arc/skills/arc/manuals/arc-companion.md` for the current source,
+translation, rendering, and pause contracts.
 
-Use `--document-kind auto|article|book` to select the structure policy,
-`--idle-timeout-seconds` to override provider inactivity timeout, and
-`--regenerate LANE` to rebuild one content lane. In particular,
-`--regenerate review` explicitly regenerates every current Review segment and
-bypasses the whole-Review fast path, response checkpoints, legacy imports, and
-segment acceptances. `--regenerate-commentary` remains a deprecated alias for
-`--regenerate commentary`. `--stop-after-first-chapter` provides the
-first-chapter validation checkpoint for `interactive` runs or a one-time
-review gate; it does not permanently change the managed run's automation
-level.
-
-Companion and paper workflows use `arc-jobs` for durable execution and
-`arc-llm` for model calls. `arc-paper` does not provide a broker, worker shell,
-private budget ledger, or second job database.
-
-For a managed companion workflow, the executing agent inspects substantive
-source body text near the beginning, middle, and end before building. It
-compares normalized base languages (`EN_US`, `EN_UK`, and `en-GB` are `en`;
-simplified and traditional Chinese are `zh`) and records the source judgment,
-target language, translation mode, and reason in `context.json`. If all samples
-clearly match the target base language, the agent passes `--skip-translation`;
-mixed or uncertain text keeps translation. The CLI itself does not perform
-language detection, so the workflow also passes the sampled canonical tag with
-`--source-language`.
-
-ARC reconciles PDF structure with rich-source blocks and validates exact
-chapter and segment coverage. Chapters may prepare concurrently under one
-global `workers` budget. Within each chapter, semantic segmentation and a
-stateful guide prepare independent, source-ordered translation and commentary
-sessions. A bootstrap turn carries fixed chapter context; later turns carry
-only the current segment, cursor, source hash, terms, and bounded sources. Stable
-idempotency keys and accepted-block ledgers make routine resume automatic
-without repeating accepted provider calls.
-
-Review is segment-addressed in both translated and commentary-only builds.
-ARC reuses locally validated segment sources and puts only uncovered, changed,
-corrupt, invalid, or explicitly regenerated segments into paid prompts; reused
-source or companion bodies are never resent. A segment identity contains only
-its semantic inputs: source projection, current translation or commentary,
-local glossary and names, local evidence, T14 reference, intent, language,
-rules, contracts, and output schema. Provider, model, tier, workers, prompt
-budget, session, path, time, chunk topology, and an unrelated later suffix do
-not invalidate it.
-
-Every valid reused and new source reaches the conflict coordinator once in
-stable document order. Review retains every schema-valid proposal: proposals
-on different annotation fields or translation blocks are applied
-independently, while different replacements for the same exact field or block
-require arbitration. ARC preserves valid non-conflicting work, then sends all
-remaining conflicts in one low-tier, stateless, offline arbitration call. A
-review with no conflicts makes no arbitration call, and ARC does not run a
-second whole-document model review.
-
-The arbitration call disables ARC internet, paper Broker/CLI, MCP exposure, and
-inherited host-tool routes. This policy is not a sandbox and makes no claim
-about capabilities intrinsic to the selected provider. Terminal
-no-conflict, resolved, and supervised receipts replay locally without another
-arbitration call. An invalid or unresolved decision stops for supervision at
-the exact affected paths while retaining non-conflicting work. Durable receipt
-and observability records contain hashes, decisions, reasons, and safe relative
-links rather than candidate bodies. Commentary-only review cannot introduce a
-translation, and arbitration cannot rewrite an approved frozen first chapter.
-
-Before the first segment Review submission, ARC seals a body-free
-`review-reuse-plan.json`. Immutable source objects and body-light acceptances
-remain project-local. After terminal arbitration it writes
-`review-reuse-receipt.json`, recording plan and output hashes, segment and call
-counts, and a safe T15 receipt link; Review v10 and chapter audit reference that
-receipt. Resume locally revalidates completed responses, objects, arbitration,
-acceptances, and receipts without repeating accepted calls. The whole-Review
-fast path requires matching semantic output plus valid T15 and T16 receipts.
-Tampered or corrupt links fail closed.
-
-PDF and static-web output share one hashed source-credit model. Every original
-author, affiliation, and source profile remains visible exactly once; a
-reliably evidenced localized author name is adjacent and cannot replace the
-source name. When the programmatic
-`BuildOptions.source_credit_reference_id` input is set, cached-reference pairing
-is limited to one source author and one reference author. Multiple authors
-additionally require a complete `source_credit_author_mapping`, never positional
-or fuzzy inference; these inputs are not currently exposed by the CLI. Source
-anchors are authoritative:
-front matter stays with the title group and a distinct profile block stays in
-place. Unanchored metadata falls back after the title in author, affiliation,
-profile order. Reference evidence is strict cache-only and cannot fetch,
-upgrade caches, invoke an LLM, or alter an affiliation or profile.
-
-During generation, each accepted Reader-visible boundary is marked dirty
-immediately. One per-build coordinator coalesces non-final updates into exact
-60-second monotonic windows; completion bypasses the wait but still deduplicates
-identical visible content. Content-addressed snapshot and asset objects are
-validated before `reader/index.html` is switched last, so the last complete
-bundle remains readable if a later refresh fails. `arc-companion render-web` rebuilds
-the reader manually from durable project checkpoints without repeating LLM
-work. The reader has no server dependency and vendors KaTeX, fonts, style,
-script, and media assets locally, so opening the completed HTML does not require
-network access.
-
-A translated reader places its glossary once at the end of the same
-`index.html`, reachable from the sidebar and `#glossary`; large Index-based
-glossaries mount only when opened or approached. Matching source terms,
-aliases, and translations in original, translation, and commentary text use a
-subtle blue-gray accessible tooltip. Math and links remain untouched. The PDF
-likewise places a translated glossary after the references.
-
-With `--skip-translation`, ARC runs guide, segmentation, commentary, review,
-rendering, and validation without creating or reusing any translation or
-glossary session, call, ledger, checkpoint, projection, prompt context,
-artifact, or reader layer. Existing glossary cache files remain available for
-a later translated build but are invisible to the current output. A source
-book's own Index remains source content rather than a bilingual glossary. The
-default remains the two-lane translation-and-commentary build.
-
-A real Index becomes the complete global glossary when translation is enabled,
-including nested entries,
-page ranges, `see`, and `see also`; it is never truncated. Documents without an
-Index use the page-scaled 50/100/200 terminology limits. Each segment receives
-only its deterministic source-term projection. Commentary agents may search,
-inspect, and directly cite external sources in the same generation turn; ARC
-validates the returned title, HTTP(S) URL, and reader-understandable locator
-without a separate evidence-controller rewrite pass. Companion workers do not
-depend on MCP or project-file reading.
-
-`--recovery-policy auto|manual` controls blocked-call recovery and defaults to
-`auto`. Automatic recovery replays durable responses, attempts native session
-reconciliation, and may start one replacement generation for an eligible
-translation or commentary lane suffix, up to three times by default. Set
-`--max-auto-replacements N` to change the persisted recovery budget without
-changing content fingerprints. Use repeatable
-`--regenerate-segment LANE:SEGMENT_ID` for precise translation/commentary
-regeneration. Bare `resume` selects automatic
-recovery; choose an explicit action for strict/manual behavior:
-
-```bash
-arc-companion resume --project-dir ./arc-tests/companion/0911.3380 --json
-arc-companion resume --project-dir ./arc-tests/companion/0911.3380 \
-  --action resume-native --json
-arc-companion resume --project-dir ./arc-tests/companion/0911.3380 \
-  --action restart-generation --confirm-possible-duplicate-charge --json
-```
-
-`--stop-after-first-chapter` schedules no later chapter and returns
-`first_chapter_ready` only after the first substantive chapter passes guide,
-all enabled lanes, review, PDF rendering, static-web publication, and
-validation. Long background
-builds emit a build-level `review_due` at the next safe boundary after each 30
-minutes of cumulative runtime; `arc-jobs watch <job-id> --until-review --json`
-returns for inspection without pausing the job.
-
-Each chapter guide appears once after its title. Every segment renders original,
-translation, then commentary without visible controller layer labels. Text uses
-sans-serif fonts while mathematics remains LaTeX serif. Personal names retain
-their exact source spelling in any script. Document and structural headings,
-including References and Index, render as source title plus translation but do
-not receive commentary; navigation prefers the translated title. Figure/table
-captions remain source-only. The deliverables are the validated full-document
-PDF and its static-web reader. A successful full build maintains a byte-identical
-run-root delivery PDF directly in the resolved `--project-dir`, never its
-parent; the immutable internal `output_pdf` remains authoritative. Ordinary
-non-JSON CLI output prints the run-root delivery PDF path first, while JSON
-records it as `output_run_pdf` and `output_run_pdf_sha256`.
-`arc-companion validate` verifies both forms, while a reproducibility ZIP that
-contains both plus every manifest-declared local web asset is generated only by
-an explicit `arc-companion package` request.
-
-Run slow conversion through `arc-jobs` when the caller should not block.
+Companion preserves source block order, equations, figures, tables, links, and
+bibliography while generating chapter guidance, optional translations, and
+selective learning notes. The accepted book is rendered into one immutable
+PDF/Web release. Use the owning command's durable controls, or the coding-agent
+host's background-command facility when the build should not block the
+conversation.
 
 ## Configure LLM Providers
 
@@ -627,17 +466,20 @@ and round expansion fail closed when verification fails.
 
 ## Background Jobs
 
-Use `arc-jobs` for long-running CLI commands. It persists state and output,
-and executes an allowlisted ARC argv without a shell:
+Long-running package commands own their durable runs and should be started
+directly. Use each owning CLI's status/resume/stop/validate commands when
+available. `arc-jobs` is the protocol-neutral low-level surface for a known
+run:
 
 ```bash
-arc-domain build <seed-paper> --intent "<intent>"
-arc-domain status --run-id <run-id>
-arc-domain resume <run-id>
+arc-jobs status --run-root <run-root> --run-id <run-id>
+arc-jobs stop --run-root <run-root> --run-id <run-id> [--reason TEXT]
+arc-jobs validate --run-root <run-root> --run-id <run-id>
 ```
 
-`arc-domain build` owns its durable run and should not be wrapped in a second
-`arc-jobs submit` job.
+`arc-jobs` does not submit, list, watch, or execute commands. Use the coding
+agent host's background-command facility when a direct package command should
+run without blocking the conversation.
 
 ## End-To-End Research Workflows
 
@@ -770,7 +612,6 @@ ARC paper uses the user cache directory unless `ARC_PAPER_CACHE` is set:
 ```text
 ~/.cache/arc/arc-paper/
 ~/.cache/arc/arc-domain/
-~/.cache/arc/arc-jobs/
 ```
 
 Set these environment variables to override cache locations:
@@ -778,7 +619,6 @@ Set these environment variables to override cache locations:
 ```bash
 export ARC_PAPER_CACHE=/path/to/arc-paper-cache
 export ARC_DOMAIN_CACHE=/path/to/arc-domain-cache
-export ARC_JOBS_CACHE=/path/to/arc-jobs-cache
 ```
 
 Use `--refresh` only for paper commands when you intentionally want fresh
@@ -811,10 +651,8 @@ ARC_KIMI_IDLE_TIMEOUT_SECONDS     Kimi idle timeout; overrides the general idle 
 ARC_LLM_KIMI_LOW_MODEL            Kimi model alias for the low tier.
 ARC_LLM_KIMI_MEDIUM_MODEL         Kimi model alias for the medium tier.
 ARC_LLM_KIMI_HIGH_MODEL           Kimi model alias for the high tier.
-ARC_LLM_KIMI_MAX_MODEL            Kimi model alias for the max tier.
 ARC_PAPER_CACHE                   Override the arc-paper cache root.
 ARC_DOMAIN_CACHE                  Override the arc-domain cache root.
-ARC_JOBS_CACHE                    Override the protocol-neutral job/cache root.
 ARC_RUNTIME_HOME                  Override private ARC runtime storage (default ~/.codex/arc/runtimes).
 ARC_INSTALL_REF                   Override with a full commit SHA or immutable vX.Y.Z tag.
 ARC_INSTALL_REPO_ROOT             Select a local development checkout.
