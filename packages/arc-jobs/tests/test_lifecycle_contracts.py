@@ -359,6 +359,84 @@ class ReplayGroupHandler:
         )
 
 
+class RequestArtifactPauseHandler:
+    name = "request-artifact-pause.v1"
+
+    def __init__(self, *, remove_before_return=False):
+        self.remove_before_return = remove_before_return
+
+    def execute(self, context):
+        request_ref = context.artifacts.publish_json(
+            "pause/request", {"question": "continue?"}
+        )
+        if self.remove_before_return:
+            (context.run_directory / request_ref.relative_path).unlink()
+        return Paused(
+            Awaiting(
+                ResumeReason.INTERACTION_REQUIRED,
+                "resume",
+                True,
+                request_ref,
+                "example.response.v1",
+            )
+        )
+
+
+def test_pause_request_artifact_is_verified_before_persistence(tmp_path):
+    repository = RunRepository(tmp_path)
+    handler = RequestArtifactPauseHandler(remove_before_return=True)
+
+    snapshot = RunEngine(repository).execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+
+    assert snapshot.status is RunStatus.FAILED
+    assert snapshot.awaiting is None
+    assert snapshot.error is not None
+    assert snapshot.error.code == "handler_unhandled_exception"
+    assert repository.validate("run-1").ok
+
+
+@pytest.mark.parametrize("mutation", ("missing", "corrupt"))
+def test_validate_verifies_persisted_pause_request_artifact(tmp_path, mutation):
+    repository = RunRepository(tmp_path)
+    handler = RequestArtifactPauseHandler()
+    snapshot = RunEngine(repository).execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+    assert snapshot.status is RunStatus.PAUSED
+    assert snapshot.awaiting is not None
+    assert snapshot.awaiting.request_ref is not None
+    assert repository.validate("run-1").ok
+
+    request_path = (
+        repository.run_directory("run-1")
+        / snapshot.awaiting.request_ref.relative_path
+    )
+    if mutation == "missing":
+        request_path.unlink()
+    else:
+        request_path.write_bytes(b"corrupt")
+
+    report = repository.validate("run-1")
+    assert not report.ok
+    assert report.issues
+
+
+def test_validate_accepts_no_input_pause_without_request_artifact(tmp_path):
+    repository = RunRepository(tmp_path)
+    handler = ReplayGroupHandler()
+
+    snapshot = RunEngine(repository).execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+
+    assert snapshot.status is RunStatus.PAUSED
+    assert snapshot.awaiting is not None
+    assert snapshot.awaiting.request_ref is None
+    assert repository.validate("run-1").ok
+
+
 def test_completed_group_units_replay_across_run_resume(tmp_path):
     handler = ReplayGroupHandler()
     engine = RunEngine(RunRepository(tmp_path))

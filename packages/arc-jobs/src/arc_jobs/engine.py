@@ -594,10 +594,16 @@ class RunRepository:
             EventWriter(
                 self.run_directory(run_id) / "events.jsonl", run_id=run_id
             ).validate()
+            artifacts = ImmutableArtifactStore(
+                self.run_directory(run_id), repository_root=self.root
+            )
             if view.snapshot.result_ref is not None:
-                ImmutableArtifactStore(
-                    self.run_directory(run_id), repository_root=self.root
-                ).verify(view.snapshot.result_ref)
+                artifacts.verify(view.snapshot.result_ref)
+            if (
+                view.snapshot.awaiting is not None
+                and view.snapshot.awaiting.request_ref is not None
+            ):
+                artifacts.verify(view.snapshot.awaiting.request_ref)
         except Exception as exc:
             issues.append(
                 ValidationIssue(
@@ -891,6 +897,8 @@ class RunEngine:
                     )
                 elif isinstance(outcome, Paused):
                     _validate_awaiting(outcome.awaiting)
+                    if outcome.awaiting.request_ref is not None:
+                        context.artifacts.verify(outcome.awaiting.request_ref)
                     next_snapshot = replace(
                         snapshot,
                         revision=snapshot.revision + 1,
