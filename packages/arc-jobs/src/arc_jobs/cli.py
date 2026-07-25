@@ -19,22 +19,45 @@ class _UsageError(Exception):
     pass
 
 
+class _HelpRequested(Exception):
+    pass
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         raise _UsageError(message)
 
+    def exit(self, status: int = 0, message: str | None = None) -> None:
+        if status == 0:
+            raise _HelpRequested
+        super().exit(status, message)
+
 
 def _parser() -> argparse.ArgumentParser:
-    parser = _Parser(prog="arc-jobs", description="Inspect durable ARC runs")
+    parser = _Parser(
+        prog="arc-jobs",
+        description=(
+            "Inspect and control durable ARC runs created by higher-level "
+            "ARC commands."
+        ),
+    )
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("status", "validate"):
-        command = commands.add_parser(name)
-        command.add_argument("--run-root", required=True)
-        command.add_argument("--run-id", required=True)
-    stop = commands.add_parser("stop")
-    stop.add_argument("--run-root", required=True)
-    stop.add_argument("--run-id", required=True)
-    stop.add_argument("--reason")
+    summaries = {
+        "status": "inspect the current durable run state",
+        "validate": "validate stored run state and artifacts",
+    }
+    for name, summary in summaries.items():
+        command = commands.add_parser(name, help=summary, description=summary.capitalize() + ".")
+        command.add_argument("--run-root", required=True, help="durable run repository root")
+        command.add_argument("--run-id", required=True, help="durable run identifier")
+    stop = commands.add_parser(
+        "stop",
+        help="request a cooperative stop",
+        description="Request a cooperative stop for a durable ARC run.",
+    )
+    stop.add_argument("--run-root", required=True, help="durable run repository root")
+    stop.add_argument("--run-id", required=True, help="durable run identifier")
+    stop.add_argument("--reason", help="human-readable stop reason")
     return parser
 
 
@@ -43,9 +66,21 @@ def _emit(result: CommandResult, *, exit_code: int) -> int:
     return exit_code
 
 
+def _help_command(arguments: list[str]) -> str:
+    command = (
+        arguments[0]
+        if arguments and arguments[0] in {"status", "stop", "validate"}
+        else None
+    )
+    return " ".join(
+        part for part in ("arc-jobs", command, "--help") if part is not None
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
     try:
-        args = _parser().parse_args(sys.argv[1:] if argv is None else argv)
+        args = _parser().parse_args(arguments)
         repository = RunRepository(args.run_root)
         if args.command == "status":
             result = command_result_from_snapshot(
@@ -83,11 +118,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             return _emit(result, exit_code=0)
         raise AssertionError(args.command)
+    except _HelpRequested:
+        return 0
     except _UsageError as exc:
         return _emit(
             CommandResult(
                 CommandStatus.FAILED,
-                error=CommandError("invalid_request", str(exc)),
+                error=CommandError(
+                    "invalid_request",
+                    str(exc),
+                    {"help_command": _help_command(arguments)},
+                ),
             ),
             exit_code=2,
         )

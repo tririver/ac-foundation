@@ -36,36 +36,79 @@ class _UsageError(Exception):
     pass
 
 
+class _HelpRequested(Exception):
+    pass
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         raise _UsageError(message)
 
+    def exit(self, status: int = 0, message: str | None = None) -> None:
+        if status == 0:
+            raise _HelpRequested
+        super().exit(status, message)
+
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = _Parser(prog="arc-llm", description="Durable ARC LLM task runner")
+    parser = _Parser(
+        prog="arc-llm",
+        description=(
+            "Run typed LLM requests with durable state, provider selection, "
+            "and resumable execution."
+        ),
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
-    generate = commands.add_parser("generate")
-    generate.add_argument("--request", required=True, type=Path)
-    generate.add_argument("--run-root", required=True, type=Path)
-    generate.add_argument("--run-id")
+    generate = commands.add_parser(
+        "generate",
+        help="execute a typed LLM request",
+        description="Execute a typed LLM request from a JSON document.",
+    )
+    generate.add_argument("--request", required=True, type=Path, help="request JSON path")
+    generate.add_argument(
+        "--run-root", required=True, type=Path, help="durable run repository root"
+    )
+    generate.add_argument("--run-id", help="explicit durable run identifier")
 
-    resume = commands.add_parser("resume")
-    resume.add_argument("--run-root", required=True, type=Path)
-    resume.add_argument("--run-id", required=True)
-    resume.add_argument("--input", type=Path)
+    resume = commands.add_parser(
+        "resume",
+        help="resume a paused or interrupted request",
+        description="Resume a paused or interrupted typed LLM request.",
+    )
+    resume.add_argument(
+        "--run-root", required=True, type=Path, help="durable run repository root"
+    )
+    resume.add_argument("--run-id", required=True, help="durable run identifier")
+    resume.add_argument("--input", type=Path, help="ResumeInput JSON path")
 
-    for name in ("status", "stop"):
-        command = commands.add_parser(name)
-        command.add_argument("--run-root", required=True, type=Path)
-        command.add_argument("--run-id", required=True)
-    commands.choices["stop"].add_argument("--reason")
+    status = commands.add_parser(
+        "status",
+        help="inspect a durable LLM request",
+        description="Inspect the current state of a durable LLM request.",
+    )
+    status.add_argument("--run-root", required=True, type=Path, help="durable run repository root")
+    status.add_argument("--run-id", required=True, help="durable run identifier")
 
-    doctor = commands.add_parser("doctor")
+    stop = commands.add_parser(
+        "stop",
+        help="request a cooperative stop",
+        description="Request a cooperative stop for a durable LLM request.",
+    )
+    stop.add_argument("--run-root", required=True, type=Path, help="durable run repository root")
+    stop.add_argument("--run-id", required=True, help="durable run identifier")
+    stop.add_argument("--reason", help="human-readable stop reason")
+
+    doctor = commands.add_parser(
+        "doctor",
+        help="check provider availability",
+        description="Check whether an ARC LLM provider is configured and executable.",
+    )
     doctor.add_argument(
         "--provider",
         choices=("auto", "codex", "claude", "kimi"),
         default="auto",
+        help="provider to diagnose (default: auto)",
     )
     return parser
 
@@ -160,7 +203,11 @@ def _dispatch(
     )
 
 
-def _failure(exc: Exception) -> CommandResult:
+def _failure(
+    exc: Exception,
+    *,
+    help_command: str | None = None,
+) -> CommandResult:
     if isinstance(exc, ArcLLMError):
         code = exc.code.value
         details = exc.details
@@ -182,9 +229,23 @@ def _failure(exc: Exception) -> CommandResult:
     else:
         code = "internal_error"
         details = {}
+    if code == ErrorCode.INVALID_REQUEST.value and help_command is not None:
+        details = {**details, "help_command": help_command}
     return CommandResult(
         CommandStatus.FAILED,
         error=CommandError(code, str(exc) or type(exc).__name__, details),
+    )
+
+
+def _help_command(arguments: list[str]) -> str:
+    command = (
+        arguments[0]
+        if arguments
+        and arguments[0] in {"generate", "resume", "status", "stop", "doctor"}
+        else None
+    )
+    return " ".join(
+        part for part in ("arc-llm", command, "--help") if part is not None
     )
 
 
@@ -194,8 +255,9 @@ def main(
     client: LLMClient | None = None,
     registry: ProviderRegistry | None = None,
 ) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
     try:
-        args = _build_parser().parse_args(argv)
+        args = _build_parser().parse_args(arguments)
         run_id = getattr(args, "run_id", None)
         if run_id is not None:
             try:
@@ -232,11 +294,13 @@ def main(
                     + "\n"
                 )
         exit_code = 1 if result.status is CommandStatus.FAILED else 0
+    except _HelpRequested:
+        return 0
     except _UsageError as exc:
-        result = _failure(exc)
+        result = _failure(exc, help_command=_help_command(arguments))
         exit_code = 2
     except Exception as exc:
-        result = _failure(exc)
+        result = _failure(exc, help_command=_help_command(arguments))
         exit_code = 1
     sys.stdout.write(command_result_json(result) + "\n")
     return exit_code
