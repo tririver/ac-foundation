@@ -132,6 +132,17 @@ service commands it names.
   repo-local git config.
 - After completing and verifying each functional change, agents must create a
   git commit unless the user explicitly asks not to commit.
+- Treat the worktree as shared: other agents may edit or commit concurrently,
+  so preserve their changes and inspect the current status and diff before
+  staging.
+- Concurrent edits do not lower the standards for correctness, completeness,
+  review, or verification. They only limit how much time should be spent
+  perfecting commit isolation.
+- Once your own work is complete and verified, stage its intended paths or
+  hunks and commit promptly; do not wait for a globally clean worktree.
+- Avoid repeated restaging or diff-chasing solely to achieve perfect commit
+  purity while concurrent changes expand. Never revert, rewrite, or discard
+  another agent's work to isolate your commit.
 - Agents must not create, move, or push Git tags. Release tags are created only
   by an explicitly authorized human release operation.
 
