@@ -15,7 +15,7 @@ from .request import (
     encode_output_contract,
 )
 
-SEMANTIC_KEY_SCHEMA = "arc.llm.semantic_key.v2"
+SEMANTIC_KEY_SCHEMA = "arc.llm.semantic_key.v3"
 EXECUTION_RECIPE_SCHEMA = "arc.llm.execution_recipe.v2"
 _RESUME_KEY_DIGEST_LENGTH = 24
 

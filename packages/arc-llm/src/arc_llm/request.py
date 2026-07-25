@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Literal, Mapping, Protocol, TypeAlias
+from typing import Any, Callable, Literal, Mapping, Protocol, TypeAlias
 
 from arc_jobs import (
     ArtifactDigest,
@@ -24,8 +24,9 @@ from .errors import InvalidRequestError, InvalidSchemaError
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 ModelTier: TypeAlias = Literal["low", "medium", "high", "xhigh"]
 
-REQUEST_SCHEMA_VERSION = "arc.llm.request.v2"
+REQUEST_SCHEMA_VERSION = "arc.llm.request.v3"
 RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v2"
+INTERACTIVE_PROMPT_POLICY = "arc.llm.interactive_prompt.v1"
 
 
 def _frozen_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -127,6 +128,55 @@ class InteractionResolver(Protocol):
 
 
 @dataclass(frozen=True)
+class InteractionProgress:
+    """One runtime-only observation of an interactive resolver round."""
+
+    stage: Literal["requested", "resolved"]
+    interaction_round: int
+    operation_names: tuple[str, ...]
+    request_count: int
+    error_count: int
+
+    def __post_init__(self) -> None:
+        if self.stage not in {"requested", "resolved"}:
+            raise InvalidRequestError(
+                "interaction progress stage must be requested or resolved."
+            )
+        if (
+            isinstance(self.interaction_round, bool)
+            or not isinstance(self.interaction_round, int)
+            or self.interaction_round < 1
+        ):
+            raise InvalidRequestError(
+                "interaction progress round must be a positive integer."
+            )
+        if (
+            isinstance(self.operation_names, (str, bytes))
+            or any(
+                not isinstance(name, str) or not name
+                for name in self.operation_names
+            )
+        ):
+            raise InvalidRequestError(
+                "interaction progress operation names must be non-empty strings."
+            )
+        for name in ("request_count", "error_count"):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+            ):
+                raise InvalidRequestError(
+                    f"interaction progress {name} must be a non-negative integer."
+                )
+        if self.error_count > self.request_count:
+            raise InvalidRequestError(
+                "interaction progress error_count cannot exceed request_count."
+            )
+
+
+@dataclass(frozen=True)
 class ProviderGateOptions:
     enabled: bool = True
     global_limit: int = 24
@@ -174,6 +224,7 @@ class LLMExecutionOptions:
     limits: ExecutionLimits = field(default_factory=ExecutionLimits)
     interaction_resolver: InteractionResolver | None = None
     gate: ProviderGateOptions = field(default_factory=ProviderGateOptions)
+    interaction_observer: Callable[[InteractionProgress], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -268,17 +319,10 @@ class OperationContract:
 class InteractiveJsonOutput:
     result_schema: Mapping[str, Any]
     operations: Mapping[str, OperationContract]
-    max_interaction_turns: int = 3
     kind: Literal["interactive_json"] = "interactive_json"
 
     def __post_init__(self) -> None:
         _check_schema(self.result_schema)
-        if (
-            isinstance(self.max_interaction_turns, bool)
-            or not isinstance(self.max_interaction_turns, int)
-            or self.max_interaction_turns < 1
-        ):
-            raise InvalidRequestError("max_interaction_turns must be a positive integer.")
         if any(not isinstance(name, str) or not name for name in self.operations):
             raise InvalidRequestError("Operation names must be non-empty strings.")
         if any(
@@ -403,6 +447,7 @@ def encode_output_contract(contract: OutputContract) -> dict[str, Any]:
         return {"kind": "json", "schema": dict(contract.schema), "repair": contract.repair}
     return {
         "kind": "interactive_json",
+        "prompt_policy": INTERACTIVE_PROMPT_POLICY,
         "result_schema": dict(contract.result_schema),
         "operations": {
             name: {
@@ -411,7 +456,6 @@ def encode_output_contract(contract: OutputContract) -> dict[str, Any]:
             }
             for name, item in sorted(contract.operations.items())
         },
-        "max_interaction_turns": contract.max_interaction_turns,
     }
 
 
@@ -484,9 +528,11 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
     elif kind == "interactive_json":
         _require_exact(
             output_doc,
-            {"kind", "result_schema", "operations", "max_interaction_turns"},
+            {"kind", "prompt_policy", "result_schema", "operations"},
             "output",
         )
+        if output_doc["prompt_policy"] != INTERACTIVE_PROMPT_POLICY:
+            raise InvalidRequestError("Unsupported interactive prompt policy.")
         operations_doc = _object(output_doc["operations"], "output.operations")
         operations: dict[str, OperationContract] = {}
         for name, raw in operations_doc.items():
@@ -499,7 +545,6 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
         output = InteractiveJsonOutput(
             _object(output_doc["result_schema"], "output.result_schema"),
             operations,
-            output_doc["max_interaction_turns"],
         )
     else:
         raise InvalidRequestError("Unknown output.kind.")

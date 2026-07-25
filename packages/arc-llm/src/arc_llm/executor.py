@@ -102,6 +102,7 @@ from .recovery import (
 )
 from .request import (
     RESUME_SCHEMA_VERSION,
+    InteractionProgress,
     InteractiveJsonOutput,
     InteractionResponse,
     LLMExecutionOptions,
@@ -125,7 +126,16 @@ from .schema_formatter import (
     select_formatting_source,
 )
 
-HANDLER_NAME = "arc.llm.task.v2"
+HANDLER_NAME = "arc.llm.task.v3"
+_INTERACTIVE_PROGRESS_GUIDANCE = (
+    "Interactive operation policy (arc.llm.interactive_prompt.v1): Request an "
+    "operation only when its expected result would reasonably advance the task. "
+    "Gaining information, verifying a claim, reducing uncertainty, negative "
+    "results, ruling out hypotheses, and retries that recover from failed or "
+    "ambiguous operations all count as progress. Do not repeat a request without "
+    "a concrete reason. Return a complete result when no further operation has "
+    "a concrete expected contribution to the task."
+)
 _WINDOWS = os.name == "nt"
 
 
@@ -206,6 +216,27 @@ class LLMTaskExecutor:
                 self._validate_session_lineage(context, durable_request, state)
             except ArcLLMError as exc:
                 return LLMFailed(exc)
+            if state.pending_interaction is not None:
+                try:
+                    return self._resolve_pending_interaction(
+                        context,
+                        durable_request,
+                        state,
+                        store,
+                        options,
+                    )
+                except StoppedError:
+                    return LLMStopped()
+                except ArcLLMError as exc:
+                    return LLMFailed(exc)
+                except Exception as exc:
+                    return LLMFailed(
+                        ProviderFailure(
+                            f"Interactive resolution failed locally: {exc}",
+                            category=FailureCategory.LOCAL_IO,
+                            delivery=DeliveryState.NOT_DELIVERED,
+                        )
+                    )
             return self._drive(context, durable_request, state, store, options)
         try:
             resolved = self._resolve_model(request)
@@ -630,7 +661,7 @@ class LLMTaskExecutor:
             try:
                 execution = adapter.start(
                     ProviderRequest(
-                        request.prompt,
+                        self._initial_provider_prompt(request),
                         state.resolved_model or "",
                         provider_schema(request.output),
                         self._capability_document(request),
@@ -674,7 +705,11 @@ class LLMTaskExecutor:
                 execution = adapter.resume(
                     NativeResumeHandle(adapter.name, handle),
                     ProviderResumeRequest(
-                        request.prompt if prompt is None else prompt,
+                        (
+                            self._initial_provider_prompt(request)
+                            if prompt is None
+                            else prompt
+                        ),
                         provider_schema(request.output),
                         self._capability_document(request),
                         options.limits.idle_timeout_seconds,
@@ -1191,19 +1226,6 @@ class LLMTaskExecutor:
             + tuple(item.request_id for item in turn.requests),
         )
         store.compare_and_swap(next_state.revision - 1, next_state)
-        # The contract is the number of interaction turns that the host may
-        # resolve automatically.  Pause only when the provider asks for one
-        # more than that allowance: max=2 resolves turns 1 and 2, then pauses
-        # turn 3 for an explicit host decision.
-        if next_round > request.output.max_interaction_turns:
-            return self._pause(
-                store,
-                next_state,
-                ResumeReason.EXECUTION_BUDGET_EXHAUSTED,
-                "interaction_limit_reached",
-                input_required=True,
-                request_ref=turn_ref,
-            )
         resolver = options.interaction_resolver
         if resolver is None:
             return self._pause(
@@ -1214,15 +1236,134 @@ class LLMTaskExecutor:
                 input_required=True,
                 request_ref=turn_ref,
             )
-        responses = tuple(resolver.resolve(item) for item in turn.requests)
+        return self._resolve_pending_turn(
+            context,
+            request,
+            next_state,
+            store,
+            turn,
+            options,
+        )
+
+    def _resolve_pending_interaction(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        assert isinstance(request.output, InteractiveJsonOutput)
+        assert state.pending_interaction is not None
+        resolver = options.interaction_resolver
+        if resolver is None:
+            return self._pause(
+                store,
+                state,
+                ResumeReason.INTERACTION_REQUIRED,
+                "operation_requests_pending",
+                input_required=True,
+                request_ref=state.pending_interaction,
+            )
+        raw = context.artifacts.read_bytes(state.pending_interaction)
+        turn = decode_interactive_turn(
+            json.loads(raw.decode("utf-8")),
+            request.output,
+        )
+        request_ids = {item.request_id for item in turn.requests}
+        if not request_ids.issubset(state.seen_request_ids):
+            raise CorruptTaskStateError(
+                "Pending interaction is inconsistent with recorded request IDs."
+            )
+        return self._resolve_pending_turn(
+            context,
+            request,
+            state,
+            store,
+            turn,
+            options,
+        )
+
+    def _resolve_pending_turn(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        turn: Any,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        resolver = options.interaction_resolver
+        assert resolver is not None
+        operation_names = tuple(item.operation for item in turn.requests)
+        self._observe_interaction(
+            options,
+            InteractionProgress(
+                stage="requested",
+                interaction_round=state.interaction_round,
+                operation_names=operation_names,
+                request_count=len(turn.requests),
+                error_count=0,
+            ),
+        )
+        responses: list[InteractionResponse] = []
+        try:
+            for item in turn.requests:
+                context.checkpoint()
+                try:
+                    responses.append(resolver.resolve(item))
+                finally:
+                    context.checkpoint()
+        except StoppedError:
+            raise
+        except Exception:
+            self._observe_interaction(
+                options,
+                InteractionProgress(
+                    stage="resolved",
+                    interaction_round=state.interaction_round,
+                    operation_names=operation_names,
+                    request_count=len(turn.requests),
+                    error_count=min(
+                        len(turn.requests),
+                        sum(response.error is not None for response in responses) + 1,
+                    ),
+                ),
+            )
+            raise
+        self._observe_interaction(
+            options,
+            InteractionProgress(
+                stage="resolved",
+                interaction_round=state.interaction_round,
+                operation_names=operation_names,
+                request_count=len(turn.requests),
+                error_count=sum(
+                    response.error is not None for response in responses
+                ),
+            ),
+        )
         resume_input = ResumeInput(
-            resume_key=f"internal-{next_state.revision}",
+            resume_key=f"internal-{state.revision}",
             action=ResumeAction.CONTINUE,
-            responses=responses,
+            responses=tuple(responses),
         )
         return self._continue_interaction(
-            context, request, next_state, store, resume_input, options
+            context, request, state, store, resume_input, options
         )
+
+    @staticmethod
+    def _observe_interaction(
+        options: LLMExecutionOptions,
+        progress: InteractionProgress,
+    ) -> None:
+        observer = options.interaction_observer
+        if observer is None:
+            return
+        try:
+            observer(progress)
+        except Exception:
+            pass
 
     def _resume_interaction(
         self,
@@ -1592,7 +1733,11 @@ class LLMTaskExecutor:
         exact_request = {
             "provider": state.resolved_provider,
             "model": state.resolved_model,
-            "prompt": request.prompt if prompt is None else prompt,
+            "prompt": (
+                self._initial_provider_prompt(request)
+                if prompt is None
+                else prompt
+            ),
             "output_schema": provider_schema(request.output),
             "capabilities": self._capability_document(request),
             "inputs": input_identity_document(request),
@@ -1603,6 +1748,12 @@ class LLMTaskExecutor:
             effect_request_digest=EffectRequestDigest(document_sha256(exact_request)),
             details={"task_id": request.task_id, "generation": state.current_generation},
         )
+
+    @staticmethod
+    def _initial_provider_prompt(request: LLMRequest) -> str:
+        if not isinstance(request.output, InteractiveJsonOutput):
+            return request.prompt
+        return f"{request.prompt}\n\n{_INTERACTIVE_PROGRESS_GUIDANCE}"
 
     def _prepared_interaction_prompt(
         self,

@@ -92,7 +92,7 @@ class _StandaloneInvocation:
 
 
 class _StandaloneInvocationContract:
-    schema_version = "arc.llm.standalone_invocation.v1"
+    schema_version = "arc.llm.standalone_invocation.v2"
 
     def encode(self, value: _StandaloneInvocation) -> Mapping[str, JsonValue]:
         self._validate(value)

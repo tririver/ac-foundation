@@ -27,6 +27,7 @@ from arc_llm import (
     ExecutionLimits,
     InteractiveJsonOutput,
     InvalidRequestError,
+    InteractionProgress,
     InteractionResponse,
     JsonOutput,
     LLMClient,
@@ -150,6 +151,24 @@ def test_client_generate_replays_accepted_result_without_provider_call(
     assert isinstance(second.outcome, LLMCompleted)
     assert second.outcome.value == {"answer": 42}
     assert adapter.start_calls == 1
+
+
+def test_noninteractive_provider_prompt_is_byte_identical(
+    tmp_path: Path, adapter, registry
+) -> None:
+    prompt = "Exact prompt bytes.\nKeep this spacing.  "
+    adapter.steps.append(_completed({"answer": 42}))
+    result = LLMClient(registry=registry).generate(
+        LLMRequest(
+            "exact-noninteractive-prompt",
+            prompt,
+            JsonOutput({"type": "object", "required": ["answer"]}),
+            ModelSelection("codex"),
+        ),
+        run_root=tmp_path,
+    )
+    assert isinstance(result.outcome, LLMCompleted)
+    assert adapter.requests[0].prompt == prompt
 
 
 def test_replay_commit_checkpoint_returns_stopped_outcome(
@@ -880,7 +899,7 @@ def test_relocated_input_source_conflicts_with_immutable_standalone_invocation(
     assert adapter.start_calls == 1
 
 
-def test_new_standalone_run_writes_only_fixed_closed_invocation_v1(
+def test_new_standalone_run_writes_only_fixed_closed_invocation_v2(
     tmp_path: Path,
     adapter,
     registry,
@@ -912,7 +931,7 @@ def test_new_standalone_run_writes_only_fixed_closed_invocation_v1(
     assert document["schema_version"] == "arc.jobs.state.v1"
     assert (
         document["contract_schema_version"]
-        == "arc.llm.standalone_invocation.v1"
+        == "arc.llm.standalone_invocation.v2"
     )
     assert document["revision"] == 0
     assert set(document["value"]) == {
@@ -2586,9 +2605,8 @@ def test_session_commit_closes_hard_crash_window_before_task_accepted_cas(
     assert effect.stage is EffectStage.COMMITTED
 
 
-@pytest.mark.parametrize("max_interaction_turns", [1, 2])
-def test_interaction_limit_pause_carries_request_and_can_resume(
-    tmp_path: Path, adapter, registry, max_interaction_turns: int
+def test_more_than_fifty_interaction_rounds_complete_with_runtime_progress(
+    tmp_path: Path, adapter, registry
 ) -> None:
     class AutoResolver:
         def __init__(self) -> None:
@@ -2606,9 +2624,9 @@ def test_interaction_limit_pause_carries_request_and_can_resume(
                 {"type": "object", "required": ["value"]},
             )
         },
-        max_interaction_turns=max_interaction_turns,
     )
-    for number in range(1, max_interaction_turns + 2):
+    round_count = 51
+    for number in range(1, round_count + 1):
         adapter.steps.append(
             _completed(
                 {
@@ -2617,7 +2635,7 @@ def test_interaction_limit_pause_carries_request_and_can_resume(
                     "result": None,
                     "requests": [
                         {
-                            "request_id": f"req-limit-{number}",
+                            "request_id": f"req-{number}",
                             "operation": "lookup",
                             "arguments": {"query": str(number)},
                         }
@@ -2636,54 +2654,220 @@ def test_interaction_limit_pause_carries_request_and_can_resume(
         )
     )
     resolver = AutoResolver()
+    progress: list[InteractionProgress] = []
     client = LLMClient(registry=registry)
-    paused = client.generate(
-        LLMRequest("interaction-limit", "Solve.", contract, ModelSelection("codex")),
+    completed = client.generate(
+        LLMRequest("unbounded-interaction", "Solve.", contract, ModelSelection("codex")),
         run_root=tmp_path,
-        options=LLMExecutionOptions(interaction_resolver=resolver),
-    )
-    assert isinstance(paused.outcome, LLMPaused)
-    assert paused.outcome.reason.value == "execution_budget_exhausted"
-    assert paused.outcome.input_required
-    assert paused.outcome.request_ref is not None
-    assert paused.outcome.response_contract == "arc.llm.resume_input.v2"
-    assert resolver.requests == [
-        f"req-limit-{number}" for number in range(1, max_interaction_turns + 1)
-    ]
-    assert adapter.start_calls == 1
-    assert adapter.resume_calls == max_interaction_turns
-
-    resumed = client.resume(
-        run_root=tmp_path,
-        run_id=paused.snapshot.run_id,
-        input=ResumeInput(
-            paused.outcome.resume_key,
-            ResumeAction.CONTINUE,
-            (
-                InteractionResponse(
-                    f"req-limit-{max_interaction_turns + 1}",
-                    result={"value": "found"},
-                ),
-            ),
+        options=LLMExecutionOptions(
+            interaction_resolver=resolver,
+            interaction_observer=progress.append,
         ),
     )
-    assert isinstance(resumed.outcome, LLMCompleted)
-    assert resumed.outcome.value == {"answer": 8}
-    assert adapter.resume_calls == max_interaction_turns + 1
-
-
-def test_interactive_output_rejects_zero_automatic_interactions() -> None:
-    with pytest.raises(InvalidRequestError, match="positive integer"):
-        InteractiveJsonOutput(
-            {"type": "object"},
-            {
-                "lookup": OperationContract(
-                    {"type": "object"},
-                    {"type": "object"},
+    assert isinstance(completed.outcome, LLMCompleted)
+    assert completed.outcome.value == {"answer": 8}
+    assert resolver.requests == [
+        f"req-{number}" for number in range(1, round_count + 1)
+    ]
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == round_count
+    assert len(progress) == round_count * 2
+    assert progress[0] == InteractionProgress(
+        "requested", 1, ("lookup",), 1, 0
+    )
+    assert progress[-1] == InteractionProgress(
+        "resolved", round_count, ("lookup",), 1, 0
+    )
+    initial_prompt = adapter.requests[0].prompt
+    assert initial_prompt.startswith("Solve.\n\n")
+    assert initial_prompt.count("arc.llm.interactive_prompt.v1") == 1
+    assert "reasonably advance the task" in initial_prompt
+    assert "negative results" in initial_prompt
+    assert "ruling out hypotheses" in initial_prompt
+    assert "failed or ambiguous operations" in initial_prompt
+    assert "no further operation has a concrete expected contribution" in initial_prompt
+    expected_continuations = [
+        canonical_json_bytes(
+            response_document(
+                (
+                    InteractionResponse(
+                        f"req-{number}",
+                        result={"value": f"req-{number}"},
+                    ),
                 )
-            },
-            max_interaction_turns=0,
-        )
+            )
+        ).decode("utf-8")
+        for number in range(1, round_count + 1)
+    ]
+    assert [item.prompt for item in adapter.requests[1:]] == expected_continuations
+
+
+def test_interaction_stop_after_resolution_recovers_pending_turn(
+    tmp_path: Path, adapter, registry
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object", "required": ["query"]},
+                {"type": "object", "required": ["value"]},
+            )
+        },
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "req-recover",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                }
+            ),
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "complete",
+                    "result": {"answer": 9},
+                    "requests": [],
+                }
+            ),
+        ]
+    )
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("parent", "test.parent", {"case": "interaction-stop"})
+    )
+    context = RunContext(
+        repository,
+        snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    resolved_once = False
+    resolver_calls = 0
+
+    class Resolver:
+        def resolve(self, item):
+            nonlocal resolved_once, resolver_calls
+            resolver_calls += 1
+            resolved_once = True
+            return InteractionResponse(item.request_id, result={"value": "found"})
+
+    original_checkpoint = context.checkpoint
+
+    def checkpoint() -> None:
+        if resolved_once:
+            raise StoppedError("stop after resolver operation")
+        original_checkpoint()
+
+    context.checkpoint = checkpoint
+    request = LLMRequest(
+        "interaction-stop",
+        "Solve.",
+        contract,
+        ModelSelection("codex"),
+    )
+    service = LLMTaskService(registry=registry)
+    stopped = service.execute(
+        context,
+        request,
+        options=LLMExecutionOptions(interaction_resolver=Resolver()),
+    )
+    assert isinstance(stopped, LLMStopped)
+    state = service._executor._task_store(context, request.task_id).read()
+    assert state is not None
+    assert state.pending_interaction is not None
+
+    resolved_once = False
+    context.checkpoint = original_checkpoint
+    completed = service.execute(
+        context,
+        request,
+        options=LLMExecutionOptions(interaction_resolver=Resolver()),
+    )
+    assert isinstance(completed, LLMCompleted)
+    assert completed.value == {"answer": 9}
+    assert resolver_calls == 2
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+
+
+def test_interaction_observer_failure_is_ignored_and_error_response_is_counted(
+    tmp_path: Path, adapter, registry
+) -> None:
+    contract = InteractiveJsonOutput(
+        {"type": "object", "required": ["answer"]},
+        {
+            "lookup": OperationContract(
+                {"type": "object"},
+                {"type": "object"},
+            )
+        },
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "req-error",
+                            "operation": "lookup",
+                            "arguments": {},
+                        }
+                    ],
+                }
+            ),
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "complete",
+                    "result": {"answer": 4},
+                    "requests": [],
+                }
+            ),
+        ]
+    )
+
+    class Resolver:
+        def resolve(self, item):
+            return InteractionResponse(
+                item.request_id,
+                error={"code": "not_found"},
+            )
+
+    progress: list[InteractionProgress] = []
+
+    def failing_observer(item: InteractionProgress) -> None:
+        progress.append(item)
+        raise RuntimeError("observer failure must be isolated")
+
+    result = LLMClient(registry=registry).generate(
+        LLMRequest(
+            "observer-isolation",
+            "Solve.",
+            contract,
+            ModelSelection("codex"),
+        ),
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            interaction_resolver=Resolver(),
+            interaction_observer=failing_observer,
+        ),
+    )
+    assert isinstance(result.outcome, LLMCompleted)
+    assert result.outcome.value == {"answer": 4}
+    assert [item.stage for item in progress] == ["requested", "resolved"]
+    assert progress[-1].error_count == 1
 
 
 def test_uncertain_delivery_with_saved_handle_uses_one_native_resume(

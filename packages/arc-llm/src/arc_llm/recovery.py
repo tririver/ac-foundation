@@ -19,7 +19,7 @@ from arc_jobs import (
     encode_artifact_ref,
 )
 
-TASK_SCHEMA_VERSION = "arc.llm.task.v2"
+TASK_SCHEMA_VERSION = "arc.llm.task.v3"
 SESSION_SCHEMA_VERSION = "arc.llm.session.v2"
 
 
@@ -178,7 +178,7 @@ class TaskStateContract:
         return {
             "revision": value.revision,
             "task_id": value.task_id,
-            "semantic_key_schema": "arc.llm.semantic_key.v2",
+            "semantic_key_schema": "arc.llm.semantic_key.v3",
             "semantic_key_sha256": value.semantic_key.sha256,
             "resolved_provider": value.resolved_provider,
             "resolved_model": value.resolved_model,
@@ -212,7 +212,7 @@ class TaskStateContract:
             "pause",
         }
         _exact(document, required)
-        if document["semantic_key_schema"] != "arc.llm.semantic_key.v2":
+        if document["semantic_key_schema"] != "arc.llm.semantic_key.v3":
             raise CorruptStateError("unsupported LLM semantic key schema")
         generations_doc = document["generations"]
         seen_doc = document["seen_request_ids"]

@@ -11,11 +11,13 @@ from arc_llm import (
     CapabilityPolicy,
     ExecutionLimits,
     InvalidRequestError,
+    InteractiveJsonOutput,
     JsonOutput,
     LLMExecutionOptions,
     LLMInputArtifact,
     LLMRequest,
     ModelSelection,
+    OperationContract,
     ProviderGateOptions,
     ResumeAction,
     ResumeInput,
@@ -73,7 +75,7 @@ def _input(
     )
 
 
-def test_request_v2_input_codec_and_content_identity() -> None:
+def test_request_v3_input_codec_and_content_identity() -> None:
     first = _input("paper", "a" * 64, media_type=" Text/Markdown ")
     request = LLMRequest(
         "with-input",
@@ -82,7 +84,7 @@ def test_request_v2_input_codec_and_content_identity() -> None:
         inputs=(first,),
     )
     document = request_to_document(request)
-    assert document["schema_version"] == "arc.llm.request.v2"
+    assert document["schema_version"] == "arc.llm.request.v3"
     assert document["inputs"][0]["media_type"] == "text/markdown"
     assert decode_request(document) == request
 
@@ -106,7 +108,7 @@ def test_request_v2_input_codec_and_content_identity() -> None:
     "digest",
     ("A" * 64, "g" * 64, "a" * 63),
 )
-def test_request_v2_rejects_invalid_artifact_digests(digest: str) -> None:
+def test_request_v3_rejects_invalid_artifact_digests(digest: str) -> None:
     with pytest.raises(InvalidRequestError):
         _input("paper", digest)
 
@@ -120,6 +122,32 @@ def test_request_v2_rejects_invalid_artifact_digests(digest: str) -> None:
     document["inputs"][0]["source"]["expected_digest"]["value"] = digest
     with pytest.raises(InvalidRequestError):
         decode_request(document)
+
+
+def test_interactive_contract_records_fixed_prompt_policy_and_rejects_old_shape() -> None:
+    request = LLMRequest(
+        "interactive",
+        "Investigate.",
+        InteractiveJsonOutput(
+            {"type": "object"},
+            {
+                "lookup": OperationContract(
+                    {"type": "object"},
+                    {"type": "object"},
+                )
+            },
+        ),
+    )
+    document = request_to_document(request)
+    output = document["output"]
+    assert output["prompt_policy"] == "arc.llm.interactive_prompt.v1"
+    assert "max_interaction_turns" not in output
+    assert decode_request(document) == request
+
+    old = request_to_document(request)
+    old["output"]["max_interaction_turns"] = 3
+    with pytest.raises(InvalidRequestError):
+        decode_request(old)
 
 
 @pytest.mark.parametrize(

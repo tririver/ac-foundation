@@ -55,6 +55,7 @@ from .providers import (
 from .request import (
     CapabilityPolicy,
     ExecutionLimits,
+    InteractionProgress,
     InteractionRequest,
     InteractionResolver,
     InteractionResponse,
@@ -95,6 +96,7 @@ __all__ = [
     "ExecutionMismatchError",
     "FailureCategory",
     "IdempotencyConflictError",
+    "InteractionProgress",
     "InteractionRequest",
     "InteractionResolver",
     "InteractionResponse",
