@@ -8,11 +8,6 @@ local/
 .understand-anything/
 .claude/
 superpowers/
-docs/*
-!docs/architecture/
-docs/architecture/*
-!docs/architecture/identity-and-reuse.md
-!docs/architecture/core-refactor-downstream-breakage.md
 
 # Local secrets and provider credentials
 .env

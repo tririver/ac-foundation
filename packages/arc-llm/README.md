@@ -103,9 +103,8 @@ are never copied to stdout or stderr.
 
 ## Identity and reuse
 
-Semantic reuse, execution compatibility, explicit adoption, and the distinction
-between logical keys and content digests follow the repository-wide
-[identity and reuse architecture](../../docs/architecture/identity-and-reuse.md).
+Semantic reuse, execution compatibility, explicit adoption, logical keys, and
+content digests remain separate concepts.
 Input identity includes input order, ID, normalized MIME type, digest, and
 size. Source run IDs, artifact IDs, materialized paths, and auto-resolved
 provider/model choices do not affect semantic identity. The execution

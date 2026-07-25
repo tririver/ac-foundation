@@ -33,10 +33,8 @@ Trace references expose logical IDs and content digests, never sessions, task
 IDs, private group IDs, resume records, or physical paths. `read_batch_round`
 is the only call that expands proposal and review JSON.
 
-The durable identity rules are defined by
-[`identity-and-reuse.md`](../../docs/architecture/identity-and-reuse.md).
-In particular, worker identities bind only the worker's actual semantic inputs;
-they never bind a physical run directory or concurrency limit.
+Worker identities bind only the worker's actual semantic inputs; they never
+bind a physical run directory or concurrency limit.
 
 ## CLI
 

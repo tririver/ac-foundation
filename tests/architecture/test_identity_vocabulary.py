@@ -6,19 +6,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_canonical_identity_document_and_entrypoint_links_exist():
-    canonical = ROOT / "docs/architecture/identity-and-reuse.md"
-    assert canonical.exists()
-    references = [
-        ROOT / "AGENTS.md",
-        ROOT / "packages/arc-jobs/README.md",
-        ROOT / "packages/arc-llm/README.md",
-        ROOT / "packages/arc-proposer-reviewer/README.md",
-    ]
-    for path in references:
-        assert "identity-and-reuse.md" in path.read_text(encoding="utf-8"), path
-
-
 def test_run_spec_contains_only_semantic_identity_inputs():
     path = ROOT / "packages/arc-jobs/src/arc_jobs/models.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

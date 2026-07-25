@@ -37,9 +37,6 @@ The same run ID and semantic input replays. The same run ID with different
 semantic input raises `IdempotencyConflictError`. Artifact identity, execution
 fingerprints, operational policy, effect-request digests, and resume-input
 digests are separate concepts and must not be substituted for one another.
-See the canonical
-[`identity-and-reuse.md`](../../docs/architecture/identity-and-reuse.md)
-policy.
 
 File leases are transactional: an acquire returns only after the OS lock and
 user-only file permissions are in place. Any acquisition failure releases both
