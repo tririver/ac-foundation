@@ -767,7 +767,7 @@ def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> 
     assert "git+" not in install_call
 
 
-def test_launcher_surface_has_no_legacy_mcp_or_dot_local_paths() -> None:
+def test_launcher_surface_has_only_current_core_paths() -> None:
     files = [
         CORE_LAUNCHER,
         *(CORE_BIN / name for name in (*PLUGIN_BIN_TOOLS, "arc-runtime")),
@@ -779,3 +779,6 @@ def test_launcher_surface_has_no_legacy_mcp_or_dot_local_paths() -> None:
     assert ".local" not in combined
     assert "@main" not in combined
     assert "@stable" not in combined
+    assert "arc_jobs.runtime" not in combined
+    assert "ARC_MIGRATION" not in combined
+    assert "migrations=" not in combined

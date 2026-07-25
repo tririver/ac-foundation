@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 
-launcher_version="5"
+launcher_version="6"
 install_ref_override="${ARC_INSTALL_REF:-}"
 install_repo="${ARC_INSTALL_REPO:-https://github.com/tririver/arc.git}"
 install_source="${ARC_INSTALL_SOURCE:-auto}"
@@ -683,17 +683,9 @@ if [ "$management_command" = "doctor" ]; then
   printf 'llm_cache=%s\n' "${ARC_LLM_CACHE:-${ARC_HOME}/cache/arc-llm}"
   printf 'jobs=%s\n' "${ARC_JOBS_DIR:-${ARC_HOME}/jobs}"
   printf 'llm_tmp=%s\n' "${ARC_LLM_TMP_DIR:-${ARC_HOME}/tmp/arc-llm}"
-  printf 'migrations=%s\n' "${ARC_HOME}/migrations"
   printf 'venv=%s\n' "$venv_dir"
   printf 'ready_file=%s\n' "$ready_file"
   if runtime_ready; then
-    if [ -x "${venv_dir}/bin/python" ] && "${venv_dir}/bin/python" -c 'import arc_jobs.runtime' >/dev/null 2>&1; then
-      "${venv_dir}/bin/python" -m arc_jobs.runtime doctor
-    else
-      printf 'migration=unavailable\n'
-      printf 'host=unknown\n'
-      printf 'provider=manual\n'
-    fi
     printf 'status=ready\n'
     exit 0
   fi
@@ -716,21 +708,6 @@ fi
 if [ "$management_command" = "setup" ]; then
   printf 'ARC %s runtime ready: %s\n' "$selected_profile" "$runtime_dir"
   exit 0
-fi
-
-if [ -x "${venv_dir}/bin/python" ] && "${venv_dir}/bin/python" -c 'import arc_jobs.runtime' >/dev/null 2>&1; then
-  if [ "$resolved_source" = "local" ]; then
-    ARC_MIGRATION_SOURCE_ROOT="$repo_root" "${venv_dir}/bin/python" -m arc_jobs.runtime prepare >/dev/null
-  else
-    "${venv_dir}/bin/python" -m arc_jobs.runtime prepare >/dev/null
-  fi
-  if [ -z "${ARC_AGENT_HOST:-}" ]; then
-    detected_agent_host="$("${venv_dir}/bin/python" -m arc_jobs.runtime host)"
-    if [ -n "$detected_agent_host" ] && [ "$detected_agent_host" != "unknown" ]; then
-      ARC_AGENT_HOST="$detected_agent_host"
-      export ARC_AGENT_HOST
-    fi
-  fi
 fi
 
 exec "${venv_dir}/bin/${tool_name}" "$@"
