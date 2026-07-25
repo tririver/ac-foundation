@@ -25,13 +25,18 @@ from .process import ProcessRunner
 class EventAccumulator:
     provider: str
     observer: ProviderObserver
-    parse_event: Callable[[Mapping[str, Any]], tuple[CandidateMaterial | None, str | None, ProviderUsage | None]]
+    parse_event: Callable[
+        [Mapping[str, Any]],
+        tuple[CandidateMaterial | None, str | None, ProviderUsage | None],
+    ]
+    extract_failure: Callable[[Mapping[str, Any]], ProviderFailure | None] | None = None
 
     def __post_init__(self) -> None:
         self.buffer = b""
         self.candidates: list[CandidateMaterial] = []
         self.handle: NativeResumeHandle | None = None
         self.usage: ProviderUsage | None = None
+        self.failure: ProviderFailure | None = None
         self.raw_events: list[Mapping[str, Any] | str] = []
         self.raw_bytes = 0
         self.raw_truncated = False
@@ -46,7 +51,7 @@ class EventAccumulator:
         if self.buffer.strip():
             self._line(self.buffer)
         self.buffer = b""
-        if not validate_terminal:
+        if not validate_terminal or self.failure is not None:
             return
         terminal = [item for item in self.candidates if item.terminal]
         if len(terminal) > 1:
@@ -81,6 +86,8 @@ class EventAccumulator:
             self._record_raw({"kind": "value"})
             return
         self._record_raw(event)
+        if self.failure is None and self.extract_failure is not None:
+            self.failure = self.extract_failure(event)
         candidate, handle, usage = self.parse_event(event)
         if handle is not None and (self.handle is None or self.handle.value != handle):
             self.handle = NativeResumeHandle(self.provider, handle)
@@ -115,12 +122,23 @@ def run_cli(
     observer: ProviderObserver,
     stop: Any,
     timeout: float,
-    parse_event: Callable[[Mapping[str, Any]], tuple[CandidateMaterial | None, str | None, ProviderUsage | None]],
+    parse_event: Callable[
+        [Mapping[str, Any]],
+        tuple[CandidateMaterial | None, str | None, ProviderUsage | None],
+    ],
     runner: ProcessRunner,
     env: Mapping[str, str] | None,
     validate_terminal: bool = True,
+    extract_failure: (
+        Callable[[Mapping[str, Any]], ProviderFailure | None] | None
+    ) = None,
 ) -> ProviderExecution:
-    accumulator = EventAccumulator(provider, observer, parse_event)
+    accumulator = EventAccumulator(
+        provider,
+        observer,
+        parse_event,
+        extract_failure=extract_failure,
+    )
     result = runner.run(
         argv,
         stdin=prompt.encode("utf-8"),
@@ -130,12 +148,27 @@ def run_cli(
         stop_check=stop.raise_if_requested,
         on_stdout=accumulator.feed,
     )
-    # A process exit failure is authoritative. Still consume a final
-    # non-newline event for diagnostics, but terminal-shape validation must
-    # not replace the typed nonzero-exit failure.
+    # Still consume a final non-newline event for diagnostics, but terminal
+    # shape validation must not replace a typed provider failure.
     accumulator.finish(
-        validate_terminal=validate_terminal and result.returncode == 0
+        validate_terminal=(
+            validate_terminal
+            and result.returncode == 0
+            and accumulator.failure is None
+        )
     )
+    if accumulator.failure is not None:
+        return ProviderExecution(
+            ProviderTerminalKind.FAILED,
+            candidates=tuple(accumulator.candidates),
+            native_handle=accumulator.handle,
+            usage=accumulator.usage,
+            failure=accumulator.failure,
+            diagnostics={
+                "returncode": result.returncode,
+                **accumulator.diagnostics(),
+            },
+        )
     if result.returncode != 0:
         failure = classify_cli_failure(result.stderr.decode("utf-8", "replace"))
         return ProviderExecution(

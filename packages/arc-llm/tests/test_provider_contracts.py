@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import json
 import sys
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from arc_llm import (
     FailureCategory,
     JsonOutput,
     LLMClient,
+    LLMFailed,
     LLMExecutionOptions,
     LLMPaused,
     LLMRequest,
@@ -215,6 +217,92 @@ def test_provider_schema_is_transported_by_each_adapter() -> None:
         Stop(),
     )
     assert "JSON Schema" in kimi_runner.calls[0]["prompt"]
+
+
+def test_codex_projects_native_schema_without_relaxing_local_contract() -> None:
+    schema = {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+            "items": {
+                "type": "array",
+                "uniqueItems": True,
+                "items": {
+                    "type": "object",
+                    "required": ["kind"],
+                    "properties": {"kind": {"const": "guide"}},
+                },
+            },
+            # A user property can itself be named ``uniqueItems``.  Only the
+            # schema keyword, not property names, is removed for Codex.
+            "uniqueItems": {"const": "property-value"},
+        },
+    }
+    original = deepcopy(schema)
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n',
+        last_message=(
+            b'{"items":[{"kind":"guide"},{"kind":"guide"}]}'
+        ),
+    )
+
+    result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", schema, {}, 2),
+        Observer(),
+        Stop(),
+    )
+
+    assert schema == original
+    native_schema = runner.output_schemas[0]
+    assert "uniqueItems" not in native_schema["properties"]["items"]
+    assert native_schema["properties"]["items"]["items"]["properties"][
+        "kind"
+    ]["type"] == "string"
+    assert native_schema["properties"]["uniqueItems"]["type"] == "string"
+    with pytest.raises(OutputInvalidError):
+        select_output(result.candidates, JsonOutput(schema))
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    (
+        b'{"type":"error","error":{"code":"invalid_json_schema",'
+        b'"message":"Unsupported schema. Authorization: Bearer secret-token",'
+        b'"param":"response_format.json_schema"}}\n',
+        b'{"type":"turn.failed","error":{"type":"invalid_json_schema",'
+        b'"message":"Unsupported schema. Authorization: Bearer secret-token",'
+        b'"field":"response_format.json_schema"}}\n',
+    ),
+)
+def test_codex_stdout_invalid_schema_failure_is_terminal_not_recovery(
+    tmp_path: Path, stdout: bytes
+) -> None:
+    runner = FakeRunner(
+        stdout,
+        returncode=1,
+    )
+    adapter = CodexAdapter(binary=sys.executable, runner=runner, env={})
+    registry = ProviderRegistry()
+    registry.register("codex", lambda: adapter)
+    request = LLMRequest(
+        "codex-invalid-json-schema",
+        "prompt",
+        JsonOutput({"type": "object"}),
+        ModelSelection("codex"),
+    )
+
+    result = LLMClient(registry=registry).generate(request, run_root=tmp_path)
+
+    assert isinstance(result.outcome, LLMFailed)
+    error = result.outcome.error
+    assert isinstance(error, ProviderFailure)
+    assert error.category is FailureCategory.INVALID_REQUEST
+    assert error.delivery is DeliveryState.NOT_DELIVERED
+    assert not error.retryable
+    assert error.details["provider_code"] == "invalid_json_schema"
+    assert error.details["param"] == "response_format.json_schema"
+    assert "secret-token" not in error.details["diagnostic"]
+    assert len(runner.calls) == 1
 
 
 def test_kimi_acp_client_denies_reverse_permission_and_filesystem_requests() -> None:
