@@ -247,7 +247,7 @@ def _interactive_schema(contract: InteractiveJsonOutput) -> dict[str, Any]:
                 "type": "object",
                 "properties": {
                     "request_id": {"type": "string"},
-                    "operation": {"const": operation},
+                    "operation": {"type": "string", "const": operation},
                     "arguments": dict(operation_contract.arguments_schema),
                 },
                 "required": ["request_id", "operation", "arguments"],
@@ -260,8 +260,11 @@ def _interactive_schema(contract: InteractiveJsonOutput) -> dict[str, Any]:
             {
                 "type": "object",
                 "properties": {
-                    "schema_version": {"const": "arc.llm.interactive_turn.v1"},
-                    "state": {"const": "complete"},
+                    "schema_version": {
+                        "type": "string",
+                        "const": "arc.llm.interactive_turn.v1",
+                    },
+                    "state": {"type": "string", "const": "complete"},
                     "result": dict(contract.result_schema),
                     "requests": {"type": "array", "maxItems": 0},
                 },
@@ -271,8 +274,11 @@ def _interactive_schema(contract: InteractiveJsonOutput) -> dict[str, Any]:
             {
                 "type": "object",
                 "properties": {
-                    "schema_version": {"const": "arc.llm.interactive_turn.v1"},
-                    "state": {"const": "interact"},
+                    "schema_version": {
+                        "type": "string",
+                        "const": "arc.llm.interactive_turn.v1",
+                    },
+                    "state": {"type": "string", "const": "interact"},
                     "result": {"type": "null"},
                     "requests": {
                         "type": "array",

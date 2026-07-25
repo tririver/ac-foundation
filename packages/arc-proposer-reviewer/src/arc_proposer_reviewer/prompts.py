@@ -108,8 +108,11 @@ def reviewer_envelope_schema(
         "additionalProperties": False,
         "required": ["schema_version", "action", "reason", "feedback", "payload"],
         "properties": {
-            "schema_version": {"const": "arc.proposer_reviewer.review.v1"},
-            "action": {"enum": ["continue", "stop"]},
+            "schema_version": {
+                "type": "string",
+                "const": "arc.proposer_reviewer.review.v1",
+            },
+            "action": {"type": "string", "enum": ["continue", "stop"]},
             "reason": {"type": "string", "minLength": 1},
             "feedback": {
                 "type": "object",

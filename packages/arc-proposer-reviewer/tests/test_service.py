@@ -297,6 +297,9 @@ def test_interactive_worker_contracts_reach_proposer_and_reviewer(
         payload_schema=REVIEW_PAYLOAD_SCHEMA,
         active_proposer_ids=("loop-a-p",),
     )
+    envelope_properties = reviewer_output.result_schema["properties"]
+    assert envelope_properties["schema_version"]["type"] == "string"
+    assert envelope_properties["action"]["type"] == "string"
     assert reviewer_output.operations == {"lookup": LOOKUP_OPERATION}
     assert reviewer_output.max_interaction_turns == 3
     assert [request.operation for request in resolver.requests] == ["lookup", "lookup"]
