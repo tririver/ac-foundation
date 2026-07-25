@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from arc_jobs import (
+    EventWriter,
     ImmutableArtifactStore,
     RunContext,
     RunEngine,
@@ -17,6 +18,7 @@ from arc_jobs import (
 from arc_llm import (
     CapabilityPolicy,
     InteractiveJsonOutput,
+    InteractionProgress,
     InteractionRequest,
     InteractionResponse,
     InvalidRequestError,
@@ -88,7 +90,16 @@ class FakeLLM:
                 {"code": "provider_unavailable"},
             )
         if "FAIL" in request.prompt:
-            return LLMFailed(InvalidRequestError("deliberate fake failure"))
+            return LLMFailed(
+                InvalidRequestError(
+                    "deliberate fake failure",
+                    details=(
+                        {"fake_marker": "kept"}
+                        if "FAIL_DETAILS" in request.prompt
+                        else None
+                    ),
+                )
+            )
         return _completed(request)
 
     def resume(self, context, task_id, *, input, options):
@@ -198,6 +209,13 @@ def _result(repository: RunRepository, snapshot):
     return decode_batch_result(json.loads(content))
 
 
+def context_events(repository: RunRepository, run_id: str):
+    return EventWriter(
+        repository.run_directory(run_id) / "events.jsonl",
+        run_id=run_id,
+    ).tail()
+
+
 def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
     tmp_path: Path,
 ) -> None:
@@ -218,6 +236,72 @@ def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
     )
     assert replayed == snapshot
     assert len(fake.calls) == 2
+
+
+def test_progress_callback_and_durable_events_are_body_free(
+    tmp_path: Path,
+) -> None:
+    class ObservedFake(FakeLLM):
+        def execute(self, context, request, *, options):
+            if options.interaction_observer is not None:
+                options.interaction_observer(
+                    InteractionProgress(
+                        "requested",
+                        7,
+                        ("lookup",),
+                        1,
+                        0,
+                    )
+                )
+            return super().execute(context, request, options=options)
+
+    observed: list[Mapping[str, object]] = []
+    fake = ObservedFake()
+    repository, _handler, snapshot = _run(
+        tmp_path,
+        _request(_loop()),
+        fake,
+        options=ExecutionOptions(progress_callback=observed.append),
+    )
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    callback_events = [item["event"] for item in observed]
+    assert callback_events == [
+        "proposer_reviewer_loop_started",
+        "proposer_reviewer_round_started",
+        "proposer_reviewer_worker_started",
+        "proposer_reviewer_worker_interaction",
+        "proposer_reviewer_worker_finished",
+        "proposer_reviewer_worker_started",
+        "proposer_reviewer_worker_interaction",
+        "proposer_reviewer_worker_finished",
+        "proposer_reviewer_round_committed",
+        "proposer_reviewer_loop_finished",
+    ]
+    rendered = json.dumps(observed)
+    assert "task_id" not in rendered
+    assert "session" not in rendered
+    assert str(tmp_path) not in rendered
+    durable = [
+        event["event"]
+        for event in context_events(repository, "run-a")
+        if str(event["event"]).startswith("proposer_reviewer_")
+    ]
+    assert durable == callback_events
+
+
+def test_progress_callback_failure_does_not_fail_execution(tmp_path: Path) -> None:
+    def fail_callback(_event) -> None:
+        raise RuntimeError("terminal closed")
+
+    _repository, _handler, snapshot = _run(
+        tmp_path,
+        _request(_loop()),
+        FakeLLM(),
+        options=ExecutionOptions(progress_callback=fail_callback),
+    )
+
+    assert snapshot.status is RunStatus.SUCCEEDED
 
 
 def test_interactive_worker_contracts_reach_proposer_and_reviewer(
@@ -260,14 +344,12 @@ def test_interactive_worker_contracts_reach_proposer_and_reviewer(
         "Produce a proposal.",
         PROPOSAL_SCHEMA,
         interaction_operations={"lookup": LOOKUP_OPERATION},
-        max_interaction_turns=2,
     )
     reviewer = WorkerSpec(
         "loop-a-r",
         "Review all proposals.",
         REVIEW_PAYLOAD_SCHEMA,
         interaction_operations={"lookup": LOOKUP_OPERATION},
-        max_interaction_turns=3,
     )
     loop = LoopSpec(
         loop_id="loop-a",
@@ -291,7 +373,6 @@ def test_interactive_worker_contracts_reach_proposer_and_reviewer(
     assert isinstance(proposer_output, InteractiveJsonOutput)
     assert proposer_output.result_schema == PROPOSAL_SCHEMA
     assert proposer_output.operations == {"lookup": LOOKUP_OPERATION}
-    assert proposer_output.max_interaction_turns == 2
     assert isinstance(reviewer_output, InteractiveJsonOutput)
     assert reviewer_output.result_schema == reviewer_envelope_schema(
         payload_schema=REVIEW_PAYLOAD_SCHEMA,
@@ -301,7 +382,6 @@ def test_interactive_worker_contracts_reach_proposer_and_reviewer(
     assert envelope_properties["schema_version"]["type"] == "string"
     assert envelope_properties["action"]["type"] == "string"
     assert reviewer_output.operations == {"lookup": LOOKUP_OPERATION}
-    assert reviewer_output.max_interaction_turns == 3
     assert [request.operation for request in resolver.requests] == ["lookup", "lookup"]
 
 
@@ -414,6 +494,28 @@ def test_all_proposers_failed_produces_failed_loop_not_fabricated_output(
     assert result.error is not None
     assert result.error.code == "all_proposers_failed"
     assert len(fake.calls) == 2
+
+
+def test_failed_loop_preserves_typed_worker_error_as_private_cause(
+    tmp_path: Path,
+) -> None:
+    fake = FakeLLM()
+    loop = _loop(proposers=(_worker("bad", "FAIL_DETAILS"),))
+
+    repository, _handler, snapshot = _run(tmp_path, _request(loop), fake)
+    error = _result(repository, snapshot).loops[0].error
+
+    assert error is not None
+    assert error.code == "proposer_failed"
+    assert error.message == "one or more proposers failed"
+    assert error.details["causes"] == [
+        {
+            "worker_id": "bad",
+            "code": "invalid_request",
+            "message": "deliberate fake failure",
+            "details": {"fake_marker": "kept"},
+        }
+    ]
 
 
 def test_batch_fail_fast_preserves_request_order_and_marks_unstarted_loop(

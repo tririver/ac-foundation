@@ -13,6 +13,7 @@ from typing import Literal, Mapping, cast
 from arc_jobs import (
     ArcJobsError,
     AtomicStateStore,
+    EventWriter,
     GroupUnitView,
     GroupView,
     ImmutableArtifactStore,
@@ -28,11 +29,17 @@ from .artifacts import (
 )
 from .dialogue import TranscriptTurn, decode_transcript_turn
 from .handler import ProposerReviewerHandler
-from .models import BatchRequest, LoopSpec, LoopTermination
+from .models import (
+    BatchFailurePolicy,
+    BatchRequest,
+    LoopSpec,
+    LoopTermination,
+)
 from .protocol import decode_batch_request
 from .state import (
     _LoopState,
     _LoopStateContract,
+    _PauseRecord,
     batch_group_id,
     proposer_group_id,
     state_namespace,
@@ -64,11 +71,47 @@ class SafeArtifactRef:
 
 
 @dataclass(frozen=True)
-class PauseSummary:
-    worker_count: int
-    roles: tuple[str, ...]
-    rounds: tuple[int, ...]
+class PauseEntry:
+    worker_id: str
+    role: Literal["proposer", "reviewer"]
+    round_number: int
+    reason: str
+    code: str | None
     input_required: bool
+    resume_key: str
+    response_contract: str | None
+    request_ref: SafeArtifactRef | None
+    resume_action: Literal["resume", "provide_input"]
+
+
+@dataclass(frozen=True)
+class PauseSummary:
+    entries: tuple[PauseEntry, ...]
+    input_required: bool
+
+
+@dataclass(frozen=True)
+class ActiveWorkerSummary:
+    worker_id: str
+    role: Literal["proposer", "reviewer"]
+    round_number: int
+    interaction_round: int | None
+    last_operation_names: tuple[str, ...]
+    last_activity_at: str
+
+
+@dataclass(frozen=True)
+class WorkerFailureCause:
+    worker_id: str
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class FailureSummary:
+    code: str
+    message: str
+    worker_causes: tuple[WorkerFailureCause, ...]
 
 
 @dataclass(frozen=True)
@@ -92,14 +135,18 @@ class LoopInspection:
     revision: int | None
     pause: PauseSummary | None
     activity: BestEffortActivity
+    active_workers: tuple[ActiveWorkerSummary, ...] = ()
+    last_activity_at: str | None = None
+    failure: FailureSummary | None = None
     integrity_error: str | None = None
 
 
 @dataclass(frozen=True)
 class BatchInspection:
     run_id: str
-    run_lifecycle: str
+    durable_lifecycle: str
     run_revision: int
+    lifecycle_counts: Mapping[str, int]
     loop_revisions: Mapping[str, int | None]
     loops: tuple[LoopInspection, ...]
     activity_integrity_error: str | None = None
@@ -155,6 +202,12 @@ class _LoopData:
     proposer_group: GroupView | None = None
 
 
+@dataclass(frozen=True)
+class _RuntimeActivity:
+    active_workers: tuple[ActiveWorkerSummary, ...] = ()
+    last_activity_at: str | None = None
+
+
 class BatchProjection:
     """One non-persistent read projection over a batch's durable frontier."""
 
@@ -170,6 +223,10 @@ class BatchProjection:
             repository.run_directory(run_id), repository_root=repository.root
         ).scoped("proposer-reviewer")
         self.batch_group, self.batch_group_error = self._read_batch_group()
+        (
+            self.runtime_activity,
+            self.runtime_activity_error,
+        ) = self._read_runtime_activity()
         batch_units = _group_units(self.batch_group)
         self._loop_data: dict[str, _LoopData] = {}
         for loop in self.request.loops:
@@ -182,6 +239,7 @@ class BatchProjection:
                     batch_units.get(loop.loop_id) is None
                     or batch_units[loop.loop_id].status != "failed"
                 )
+                and not self._is_fail_fast_skipped(loop.loop_id, batch_units)
             )
             self._loop_data[loop.loop_id] = _LoopData(
                 state=data.state,
@@ -210,14 +268,159 @@ class BatchProjection:
             self._inspect_loop(loop, loop_units.get(loop.loop_id))
             for loop in self.request.loops
         )
+        lifecycle_counts = {
+            lifecycle: 0
+            for lifecycle in (
+                "pending",
+                "running",
+                "paused",
+                "succeeded",
+                "failed",
+                "integrity_error",
+            )
+        }
+        for inspection in inspections:
+            lifecycle_counts[inspection.lifecycle] += 1
         return BatchInspection(
             run_id=self.run_view.snapshot.run_id,
-            run_lifecycle=self.run_view.snapshot.status.value,
+            durable_lifecycle=self.run_view.snapshot.status.value,
             run_revision=self.run_view.snapshot.revision,
+            lifecycle_counts=lifecycle_counts,
             loop_revisions=loop_revisions,
             loops=inspections,
-            activity_integrity_error=self.batch_group_error,
+            activity_integrity_error=(
+                self.batch_group_error or self.runtime_activity_error
+            ),
         )
+
+    def _read_runtime_activity(
+        self,
+    ) -> tuple[Mapping[str, _RuntimeActivity], str | None]:
+        try:
+            writer = EventWriter(
+                self.repository.run_directory(self.run_id) / "events.jsonl",
+                run_id=self.run_id,
+            )
+            writer.validate()
+            events = writer.tail()
+        except (ArcJobsError, ValueError):
+            return {}, "runtime_activity_integrity_error"
+        except OSError:
+            return {}, "runtime_activity_unavailable"
+        source_error = (
+            "runtime_activity_history_truncated"
+            if events
+            and type(events[0].get("sequence")) is int
+            and events[0]["sequence"] != 1
+            else None
+        )
+        active: dict[str, dict[tuple[str, str], ActiveWorkerSummary]] = {}
+        last_activity: dict[str, str] = {}
+        for document in events:
+            event = document.get("event")
+            data = document.get("data")
+            emitted_at = document.get("emitted_at")
+            if (
+                not isinstance(event, str)
+                or not event.startswith("proposer_reviewer_")
+                or not isinstance(data, Mapping)
+                or not isinstance(emitted_at, str)
+            ):
+                continue
+            loop_id = data.get("loop_id")
+            if not isinstance(loop_id, str):
+                continue
+            last_activity[loop_id] = emitted_at
+            workers = active.setdefault(loop_id, {})
+            if event in {
+                "proposer_reviewer_loop_started",
+                "proposer_reviewer_loop_finished",
+            }:
+                workers.clear()
+                continue
+            worker_id = data.get("worker_id")
+            role = data.get("role")
+            round_number = data.get("round")
+            if (
+                not isinstance(worker_id, str)
+                or role not in {"proposer", "reviewer"}
+                or type(round_number) is not int
+            ):
+                continue
+            key = (role, worker_id)
+            if event == "proposer_reviewer_worker_finished":
+                workers.pop(key, None)
+                continue
+            if event not in {
+                "proposer_reviewer_worker_started",
+                "proposer_reviewer_worker_interaction",
+            }:
+                continue
+            interaction_round = data.get("interaction_round")
+            operation_names = data.get("operation_names", [])
+            previous = workers.get(key)
+            workers[key] = ActiveWorkerSummary(
+                worker_id=worker_id,
+                role=role,
+                round_number=round_number,
+                interaction_round=(
+                    interaction_round
+                    if type(interaction_round) is int
+                    else (
+                        None
+                        if previous is None
+                        else previous.interaction_round
+                    )
+                ),
+                last_operation_names=(
+                    tuple(
+                        name
+                        for name in operation_names
+                        if isinstance(name, str)
+                    )
+                    if isinstance(operation_names, list)
+                    else (
+                        ()
+                        if previous is None
+                        else previous.last_operation_names
+                    )
+                ),
+                last_activity_at=emitted_at,
+            )
+        return (
+            {
+                loop_id: _RuntimeActivity(
+                    active_workers=tuple(
+                        sorted(
+                            workers.values(),
+                            key=lambda value: (
+                                value.round_number,
+                                value.role,
+                                value.worker_id,
+                            ),
+                        )
+                    ),
+                    last_activity_at=last_activity.get(loop_id),
+                )
+                for loop_id, workers in active.items()
+            },
+            source_error,
+        )
+
+    def _is_fail_fast_skipped(
+        self,
+        loop_id: str,
+        batch_units: Mapping[str, GroupUnitView],
+    ) -> bool:
+        if self.request.failure_policy is not BatchFailurePolicy.FAIL_FAST:
+            return False
+        for loop in self.request.loops:
+            if loop.loop_id == loop_id:
+                return False
+            unit = batch_units.get(loop.loop_id)
+            if unit is not None and unit.status == "failed":
+                return True
+        return False
 
     def trace(self) -> BatchTrace:
         if self.batch_group_error is not None:
@@ -460,6 +663,7 @@ class BatchProjection:
         self, loop: LoopSpec, batch_unit: GroupUnitView | None
     ) -> LoopInspection:
         data = self._loop_data[loop.loop_id]
+        runtime = self.runtime_activity.get(loop.loop_id, _RuntimeActivity())
         if data.integrity_error is not None:
             state = data.state
             return LoopInspection(
@@ -471,15 +675,24 @@ class BatchProjection:
                 revision=None if state is None else state.revision,
                 pause=_pause_summary(state),
                 activity=_activity(batch_unit, data.proposer_group),
+                active_workers=runtime.active_workers,
+                last_activity_at=runtime.last_activity_at,
+                failure=_failure_summary(batch_unit),
                 integrity_error=data.integrity_error,
             )
         state = data.state
         activity = _activity(batch_unit, data.proposer_group)
+        batch_units = _group_units(self.batch_group)
+        fail_fast_skipped = self._is_fail_fast_skipped(
+            loop.loop_id, batch_units
+        )
         lifecycle = _lifecycle(
             self.run_view.snapshot.status,
             state,
             batch_unit,
         )
+        if fail_fast_skipped:
+            lifecycle = "failed"
         pause = _pause_summary(state)
         phase = _phase(state, data.proposer_group)
         return LoopInspection(
@@ -491,6 +704,17 @@ class BatchProjection:
             revision=None if state is None else state.revision,
             pause=pause,
             activity=activity,
+            active_workers=runtime.active_workers,
+            last_activity_at=runtime.last_activity_at,
+            failure=(
+                FailureSummary(
+                    "fail_fast_skipped",
+                    "loop was not started after an earlier loop failed",
+                    (),
+                )
+                if fail_fast_skipped
+                else _failure_summary(batch_unit)
+            ),
         )
 
     def _read_proposer_group(
@@ -614,13 +838,80 @@ def _current_round(state: _LoopState | None) -> int | None:
 def _pause_summary(state: _LoopState | None) -> PauseSummary | None:
     if state is None or not state.pauses:
         return None
-    records = tuple(state.pauses.values())
+    records = tuple(
+        sorted(
+            state.pauses.values(),
+            key=lambda record: (
+                record.round_number,
+                record.role,
+                record.worker_id,
+            ),
+        )
+    )
     return PauseSummary(
-        worker_count=len(records),
-        roles=tuple(sorted({record.role for record in records})),
-        rounds=tuple(sorted({record.round_number for record in records})),
+        entries=tuple(
+            PauseEntry(
+                worker_id=record.worker_id,
+                role=cast(Literal["proposer", "reviewer"], record.role),
+                round_number=record.round_number,
+                reason=record.awaiting.reason.value,
+                code=_pause_code(record),
+                input_required=record.awaiting.input_required,
+                resume_key=record.awaiting.resume_key,
+                response_contract=record.awaiting.response_contract,
+                request_ref=(
+                    None
+                    if record.awaiting.request_ref is None
+                    else _safe_ref(record.awaiting.request_ref)
+                ),
+                resume_action=(
+                    "provide_input"
+                    if record.awaiting.input_required
+                    else "resume"
+                ),
+            )
+            for record in records
+        ),
         input_required=any(record.awaiting.input_required for record in records),
     )
+
+
+def _pause_code(record: _PauseRecord) -> str | None:
+    awaiting = record.awaiting
+    for key in ("llm_code", "code"):
+        code = awaiting.details.get(key)
+        if isinstance(code, str) and code:
+            return code
+    return None
+
+
+def _failure_summary(batch_unit: GroupUnitView | None) -> FailureSummary | None:
+    if batch_unit is None or batch_unit.error is None:
+        return None
+    error = batch_unit.error
+    causes: list[WorkerFailureCause] = []
+    raw_causes = error.details.get("causes")
+    if isinstance(raw_causes, list):
+        for raw_cause in raw_causes:
+            if not isinstance(raw_cause, Mapping):
+                continue
+            worker_id = raw_cause.get("worker_id")
+            code = raw_cause.get("code")
+            if not isinstance(worker_id, str) or not isinstance(code, str):
+                continue
+            causes.append(
+                WorkerFailureCause(
+                    worker_id=worker_id,
+                    code=code,
+                    message="worker execution failed",
+                )
+            )
+    message = (
+        "loop execution failed"
+        if error.code == "worker_unhandled_exception"
+        else error.message.splitlines()[0][:300]
+    )
+    return FailureSummary(error.code, message, tuple(causes))
 
 
 def _integrity_code(scope: str, exc: Exception) -> str:

@@ -8,10 +8,12 @@ import pytest
 from arc_jobs import (
     AtomicStateStore,
     Awaiting,
+    EventWriter,
     FailureMode,
     ImmutableArtifactStore,
     ResumeReason,
     RunContext,
+    RunError,
     RunRepository,
     RunSpec,
     RunStatus,
@@ -27,6 +29,7 @@ from arc_proposer_reviewer.dialogue import TranscriptTurn, encode_transcript_tur
 from arc_proposer_reviewer.handler import ProposerReviewerHandler
 from arc_proposer_reviewer.models import (
     BATCH_SCHEMA_VERSION,
+    BatchFailurePolicy,
     BatchRequest,
     LoopSpec,
     WorkerSpec,
@@ -181,7 +184,7 @@ def test_running_batch_with_no_loop_state_has_empty_trace(tmp_path: Path) -> Non
 
     inspection = inspect_batch(repository, "run-a")
 
-    assert inspection.run_lifecycle == "running"
+    assert inspection.durable_lifecycle == "running"
     assert inspection.loop_revisions == {loop.loop_id: None}
     assert inspection.loops[0].lifecycle == "pending"
     assert inspection.loops[0].phase == "not_started"
@@ -264,12 +267,20 @@ def test_paused_loop_uses_safe_pause_summary(tmp_path: Path) -> None:
     assert loop_inspection.lifecycle == "paused"
     assert loop_inspection.phase == "paused"
     assert loop_inspection.pause is not None
-    assert loop_inspection.pause.worker_count == 1
-    assert loop_inspection.pause.roles == ("proposer",)
-    assert loop_inspection.pause.rounds == (1,)
+    assert len(loop_inspection.pause.entries) == 1
+    pause_entry = loop_inspection.pause.entries[0]
+    assert pause_entry.worker_id == "proposer-a"
+    assert pause_entry.role == "proposer"
+    assert pause_entry.round_number == 1
+    assert pause_entry.reason == "interaction_required"
+    assert pause_entry.code is None
+    assert pause_entry.resume_key == "private-resume-key"
+    assert pause_entry.response_contract == "projection-test-input.v1"
+    assert pause_entry.request_ref is not None
+    assert not hasattr(pause_entry.request_ref, "relative_path")
+    assert pause_entry.resume_action == "provide_input"
     assert "private-task-id" not in repr(loop_inspection)
-    assert "private-resume-key" not in repr(loop_inspection)
-    assert "private" not in repr(loop_inspection)
+    assert "detail" not in repr(loop_inspection)
 
 
 def test_failed_group_unit_controls_loop_lifecycle(tmp_path: Path) -> None:
@@ -286,6 +297,19 @@ def test_failed_group_unit_controls_loop_lifecycle(tmp_path: Path) -> None:
         lambda unit: UnitResult(
             unit.unit_id,
             "failed",
+            error=RunError(
+                "proposer_failed",
+                "one or more proposers failed",
+                {
+                    "causes": [
+                        {
+                            "worker_id": "proposer-a",
+                            "code": "invalid_request",
+                            "message": "/private/provider/path",
+                        }
+                    ]
+                },
+            ),
         ),
         max_workers=1,
         failure_mode=FailureMode.COLLECT,
@@ -295,6 +319,200 @@ def test_failed_group_unit_controls_loop_lifecycle(tmp_path: Path) -> None:
 
     assert loop_inspection.lifecycle == "failed"
     assert loop_inspection.activity.loop_group_status == "failed"
+    assert loop_inspection.failure is not None
+    assert loop_inspection.failure.code == "proposer_failed"
+    assert loop_inspection.failure.worker_causes[0].code == "invalid_request"
+    assert "/private/provider/path" not in repr(loop_inspection)
+
+
+def test_fail_fast_skipped_loop_projects_as_failed_not_integrity_error(
+    tmp_path: Path,
+) -> None:
+    first = _request().loops[0]
+    second = replace(
+        first,
+        loop_id="loop-b",
+        proposers=(WorkerSpec("proposer-b", "Propose.", SCHEMA),),
+        reviewer=WorkerSpec("reviewer-b", "Review.", SCHEMA),
+    )
+    request = BatchRequest(
+        BATCH_SCHEMA_VERSION,
+        "fail-fast-projection",
+        (first, second),
+        BatchFailurePolicy.FAIL_FAST,
+    )
+    repository = RunRepository(tmp_path)
+    pending = repository.create(
+        RunSpec(
+            "run-a",
+            ProposerReviewerHandler.name,
+            encode_batch_request(request),
+        )
+    )
+    running = repository._snapshot_store("run-a").compare_and_swap(  # type: ignore[attr-defined]
+        pending.revision,
+        replace(
+            pending,
+            revision=pending.revision + 1,
+            status=RunStatus.RUNNING,
+            attempt=1,
+        ),
+    )
+    context = RunContext(
+        repository,
+        running,
+        resume_input=None,
+        execution_slice=None,
+    )
+    context.run_group(
+        batch_group_id(),
+        (
+            WorkUnit(first.loop_id, {"loop": first.loop_id}),
+            WorkUnit(second.loop_id, {"loop": second.loop_id}),
+        ),
+        lambda unit: UnitResult(
+            unit.unit_id,
+            "failed",
+            error=RunError("proposer_failed", "proposer failed"),
+        ),
+        max_workers=1,
+        failure_mode=FailureMode.FAIL_FAST,
+    )
+    repository._snapshot_store("run-a").compare_and_swap(  # type: ignore[attr-defined]
+        running.revision,
+        replace(
+            running,
+            revision=running.revision + 1,
+            status=RunStatus.SUCCEEDED,
+        ),
+    )
+
+    inspection = inspect_batch(repository, "run-a")
+
+    assert [loop.lifecycle for loop in inspection.loops] == ["failed", "failed"]
+    assert inspection.loops[1].integrity_error is None
+    assert inspection.loops[1].failure is not None
+    assert inspection.loops[1].failure.code == "fail_fast_skipped"
+
+
+def test_inspection_projects_active_worker_interaction_without_private_ids(
+    tmp_path: Path,
+) -> None:
+    repository, _snapshot, _loop = _running_repository(tmp_path)
+    events = EventWriter(
+        repository.run_directory("run-a") / "events.jsonl",
+        run_id="run-a",
+    )
+    events.emit(
+        "proposer_reviewer_loop_started",
+        {"loop_id": "loop-a"},
+    )
+    events.emit(
+        "proposer_reviewer_worker_started",
+        {
+            "loop_id": "loop-a",
+            "round": 1,
+            "role": "proposer",
+            "worker_id": "proposer-a",
+        },
+    )
+    events.emit(
+        "proposer_reviewer_worker_interaction",
+        {
+            "loop_id": "loop-a",
+            "round": 1,
+            "role": "proposer",
+            "worker_id": "proposer-a",
+            "interaction_round": 9,
+            "interaction_stage": "requested",
+            "operation_names": ["search", "read"],
+            "request_count": 2,
+            "error_count": 0,
+        },
+    )
+
+    inspection = inspect_batch(repository, "run-a")
+    active = inspection.loops[0].active_workers
+
+    assert inspection.durable_lifecycle == "running"
+    assert inspection.lifecycle_counts == {
+        "pending": 1,
+        "running": 0,
+        "paused": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "integrity_error": 0,
+    }
+    assert len(active) == 1
+    assert active[0].worker_id == "proposer-a"
+    assert active[0].interaction_round == 9
+    assert active[0].last_operation_names == ("search", "read")
+    assert inspection.loops[0].last_activity_at is not None
+
+    events.emit(
+        "proposer_reviewer_worker_finished",
+        {
+            "loop_id": "loop-a",
+            "round": 1,
+            "role": "proposer",
+            "worker_id": "proposer-a",
+            "status": "succeeded",
+        },
+    )
+    assert inspect_batch(repository, "run-a").loops[0].active_workers == ()
+
+
+def test_inspection_marks_truncated_runtime_activity_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, _snapshot, _loop = _running_repository(tmp_path)
+
+    class TruncatedEvents:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def validate(self) -> None:
+            pass
+
+        def tail(self):
+            return (
+                {
+                    "sequence": 9,
+                    "event": "proposer_reviewer_loop_started",
+                    "emitted_at": "2026-07-25T00:00:00Z",
+                    "data": {"loop_id": "loop-a"},
+                },
+            )
+
+    monkeypatch.setattr(
+        "arc_proposer_reviewer.projection.EventWriter",
+        TruncatedEvents,
+    )
+
+    inspection = inspect_batch(repository, "run-a")
+
+    assert (
+        inspection.activity_integrity_error
+        == "runtime_activity_history_truncated"
+    )
+
+
+def test_inspection_distinguishes_malformed_runtime_activity_log(
+    tmp_path: Path,
+) -> None:
+    repository, _snapshot, _loop = _running_repository(tmp_path)
+    events_path = repository.run_directory("run-a") / "events.jsonl"
+    with events_path.open("ab") as handle:
+        handle.write(b'{"malformed":"closed-record"}\n')
+
+    inspection = inspect_batch(repository, "run-a")
+
+    assert (
+        inspection.activity_integrity_error
+        == "runtime_activity_integrity_error"
+    )
+    assert inspection.loops[0].active_workers == ()
 
 
 def test_succeeded_batch_without_loop_state_is_an_integrity_error(tmp_path: Path) -> None:

@@ -91,14 +91,10 @@ def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
     proposer = replace(
         loop.proposers[0],
         interaction_operations={"lookup": LOOKUP_OPERATION},
-        # The arc-llm contract counts automatic resolved interaction turns;
-        # two means turns one and two are automatic and a third pauses.
-        max_interaction_turns=2,
     )
     reviewer = replace(
         loop.reviewer,
         interaction_operations={"lookup": LOOKUP_OPERATION},
-        max_interaction_turns=3,
     )
     configured = BatchRequest(
         schema_version=original.schema_version,
@@ -126,7 +122,6 @@ def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
         "model",
         "capabilities",
         "interaction_operations",
-        "max_interaction_turns",
     }
     assert proposer_document["interaction_operations"] == {  # type: ignore[index]
         "lookup": {
@@ -134,7 +129,6 @@ def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
             "response_schema": dict(LOOKUP_OPERATION.response_schema),
         }
     }
-    assert proposer_document["max_interaction_turns"] == 2  # type: ignore[index]
     assert decode_batch_request(encoded) == configured
 
     proposer_document["interaction_operations"]["lookup"]["surprise"] = True  # type: ignore[index]
@@ -152,16 +146,14 @@ def test_default_worker_protocol_uses_the_complete_current_shape() -> None:
         "model",
         "capabilities",
         "interaction_operations",
-        "max_interaction_turns",
     }
     assert proposer_document["interaction_operations"] == {}
-    assert proposer_document["max_interaction_turns"] == 2
     assert decode_batch_request(encoded) == request()
 
 
 @pytest.mark.parametrize(
     "missing_field",
-    ("interaction_operations", "max_interaction_turns"),
+    ("interaction_operations",),
 )
 def test_worker_protocol_requires_the_complete_current_shape(
     missing_field: str,
@@ -175,22 +167,20 @@ def test_worker_protocol_requires_the_complete_current_shape(
 
 
 @pytest.mark.parametrize(
-    "interaction_operations,max_turns",
+    "interaction_operations",
     [
-        ({"": LOOKUP_OPERATION}, 2),
-        ({"lookup": object()}, 2),
-        ({"lookup": LOOKUP_OPERATION}, 0),
+        {"": LOOKUP_OPERATION},
+        {"lookup": object()},
     ],
 )
 def test_invalid_worker_interaction_contract_is_rejected(
-    interaction_operations, max_turns: int
+    interaction_operations,
 ) -> None:
     original = request()
     loop = original.loops[0]
     invalid_proposer = replace(
         loop.proposers[0],
         interaction_operations=interaction_operations,
-        max_interaction_turns=max_turns,
     )
     invalid = BatchRequest(
         schema_version=original.schema_version,
@@ -218,6 +208,19 @@ def test_unknown_request_field_is_rejected() -> None:
         document[field] = True
         with pytest.raises(RequestValidationError, match="unknown field"):
             decode_batch_request(document)
+
+
+def test_retired_interaction_turn_limit_and_v2_batch_are_rejected() -> None:
+    document = encode_batch_request(request())
+    worker = document["loops"][0]["proposers"][0]  # type: ignore[index]
+    worker["max_interaction_turns"] = 2
+    with pytest.raises(RequestValidationError, match="unknown field"):
+        decode_batch_request(document)
+
+    document = encode_batch_request(request())
+    document["schema_version"] = "arc.proposer_reviewer.batch.v2"
+    with pytest.raises(RequestValidationError, match="batch.v3"):
+        decode_batch_request(document)
 
 
 def test_string_boolean_is_rejected() -> None:

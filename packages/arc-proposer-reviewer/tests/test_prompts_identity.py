@@ -155,18 +155,17 @@ def test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops() ->
 def test_worker_identity_includes_the_closed_interaction_contract() -> None:
     assert (
         WORKER_SEMANTIC_KEY_SCHEMA
-        == "arc.proposer_reviewer.worker_semantic_key.v2"
+        == "arc.proposer_reviewer.worker_semantic_key.v3"
     )
     assert (
         LOOP_SEMANTIC_KEY_SCHEMA
-        == "arc.proposer_reviewer.loop_semantic_key.v2"
+        == "arc.proposer_reviewer.loop_semantic_key.v3"
     )
     value = loop()
     worker = value.proposers[0]
     configured = replace(
         worker,
         interaction_operations={"lookup": LOOKUP_OPERATION},
-        max_interaction_turns=2,
     )
     base = worker_semantic_key(
         role="proposer",
@@ -183,20 +182,6 @@ def test_worker_identity_includes_the_closed_interaction_contract() -> None:
         upstream_digests={},
     )
     assert configured_key != base
-    assert base != worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=replace(worker, max_interaction_turns=3),
-        upstream_digests={},
-    )
-    assert configured_key != worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=replace(configured, max_interaction_turns=3),
-        upstream_digests={},
-    )
     assert worker_contract_document(configured)["interaction_operations"] == {
         "lookup": {
             "arguments_schema": dict(LOOKUP_OPERATION.arguments_schema),

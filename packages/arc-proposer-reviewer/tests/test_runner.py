@@ -41,8 +41,8 @@ def _request() -> BatchRequest:
 def test_prepare_derives_run_id_and_read_request_validates_closed_spec(
     tmp_path: Path,
 ) -> None:
-    assert BATCH_SCHEMA_VERSION == "arc.proposer_reviewer.batch.v2"
-    assert ProposerReviewerHandler.name == "arc.proposer_reviewer.batch.v2"
+    assert BATCH_SCHEMA_VERSION == "arc.proposer_reviewer.batch.v3"
+    assert ProposerReviewerHandler.name == "arc.proposer_reviewer.batch.v3"
     runner = BatchRunner()
     request = _request()
 
@@ -151,7 +151,7 @@ def test_inspect_stop_and_projection_are_read_only_of_llm_configuration(
 
     assert runner.inspect(tmp_path, "run-a").snapshot == snapshot
     projection = runner.projection(tmp_path, "run-a")
-    assert projection.inspect().run_lifecycle == "pending"
+    assert projection.inspect().durable_lifecycle == "pending"
     stopped = runner.stop(tmp_path, "run-a", "operator request")
 
     assert stopped.snapshot.status is RunStatus.PAUSED

@@ -14,6 +14,7 @@ from arc_proposer_reviewer.cli import main
         ["validate", "--help"],
         ["run", "--help"],
         ["resume", "--help"],
+        ["stop", "--help"],
         ["inspect", "--help"],
         ["trace", "--help"],
         ["show-round", "--help"],

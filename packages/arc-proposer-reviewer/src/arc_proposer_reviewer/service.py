@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Mapping, cast
+from dataclasses import dataclass, replace
+from typing import Literal, Mapping, cast
 
 from arc_jobs import (
     ArtifactRef,
@@ -20,6 +20,7 @@ from arc_jobs import (
     WorkUnit,
 )
 from arc_llm import (
+    InteractionProgress,
     InteractiveJsonOutput,
     JsonOutput,
     LLMStopped,
@@ -86,6 +87,29 @@ from .validation import (
 )
 
 
+@dataclass(frozen=True)
+class _ExecutionProgress:
+    event: Literal[
+        "loop_started",
+        "loop_finished",
+        "round_started",
+        "round_finished",
+        "worker_started",
+        "worker_finished",
+        "interaction",
+    ]
+    loop_id: str
+    round_number: int | None = None
+    role: Literal["proposer", "reviewer"] | None = None
+    worker_id: str | None = None
+    status: str | None = None
+    interaction_round: int | None = None
+    interaction_stage: Literal["requested", "resolved"] | None = None
+    operation_names: tuple[str, ...] = ()
+    request_count: int = 0
+    error_count: int = 0
+
+
 class ProposerReviewerService:
     def __init__(self, llm: LLMTaskService) -> None:
         self.llm = llm
@@ -110,17 +134,55 @@ class ProposerReviewerService:
 
         def run_loop(unit: WorkUnit) -> UnitResult | Paused:
             loop = loop_by_id[unit.unit_id]
-            outcome = self._execute_loop(
+            _emit_progress(
                 context,
-                artifacts,
-                loop,
-                options=options,
+                options,
+                _ExecutionProgress("loop_started", loop.loop_id),
             )
+            try:
+                outcome = self._execute_loop(
+                    context,
+                    artifacts,
+                    loop,
+                    options=options,
+                )
+            except StoppedError:
+                _emit_progress(
+                    context,
+                    options,
+                    _ExecutionProgress(
+                        "loop_finished", loop.loop_id, status="stopped"
+                    ),
+                )
+                raise
+            except Exception:
+                _emit_progress(
+                    context,
+                    options,
+                    _ExecutionProgress(
+                        "loop_finished", loop.loop_id, status="failed"
+                    ),
+                )
+                raise
             if isinstance(outcome, Paused):
+                _emit_progress(
+                    context,
+                    options,
+                    _ExecutionProgress(
+                        "loop_finished", loop.loop_id, status="paused"
+                    ),
+                )
                 return outcome
             document = _loop_result_document(outcome)
             artifacts.publish_json(loop_result_artifact_id(loop.loop_id), document)
             if outcome.termination is LoopTermination.FAILED:
+                _emit_progress(
+                    context,
+                    options,
+                    _ExecutionProgress(
+                        "loop_finished", loop.loop_id, status="failed"
+                    ),
+                )
                 return UnitResult(
                     unit.unit_id,
                     "failed",
@@ -128,6 +190,13 @@ class ProposerReviewerService:
                     outcome.error
                     or RunError("loop_failed", f"loop {loop.loop_id} failed"),
                 )
+            _emit_progress(
+                context,
+                options,
+                _ExecutionProgress(
+                    "loop_finished", loop.loop_id, status="succeeded"
+                ),
+            )
             return UnitResult(unit.unit_id, "succeeded", document)
 
         grouped = context.run_group(
@@ -218,6 +287,15 @@ class ProposerReviewerService:
         while state.rounds_completed < loop.max_rounds:
             context.checkpoint()
             round_number = state.rounds_completed + 1
+            _emit_progress(
+                context,
+                options,
+                _ExecutionProgress(
+                    "round_started",
+                    loop.loop_id,
+                    round_number=round_number,
+                ),
+            )
             prior_review = (
                 None
                 if state.review_ref is None
@@ -337,13 +415,16 @@ class ProposerReviewerService:
                     capabilities=worker.capabilities,
                 )
                 pause_key = _pause_key("proposer", worker.worker_id)
-                outcome = self._call_worker(
+                outcome = self._observed_worker_call(
                     context,
                     request,
                     loop_id=loop.loop_id,
                     task_id=task_id,
                     pause=state.pauses.get(pause_key),
                     options=options,
+                    round_number=round_number,
+                    role="proposer",
+                    worker_id=worker.worker_id,
                 )
                 if isinstance(outcome, LLMPaused):
                     paused = _outer_pause(
@@ -503,13 +584,16 @@ class ProposerReviewerService:
             reviewer_pause_key = _pause_key("reviewer", loop.reviewer.worker_id)
             latest_state = store.read()
             assert latest_state is not None
-            reviewer_outcome = self._call_worker(
+            reviewer_outcome = self._observed_worker_call(
                 context,
                 reviewer_request,
                 loop_id=loop.loop_id,
                 task_id=reviewer_task_id,
                 pause=latest_state.pauses.get(reviewer_pause_key),
                 options=options,
+                round_number=round_number,
+                role="reviewer",
+                worker_id=loop.reviewer.worker_id,
             )
             if isinstance(reviewer_outcome, LLMPaused):
                 paused = _outer_pause(
@@ -543,6 +627,7 @@ class ProposerReviewerService:
                     "reviewer failed",
                     (),
                     error=_llm_error(reviewer_outcome),
+                    error_worker_id=loop.reviewer.worker_id,
                 )
             assert isinstance(reviewer_outcome, LLMCompleted)
             review_value = cast(JsonValue, reviewer_outcome.value)
@@ -633,6 +718,16 @@ class ProposerReviewerService:
                     termination=termination,
                 ),
             )
+            _emit_progress(
+                context,
+                options,
+                _ExecutionProgress(
+                    "round_finished",
+                    loop.loop_id,
+                    round_number=round_number,
+                    status="succeeded",
+                ),
+            )
             if termination is not None:
                 return _successful_loop(
                     loop, state, termination, artifacts
@@ -645,6 +740,62 @@ class ProposerReviewerService:
             artifacts,
         )
 
+    def _observed_worker_call(
+        self,
+        context: RunContext,
+        request: LLMRequest,
+        *,
+        loop_id: str,
+        task_id: str,
+        pause: _PauseRecord | None,
+        options: ExecutionOptions,
+        round_number: int,
+        role: Literal["proposer", "reviewer"],
+        worker_id: str,
+    ):
+        _emit_progress(
+            context,
+            options,
+            _ExecutionProgress(
+                "worker_started",
+                loop_id,
+                round_number=round_number,
+                role=role,
+                worker_id=worker_id,
+            ),
+        )
+        status = "failed"
+        try:
+            outcome = self._call_worker(
+                context,
+                request,
+                loop_id=loop_id,
+                task_id=task_id,
+                pause=pause,
+                options=options,
+                round_number=round_number,
+                role=role,
+                worker_id=worker_id,
+            )
+            status = _worker_outcome_status(outcome)
+            return outcome
+        except StoppedError:
+            status = "stopped"
+            raise
+        finally:
+            _emit_progress(
+                context,
+                options,
+                _ExecutionProgress(
+                    "worker_finished",
+                    loop_id,
+                    round_number=round_number,
+                    role=role,
+                    worker_id=worker_id,
+                    status=status,
+                ),
+            )
+
     def _call_worker(
         self,
         context: RunContext,
@@ -654,13 +805,35 @@ class ProposerReviewerService:
         task_id: str,
         pause: _PauseRecord | None,
         options: ExecutionOptions,
+        round_number: int,
+        role: Literal["proposer", "reviewer"],
+        worker_id: str,
     ):
+        def observe(progress: InteractionProgress) -> None:
+            _emit_progress(
+                context,
+                options,
+                _ExecutionProgress(
+                    "interaction",
+                    loop_id,
+                    round_number=round_number,
+                    role=role,
+                    worker_id=worker_id,
+                    interaction_round=progress.interaction_round,
+                    interaction_stage=progress.stage,
+                    operation_names=progress.operation_names,
+                    request_count=progress.request_count,
+                    error_count=progress.error_count,
+                ),
+            )
+
         llm_options = LLMExecutionOptions(
             limits=options.llm_limits,
             interaction_resolver=options.loop_interaction_resolvers.get(
                 loop_id,
                 options.interaction_resolver,
             ),
+            interaction_observer=observe,
         )
         if pause is None:
             return self.llm.execute(context, request, options=llm_options)
@@ -713,8 +886,17 @@ def _worker_output(
     return InteractiveJsonOutput(
         result_schema=result_schema,
         operations=worker.interaction_operations,
-        max_interaction_turns=worker.max_interaction_turns,
     )
+
+
+def _worker_outcome_status(outcome: object) -> str:
+    if isinstance(outcome, LLMCompleted):
+        return "succeeded"
+    if isinstance(outcome, LLMPaused):
+        return "paused"
+    if isinstance(outcome, LLMStopped):
+        return "stopped"
+    return "failed"
 
 
 def _failed_loop(
@@ -725,9 +907,34 @@ def _failed_loop(
     failures: tuple[UnitResult, ...] | list[UnitResult],
     *,
     error: RunError | None = None,
+    error_worker_id: str | None = None,
 ) -> LoopResult:
+    failed_worker_ids = [unit.unit_id for unit in failures]
+    if error_worker_id is not None and error_worker_id not in failed_worker_ids:
+        failed_worker_ids.append(error_worker_id)
+    causes: list[JsonValue] = []
+    for unit in failures:
+        if unit.error is not None:
+            causes.append(
+                {
+                    "worker_id": unit.unit_id,
+                    "code": unit.error.code,
+                    "message": unit.error.message,
+                    "details": dict(unit.error.details),
+                }
+            )
+    if error is not None:
+        causes.append(
+            {
+                "worker_id": error_worker_id or "reviewer",
+                "code": error.code,
+                "message": error.message,
+                "details": dict(error.details),
+            }
+        )
     details: dict[str, JsonValue] = {
-        "failed_worker_ids": [unit.unit_id for unit in failures],
+        "failed_worker_ids": failed_worker_ids,
+        "causes": causes,
     }
     return LoopResult(
         loop_id=loop.loop_id,
@@ -735,8 +942,46 @@ def _failed_loop(
         rounds_completed=state.rounds_completed,
         final_proposals={},
         final_review=None,
-        error=error or RunError(code, message, details),
+        error=RunError(code, message, details),
     )
+
+
+def _emit_progress(
+    context: RunContext,
+    options: ExecutionOptions,
+    progress: _ExecutionProgress,
+) -> None:
+    data: dict[str, JsonValue] = {
+        "loop_id": progress.loop_id,
+    }
+    for name, value in (
+        ("round", progress.round_number),
+        ("role", progress.role),
+        ("worker_id", progress.worker_id),
+        ("status", progress.status),
+        ("interaction_round", progress.interaction_round),
+        ("interaction_stage", progress.interaction_stage),
+    ):
+        if value is not None:
+            data[name] = value
+    if progress.operation_names:
+        data["operation_names"] = list(progress.operation_names)
+    if progress.event == "interaction":
+        data["request_count"] = progress.request_count
+        data["error_count"] = progress.error_count
+    try:
+        event = {
+            "round_finished": "proposer_reviewer_round_committed",
+            "interaction": "proposer_reviewer_worker_interaction",
+        }.get(progress.event, f"proposer_reviewer_{progress.event}")
+        context.events.emit(event, data)
+    except Exception:
+        pass
+    if options.progress_callback is not None:
+        try:
+            options.progress_callback({"event": event, "data": data})
+        except Exception:
+            pass
 
 
 def _outer_pause(

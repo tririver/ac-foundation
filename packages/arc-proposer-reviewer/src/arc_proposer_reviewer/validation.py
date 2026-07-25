@@ -72,6 +72,13 @@ def validate_execution_options(options: ExecutionOptions) -> None:
                 "resolver must provide resolve(request)",
                 ("loop_interaction_resolvers", loop_id),
             )
+    if options.progress_callback is not None and not callable(
+        options.progress_callback
+    ):
+        raise RequestValidationError(
+            "must be callable or null",
+            ("progress_callback",),
+        )
 
 
 def decode_review(
@@ -163,10 +170,6 @@ def _validate_loop(loop: LoopSpec, path: tuple[str | int, ...]) -> None:
             raise RequestValidationError(
                 str(exc), worker_path + ("output_schema",)
             ) from exc
-        _positive_int(
-            worker.max_interaction_turns,
-            worker_path + ("max_interaction_turns",),
-        )
         if not isinstance(worker.interaction_operations, Mapping):
             raise RequestValidationError(
                 "must be an object",
@@ -189,7 +192,6 @@ def _validate_loop(loop: LoopSpec, path: tuple[str | int, ...]) -> None:
             InteractiveJsonOutput(
                 result_schema=worker.output_schema,
                 operations=dict(worker.interaction_operations),
-                max_interaction_turns=worker.max_interaction_turns,
             )
         except (ArcLLMError, TypeError, ValueError) as exc:
             raise RequestValidationError(

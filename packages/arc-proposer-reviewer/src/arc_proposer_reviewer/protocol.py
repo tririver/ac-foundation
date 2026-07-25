@@ -142,7 +142,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             "model",
             "capabilities",
             "interaction_operations",
-            "max_interaction_turns",
         },
         path,
     )
@@ -205,12 +204,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             )
         except (ArcLLMError, TypeError, ValueError) as exc:
             raise RequestValidationError(str(exc), operation_path) from exc
-    max_interaction_turns = document["max_interaction_turns"]
-    if type(max_interaction_turns) is not int or max_interaction_turns < 1:
-        raise RequestValidationError(
-            "must be an integer greater than or equal to 1",
-            path + ("max_interaction_turns",),
-        )
     return WorkerSpec(
         worker_id=_required_text(document, "worker_id", path),
         instructions=_required_text(document, "instructions", path),
@@ -226,7 +219,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             allowed_tools=tuple(raw_tools),
         ),
         interaction_operations=interaction_operations,
-        max_interaction_turns=max_interaction_turns,
     )
 
 

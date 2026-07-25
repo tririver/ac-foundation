@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from arc_proposer_reviewer import cli
 from arc_proposer_reviewer.models import (
@@ -53,8 +54,16 @@ def _safe_ref() -> SafeArtifactRef:
 def _inspection() -> BatchInspection:
     return BatchInspection(
         run_id="run-cli",
-        run_lifecycle="running",
+        durable_lifecycle="running",
         run_revision=7,
+        lifecycle_counts={
+            "pending": 0,
+            "running": 1,
+            "paused": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "integrity_error": 0,
+        },
         loop_revisions={"loop-cli": 3},
         loops=(
             LoopInspection(
@@ -125,6 +134,17 @@ class _Runner:
     def projection(self, _run_root, run_id: str) -> _Projection:
         return _Projection(None, run_id, corrupt_trace=self.corrupt_trace)
 
+    def stop(self, _run_root, run_id: str, reason: str | None):
+        assert run_id == "run-cli"
+        assert reason == "no scientific progress"
+        return SimpleNamespace(
+            snapshot=SimpleNamespace(
+                revision=8,
+                status=SimpleNamespace(value="running"),
+            ),
+            stop_request=object(),
+        )
+
 
 def _query_envelope(capsys) -> dict:
     captured = capsys.readouterr()
@@ -161,10 +181,44 @@ def test_inspect_query_emits_one_safe_command_envelope(
         == 0
     )
 
-    envelope = _query_envelope(capsys)
-    assert envelope["data"]["inspection"]["run_lifecycle"] == "running"
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    envelope = json.loads(captured.out)
+    assert envelope["status"] == "completed"
+    assert envelope["data"]["inspection"]["durable_lifecycle"] == "running"
     assert "trace" not in envelope["data"]
     _assert_query_output_is_safe(envelope)
+
+
+def test_stop_requests_cooperative_stop_with_safe_envelope(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    monkeypatch.setattr(cli, "_runner", _Runner)
+
+    assert (
+        cli.main(
+            [
+                "stop",
+                "--run-root",
+                str(tmp_path),
+                "--run-id",
+                "run-cli",
+                "--reason",
+                "no scientific progress",
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    envelope = json.loads(captured.out)
+    assert envelope["status"] == "completed"
+    assert envelope["run"] == {"id": "run-cli", "revision": 8}
+    assert envelope["data"] == {
+        "stop_requested": True,
+        "durable_lifecycle": "running",
+    }
 
 
 def test_trace_and_show_round_queries_emit_safe_command_envelopes(

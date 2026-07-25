@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, Mapping
@@ -14,7 +15,7 @@ from arc_llm import (
 )
 
 
-BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v2"
+BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v3"
 REVIEW_SCHEMA_VERSION = "arc.proposer_reviewer.review.v1"
 RESULT_SCHEMA_VERSION = "arc.proposer_reviewer.result.v1"
 
@@ -45,7 +46,6 @@ class WorkerSpec:
     interaction_operations: Mapping[str, OperationContract] = field(
         default_factory=dict
     )
-    max_interaction_turns: int = 2
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ class LoopSpec:
 
 @dataclass(frozen=True)
 class BatchRequest:
-    schema_version: Literal["arc.proposer_reviewer.batch.v2"]
+    schema_version: Literal["arc.proposer_reviewer.batch.v3"]
     batch_id: str
     loops: tuple[LoopSpec, ...]
     failure_policy: BatchFailurePolicy = BatchFailurePolicy.COLLECT
@@ -75,6 +75,11 @@ class ExecutionOptions:
     interaction_resolver: InteractionResolver | None = None
     loop_interaction_resolvers: Mapping[str, InteractionResolver] = field(
         default_factory=dict
+    )
+    progress_callback: Callable[[Mapping[str, JsonValue]], None] | None = field(
+        default=None,
+        compare=False,
+        repr=False,
     )
 
 

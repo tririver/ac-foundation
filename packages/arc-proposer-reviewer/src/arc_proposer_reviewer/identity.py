@@ -7,8 +7,8 @@ from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
 from .models import LoopSpec, WorkerSpec
 
 
-WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v2"
-LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v2"
+WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v3"
+LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v3"
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
@@ -37,7 +37,6 @@ def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
             }
             for name, contract in sorted(worker.interaction_operations.items())
         },
-        "max_interaction_turns": worker.max_interaction_turns,
     }
 
 
@@ -117,7 +116,7 @@ def derive_batch_run_id(batch_id: str) -> str:
     digest = semantic_key(
         {
             "semantic_key_schema": "arc.proposer_reviewer.run_id.v1",
-            "handler": "arc.proposer_reviewer.batch.v2",
+            "handler": "arc.proposer_reviewer.batch.v3",
             "batch_id": batch_id,
         }
     )

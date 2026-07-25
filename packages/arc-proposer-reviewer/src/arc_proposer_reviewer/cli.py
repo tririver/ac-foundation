@@ -78,6 +78,16 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument("--run-root", required=True, help="durable run repository root")
     resume.add_argument("--run-id", required=True, help="durable run identifier")
     resume.add_argument("--input", help="ResumeInput JSON path")
+    stop = commands.add_parser(
+        "stop",
+        help="request cooperative stop of a batch",
+        description="Request a cooperative stop of a running proposer-reviewer batch.",
+    )
+    _query_arguments(stop)
+    stop.add_argument(
+        "--reason",
+        help="short operator reason recorded with the stop request",
+    )
     inspect = commands.add_parser(
         "inspect",
         help="inspect batch and loop state",
@@ -132,7 +142,7 @@ def _help_command(arguments: list[str]) -> str:
         arguments[0]
         if arguments
         and arguments[0]
-        in {"validate", "run", "resume", "inspect", "trace", "show-round"}
+        in {"validate", "run", "resume", "stop", "inspect", "trace", "show-round"}
         else None
     )
     return " ".join(
@@ -162,6 +172,19 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         runner = _runner()
+        if args.command == "stop":
+            view = runner.stop(args.run_root, args.run_id, args.reason)
+            return _emit(
+                CommandResult(
+                    CommandStatus.COMPLETED,
+                    CommandRun(args.run_id, view.snapshot.revision),
+                    {
+                        "stop_requested": view.stop_request is not None,
+                        "durable_lifecycle": view.snapshot.status.value,
+                    },
+                ),
+                exit_code=0,
+            )
         if args.command in {"inspect", "trace", "show-round"}:
             projection = runner.projection(args.run_root, args.run_id)
             if args.command == "inspect":

@@ -16,8 +16,10 @@ arc-proposer-reviewer run \
 ```
 
 Use `arc-proposer-reviewer --help` and
-`arc-proposer-reviewer run --help` for request validation, resume, inspection,
-trace, and committed-round queries.
+`arc-proposer-reviewer run --help` for request validation, resume, cooperative
+stop, inspection, trace, and committed-round queries. `inspect` reports the
+durable lifecycle, loop lifecycle counts, current workers and interactions,
+actionable pauses, and sanitized failure causes.
 
 ## Python API
 
@@ -31,6 +33,9 @@ inspection = runner.projection(
     "local/example/proposer-reviewer", "batch-001"
 ).inspect()
 ```
+
+`ExecutionOptions.progress_callback` accepts body-free
+`{"event": ..., "data": ...}` documents for foreground status rendering.
 
 ## Tests
 
