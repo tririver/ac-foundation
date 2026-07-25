@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, cast
 
-from arc_jobs import ArtifactRef, Awaiting, JsonValue, StateContract, semantic_key
+from arc_jobs import (
+    ArtifactRef,
+    Awaiting,
+    InvalidRunIdError,
+    JsonValue,
+    StateContract,
+    semantic_key,
+    validate_simple_id,
+)
 from arc_llm import SessionRef
 
 from .artifacts import artifact_ref_from_document, artifact_ref_to_document
@@ -13,6 +21,7 @@ from .models import LoopTermination
 
 
 _STATE_SCHEMA = "arc.proposer_reviewer.loop_state.v1"
+_PAUSE_ROLES = frozenset({"proposer", "reviewer"})
 
 
 @dataclass(frozen=True)
@@ -258,26 +267,57 @@ def _pause_from_document(value: JsonValue) -> _PauseRecord:
         "details",
     }:
         raise ValueError("awaiting uses an invalid closed shape")
+    role = document["role"]
+    if not isinstance(role, str) or role not in _PAUSE_ROLES:
+        raise ValueError("pause role must be proposer or reviewer")
+    worker_id = _pause_id(document["worker_id"], "worker_id")
+    round_number = document["round"]
+    if type(round_number) is not int or round_number < 1:
+        raise ValueError("pause round must be a positive integer")
+    task_id = _pause_id(document["task_id"], "task_id")
+    raw_reason = awaiting_doc["reason"]
+    if not isinstance(raw_reason, str):
+        raise ValueError("awaiting reason must be a string")
+    try:
+        reason = ResumeReason(raw_reason)
+    except ValueError as exc:
+        raise ValueError("awaiting reason is unknown") from exc
+    resume_key = _pause_id(awaiting_doc["resume_key"], "resume_key")
+    input_required = awaiting_doc["input_required"]
+    if type(input_required) is not bool:
+        raise ValueError("awaiting input_required must be a boolean")
+    response_contract = awaiting_doc["response_contract"]
+    if response_contract is not None and not isinstance(response_contract, str):
+        raise ValueError("awaiting response_contract must be a string or null")
     request_ref = awaiting_doc["request_ref"]
     details = _mapping(awaiting_doc["details"], "awaiting.details")
     return _PauseRecord(
-        role=cast(str, document["role"]),
-        worker_id=cast(str, document["worker_id"]),
-        round_number=cast(int, document["round"]),
-        task_id=cast(str, document["task_id"]),
+        role=role,
+        worker_id=worker_id,
+        round_number=round_number,
+        task_id=task_id,
         awaiting=Awaiting(
-            reason=ResumeReason(cast(str, awaiting_doc["reason"])),
-            resume_key=cast(str, awaiting_doc["resume_key"]),
-            input_required=cast(bool, awaiting_doc["input_required"]),
+            reason=reason,
+            resume_key=resume_key,
+            input_required=input_required,
             request_ref=(
                 None
                 if request_ref is None
                 else artifact_ref_from_document(request_ref)
             ),
-            response_contract=cast(str | None, awaiting_doc["response_contract"]),
+            response_contract=response_contract,
             details=details,
         ),
     )
+
+
+def _pause_id(value: JsonValue, name: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"pause {name} is invalid")
+    try:
+        return validate_simple_id(value, label=f"pause {name}")
+    except InvalidRunIdError as exc:
+        raise ValueError(f"pause {name} is invalid") from exc
 
 
 def _mapping(value: object, name: str) -> Mapping[str, JsonValue]:
