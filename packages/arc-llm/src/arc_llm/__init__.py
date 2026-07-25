@@ -27,6 +27,7 @@ from .errors import (
     ResumeKeyMismatchError,
 )
 from .identity import AdoptionAuthorization, resume_input_matches
+from .interactions import ScopedInteractionLedger
 from .outcome import (
     LLMStopped,
     LLMCompleted,
@@ -136,6 +137,7 @@ __all__ = [
     "ResumeInputConflictError",
     "ResumeKeyMismatchError",
     "ResumeReason",
+    "ScopedInteractionLedger",
     "SemanticKeyDigest",
     "SessionRef",
     "StructuredOutputMode",
