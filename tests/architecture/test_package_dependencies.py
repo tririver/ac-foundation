@@ -119,8 +119,14 @@ def test_retired_arc_mcp_surfaces_stay_absent():
 
 def test_all_packages_publish_complete_distribution_metadata():
     for module, (package_dir, project) in _projects().items():
+        assert project["readme"] == "README.md", module
         readme = package_dir / project["readme"]
         assert readme.is_file(), module
+        readme_text = readme.read_text(encoding="utf-8")
+        command = project["name"]
+        assert readme_text.startswith(f"# {command}\n"), module
+        assert f"{command} --help" in readme_text, module
+        assert f"python -m pytest packages/{command}/tests" in readme_text, module
         assert project["license"] == "MIT", module
         assert project["authors"] == [{"name": "ARC"}], module
         assert "Programming Language :: Python :: 3.11" in project["classifiers"], module

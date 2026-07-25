@@ -1,62 +1,41 @@
 # arc-proposer-reviewer
 
-`arc-proposer-reviewer` coordinates typed proposer workers and one reviewer
-over one or more rounds. It delegates durable execution and concurrency to
-`arc-jobs`, and delegates every model call, output validation, session, and
-provider concern to `arc-llm`.
+`arc-proposer-reviewer` owns typed proposer-worker and reviewer batches,
+rounds, dialogue artifacts, consensus results, and verified read-only
+projections. It delegates durable execution to `arc-jobs` and every model call
+to `arc-llm`; research-workflow policy belongs to the calling workflow.
 
-The package deliberately contains no provider transport, environment handling,
-filesystem locking, thread pool, research-workflow policy, or output
-fabrication.
+## Quick start
+
+Run one validated batch request:
+
+```bash
+arc-proposer-reviewer run \
+  --request local/example/batch.json \
+  --run-root local/example/proposer-reviewer
+```
+
+Use `arc-proposer-reviewer --help` and
+`arc-proposer-reviewer run --help` for request validation, resume, inspection,
+trace, and committed-round queries.
 
 ## Python API
 
-`BatchRunner` is the reusable durable facade. It prepares a request before
-execution, keeps operational execution options out of semantic input, resumes
-the same lineage, exposes stop and run inspection, and returns the existing
-read-only `BatchProjection`:
+`BatchRunner` is the reusable durable facade:
 
 ```python
+from arc_proposer_reviewer import BatchRunner
+
 runner = BatchRunner()
-snapshot = runner.run(request, run_root, run_id=None, options=options)
-inspection = runner.projection(run_root, snapshot.run_id).inspect()
+inspection = runner.projection(
+    "local/example/proposer-reviewer", "batch-001"
+).inspect()
 ```
 
-Lower-level embeddings may still construct a `ProposerReviewerService` and
-execute it through `ProposerReviewerHandler` and `RunEngine`.
+## Tests
 
-Completed round history is observed through one read-only projection:
+The default suite uses fake providers:
 
-```python
-inspection = inspect_batch(repository, run_id)
-trace = read_batch_trace(repository, run_id)
-round_one = read_batch_round(repository, run_id, loop_id, 1)
+```bash
+python -m pytest packages/arc-proposer-reviewer/tests
 ```
-
-Inspection is available while a batch is pending, running, paused, or terminal.
-Its worker activity counts are explicitly best effort. Trace contains only
-rounds atomically committed by each loop state; an artifact published before
-that commit is not visible. The run revision and per-loop revision vector
-identify the observation without claiming a globally linearized snapshot.
-Trace references expose logical IDs and content digests, never sessions, task
-IDs, private group IDs, resume records, or physical paths. `read_batch_round`
-is the only call that expands proposal and review JSON.
-
-Worker identities bind only the worker's actual semantic inputs; they never
-bind a physical run directory or concurrency limit.
-
-## CLI
-
-```text
-arc-proposer-reviewer validate --request REQUEST.json
-arc-proposer-reviewer run --request REQUEST.json --run-root DIR [--run-id ID]
-arc-proposer-reviewer resume --run-root DIR --run-id ID [--input INPUT.json]
-arc-proposer-reviewer inspect --run-root DIR --run-id ID [--include-trace]
-arc-proposer-reviewer trace --run-root DIR --run-id ID
-arc-proposer-reviewer show-round --run-root DIR --run-id ID --loop-id ID --round N
-```
-
-`validate`, `inspect`, `trace`, and `show-round` perform no model call. `run`
-and `resume` are blocking commands. Every command uses the shared
-`arc.command_result.v2` command envelope; `inspect --include-trace` retains its
-inspection and emits a warning when a strict trace cannot be verified.
