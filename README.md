@@ -25,17 +25,9 @@ Deterministic paper operations do not require a model. Summaries, domain
 briefings, proposal/review loops, translation, and companion generation use a
 supported host LLM and may consume substantial tokens.
 
-## Install
+## Citation
 
-### Remarks:
-
-- Permission: the same as many heavy skills/plugins, ARC will need permissions to run Python scripts. Accepting permissions could be annoying. We recommend installing ARC within docker or a virtual machine, and allow all permissions in that virtual environment. As always for working with AI agents, be aware of risk to your data and system.
-
-- Token usage. As measured using Claude + DeepSeek, a typical run of domain build + idea generation consumes about 1M uncached input tokens, and 0.5M output tokens, in about an hour's running time. The token usage may vary depending on the specific tasks and LLM used. Be aware of token usage and costs.
-
-- If ARC has played a role in your research, please consider citing the ARC manual.
-
-### Citation
+If ARC has played a role in your research, please consider citing the ARC manual.
 
 Yanjiao Ma, Yi Wang, and Xingkai Zhang. _ARC: An LLM-Native Agent
 Workflow for Theoretical Physics Research_. ChinaXiv:202606.00234, 2026.
@@ -54,6 +46,14 @@ https://chinaxiv.org/abs/202606.00234
   note          = {Version 1}
 }
 ```
+
+## Install
+
+### Remarks:
+
+- Permission: the same as many heavy skills/plugins, ARC will need permissions to run Python scripts. Accepting permissions could be annoying. We recommend installing ARC within docker or a virtual machine, and allow all permissions in that virtual environment. As always for working with AI agents, be aware of risk to your data and system.
+
+- Token usage. As measured using Claude + DeepSeek, a typical run of domain build + idea generation consumes about 1M uncached input tokens, and 0.5M output tokens, in about an hour's running time. The token usage may vary depending on the specific tasks and LLM used. Be aware of token usage and costs.
 
 ARC requires Python 3.11 or newer. Plugin and standalone-Skill installations
 use `uv` when available and fall back to Python `venv` plus `pip`. Network
@@ -100,43 +100,6 @@ commands through the bundled launcher:
 <skill-dir>/scripts/arc-runtime arc-proposer-reviewer --help
 ```
 
-### Source checkout
-
-For development, create a virtual environment and install the packages in
-dependency order:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -e packages/arc-jobs[test]
-python -m pip install -e packages/arc-llm[test]
-python -m pip install -e packages/arc-proposer-reviewer[test]
-python -m pip install -e packages/arc-paper[test]
-python -m pip install -e packages/arc-domain[test]
-python -m pip install -e packages/arc-translate[test]
-python -m pip install -e packages/arc-companion[test]
-```
-
-Keep research runs and generated output below the git-ignored `local/` tree.
-
-## LLM providers
-
-`arc-llm` resolves supported host-native providers for Codex, Claude Code, and
-Kimi Code; an unknown host can use the manual fallback. Check the current host
-before model-backed work:
-
-```bash
-arc-llm doctor --provider auto
-```
-
-Provider and model choices belong to the owning command or request. Kimi Code
-support is experimental and inherits the user's Kimi configuration, tools,
-plugins, and sessions; review its diagnostic before use:
-
-```bash
-arc-llm doctor --provider kimi
-```
-
 ## Start with an agent or CLI
 
 With the ARC Skill installed, ask for the research outcome directly:
@@ -169,6 +132,25 @@ Exact commands, options, and error guidance live in `--help`. The Skill manuals
 explain when to combine packages into a research workflow.
 
 ## Development and release
+
+### Source checkout
+
+For development, create a virtual environment and install the packages in
+dependency order:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e packages/arc-jobs[test]
+python -m pip install -e packages/arc-llm[test]
+python -m pip install -e packages/arc-proposer-reviewer[test]
+python -m pip install -e packages/arc-paper[test]
+python -m pip install -e packages/arc-domain[test]
+python -m pip install -e packages/arc-translate[test]
+python -m pip install -e packages/arc-companion[test]
+```
+
+Keep research runs and generated output below the git-ignored `local/` tree.
 
 Run focused package tests first, then the combined offline suite:
 
