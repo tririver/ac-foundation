@@ -125,6 +125,17 @@ service commands it names.
   approved design may proceed unless its complexity materially exceeds that
   design.
 
+## Implementation Planning
+
+- Write every implementation plan under the git-ignored `local/` tree. Plans
+  are local execution state: never stage, force-add, or commit them.
+- Before editing tracked files for a non-trivial change expected to span
+  multiple functional commits, create and maintain
+  `local/implementation-plans/<task-slug>.md` and verify that Git ignores it.
+- Treat that file as the durable execution source of truth across context
+  compaction, agent handoffs, and concurrent work. Update it when the approved
+  plan changes, and execute, verify, and commit against it.
+
 ## Git Conventions
 
 - Commits created by agents in this repository use the author and committer
