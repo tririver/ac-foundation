@@ -12,6 +12,8 @@ from arc_jobs import (
     Awaiting,
     StoppedError,
     CorruptStateError,
+    decode_artifact_digest,
+    encode_artifact_digest,
     Failed,
     IdempotencyConflictError as JobsIdempotencyConflictError,
     JsonValue,
@@ -23,10 +25,13 @@ from arc_jobs import (
     RunSnapshot,
     RunSpec,
     RunView,
+    SemanticKeyDigest,
     ResumeInputConflictError as JobsResumeInputConflictError,
     ResumeMismatchError as JobsResumeMismatchError,
     StateConflictError,
     Succeeded,
+    validate_artifact_id,
+    validate_simple_id,
 )
 
 from .executor import HANDLER_NAME, LLMTaskExecutor
@@ -38,6 +43,7 @@ from .identity import (
     semantic_key,
 )
 from .errors import (
+    CorruptTaskStateError,
     IdempotencyConflictError,
     ResumeInputConflictError,
     ResumeKeyMismatchError,
@@ -114,6 +120,205 @@ class _StandaloneBootstrapContract:
             raise ValueError("Standalone LLM bootstrap is immutable.")
 
 
+@dataclass(frozen=True)
+class _StandaloneAdoption:
+    source: ArtifactSourceRef
+    authorization: AdoptionAuthorization | None
+
+
+@dataclass(frozen=True)
+class _StandaloneInvocation:
+    revision: int
+    mode: str
+    request: LLMRequest
+    adoption: _StandaloneAdoption | None
+
+
+class _StandaloneInvocationContract:
+    schema_version = "arc.llm.standalone_invocation.v1"
+
+    def encode(self, value: _StandaloneInvocation) -> Mapping[str, JsonValue]:
+        self._validate(value)
+        adoption: JsonValue = None
+        if value.adoption is not None:
+            source = value.adoption.source
+            authorization = value.adoption.authorization
+            adoption = {
+                "source_run_id": source.source_run_id,
+                "source_artifact_id": source.source_artifact_id,
+                "expected_digest": encode_artifact_digest(source.expected_digest),
+                "authorization": (
+                    None
+                    if authorization is None
+                    else {
+                        "source_semantic_key_sha256": (
+                            authorization.source_semantic_key.sha256
+                        ),
+                        "target_semantic_key_sha256": (
+                            authorization.target_semantic_key.sha256
+                        ),
+                        "reason": authorization.reason,
+                    }
+                ),
+            }
+        return {
+            "revision": value.revision,
+            "mode": value.mode,
+            "request": request_to_document(value.request),
+            "adoption": adoption,
+        }
+
+    def decode(self, document: Mapping[str, JsonValue]) -> _StandaloneInvocation:
+        if set(document) != {"revision", "mode", "request", "adoption"}:
+            raise CorruptStateError("invalid standalone invocation fields")
+        revision = document["revision"]
+        mode = document["mode"]
+        request_document = document["request"]
+        if (
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision != 0
+            or not isinstance(mode, str)
+            or not isinstance(request_document, Mapping)
+        ):
+            raise CorruptStateError("invalid standalone invocation")
+        try:
+            request = decode_request(request_document)
+        except Exception as exc:
+            raise CorruptStateError("invalid standalone invocation request") from exc
+        adoption_document = document["adoption"]
+        adoption = None
+        if adoption_document is not None:
+            if (
+                not isinstance(adoption_document, Mapping)
+                or set(adoption_document)
+                != {
+                    "source_run_id",
+                    "source_artifact_id",
+                    "expected_digest",
+                    "authorization",
+                }
+            ):
+                raise CorruptStateError("invalid standalone adoption fields")
+            try:
+                source = ArtifactSourceRef(
+                    validate_simple_id(
+                        adoption_document["source_run_id"],
+                        label="source run id",
+                    ),
+                    validate_artifact_id(
+                        adoption_document["source_artifact_id"]
+                    ),
+                    decode_artifact_digest(
+                        adoption_document["expected_digest"]
+                    ),
+                )
+            except Exception as exc:
+                raise CorruptStateError("invalid standalone adoption source") from exc
+            authorization_document = adoption_document["authorization"]
+            authorization = None
+            if authorization_document is not None:
+                if (
+                    not isinstance(authorization_document, Mapping)
+                    or set(authorization_document)
+                    != {
+                        "source_semantic_key_sha256",
+                        "target_semantic_key_sha256",
+                        "reason",
+                    }
+                ):
+                    raise CorruptStateError(
+                        "invalid standalone adoption authorization fields"
+                    )
+                try:
+                    authorization = AdoptionAuthorization(
+                        SemanticKeyDigest(
+                            authorization_document[
+                                "source_semantic_key_sha256"
+                            ]
+                        ),
+                        SemanticKeyDigest(
+                            authorization_document[
+                                "target_semantic_key_sha256"
+                            ]
+                        ),
+                        authorization_document["reason"],
+                    )
+                except Exception as exc:
+                    raise CorruptStateError(
+                        "invalid standalone adoption authorization"
+                    ) from exc
+            adoption = _StandaloneAdoption(source, authorization)
+        invocation = _StandaloneInvocation(revision, mode, request, adoption)
+        self._validate(invocation, reading=True)
+        return invocation
+
+    def validate_transition(
+        self,
+        previous: _StandaloneInvocation | None,
+        next: _StandaloneInvocation,
+    ) -> None:
+        self._validate(next)
+        if previous is not None or next.revision != 0:
+            raise ValueError("Standalone LLM invocation is immutable.")
+
+    @staticmethod
+    def _validate(
+        value: _StandaloneInvocation,
+        *,
+        reading: bool = False,
+    ) -> None:
+        valid = (
+            isinstance(value, _StandaloneInvocation)
+            and type(value.revision) is int
+            and value.revision == 0
+            and isinstance(value.mode, str)
+            and value.mode in {"generate", "adopt"}
+            and isinstance(value.request, LLMRequest)
+            and (
+                (value.mode == "generate" and value.adoption is None)
+                or (
+                    value.mode == "adopt"
+                    and isinstance(value.adoption, _StandaloneAdoption)
+                )
+            )
+        )
+        if valid and value.adoption is not None:
+            valid = (
+                isinstance(value.adoption.source, ArtifactSourceRef)
+                and (
+                    value.adoption.authorization is None
+                    or isinstance(
+                        value.adoption.authorization,
+                        AdoptionAuthorization,
+                    )
+                )
+            )
+        if valid and value.adoption is not None:
+            try:
+                validate_simple_id(
+                    value.adoption.source.source_run_id,
+                    label="source run id",
+                )
+                validate_artifact_id(
+                    value.adoption.source.source_artifact_id
+                )
+                encode_artifact_digest(
+                    value.adoption.source.expected_digest
+                )
+                if value.adoption.authorization is not None:
+                    AdoptionAuthorization(
+                        value.adoption.authorization.source_semantic_key,
+                        value.adoption.authorization.target_semantic_key,
+                        value.adoption.authorization.reason,
+                    )
+            except Exception:
+                valid = False
+        if not valid:
+            error_type = CorruptStateError if reading else ValueError
+            raise error_type("invalid standalone invocation")
+
+
 class LLMTaskService:
     """Reusable in-run LLM task service."""
 
@@ -186,7 +391,11 @@ class LLMTaskService:
         )
 
 
-class _LLMHandler:
+class _StandaloneInvocationMissing(CorruptStateError):
+    pass
+
+
+class _StandaloneHandler:
     name = HANDLER_NAME
 
     def __init__(
@@ -194,82 +403,114 @@ class _LLMHandler:
         service: LLMTaskService,
         *,
         options: LLMExecutionOptions,
-        request: LLMRequest | None = None,
     ) -> None:
         self.service = service
         self.options = options
-        self.request = request
         self.last_outcome: LLMTaskOutcome | None = None
 
     def execute(self, context: RunContext) -> Any:
-        request = self.request or self._load_durable_request(context)
-        state = self.service._executor._task_store(context, request.task_id).read()
-        if state is not None and state.pause is not None:
-            resume_input = (
-                None
-                if context.resume_input is None
-                else decode_resume_input(context.resume_input)
+        try:
+            invocation = self._load_durable_invocation(context)
+            request = invocation.request
+            if invocation.mode == "adopt":
+                assert invocation.adoption is not None
+                outcome = self.service.adopt_and_revalidate(
+                    context,
+                    request,
+                    invocation.adoption.source,
+                    authorization=invocation.adoption.authorization,
+                )
+            else:
+                state = self.service._executor._task_store(
+                    context, request.task_id
+                ).read()
+                if state is not None and state.pause is not None:
+                    resume_input = (
+                        None
+                        if context.resume_input is None
+                        else decode_resume_input(context.resume_input)
+                    )
+                    outcome = self.service.execute_or_resume(
+                        context,
+                        request,
+                        input=resume_input,
+                        options=self.options,
+                    )
+                else:
+                    outcome = self.service.execute_or_resume(
+                        context,
+                        request,
+                        options=self.options,
+                    )
+        except _StandaloneInvocationMissing as exc:
+            outcome = LLMFailed(
+                CorruptTaskStateError(
+                    str(exc),
+                    details={"code": "standalone_invocation_missing"},
+                )
             )
-            outcome = self.service.execute_or_resume(
-                context,
-                request,
-                input=resume_input,
-                options=self.options,
+            request = None
+        except CorruptTaskStateError as exc:
+            outcome = LLMFailed(exc)
+            request = None
+        except CorruptStateError as exc:
+            outcome = LLMFailed(
+                CorruptTaskStateError(
+                    f"Standalone LLM invocation is corrupt: {exc}",
+                    details={"code": "standalone_invocation_corrupt"},
+                )
             )
-        else:
-            outcome = self.service.execute_or_resume(
-                context,
-                request,
-                options=self.options,
-            )
+            request = None
         self.last_outcome = outcome
-        return _run_outcome(self.service, context, request.task_id, outcome)
+        return _run_outcome(
+            self.service,
+            context,
+            "" if request is None else request.task_id,
+            outcome,
+        )
 
-    def _load_durable_request(self, context: RunContext) -> LLMRequest:
+    def _load_durable_invocation(
+        self,
+        context: RunContext,
+    ) -> _StandaloneInvocation:
         task_id = context.semantic_input.get("task_id")
-        if not isinstance(task_id, str):
-            raise RuntimeError("LLM run semantic input has no task_id.")
-        state = self.service._executor._task_store(context, task_id).read()
-        if state is not None:
-            return self.service._executor._load_request(context, state)
+        if isinstance(task_id, str):
+            state = self.service._executor._task_store(context, task_id).read()
+            if state is not None:
+                request = self.service._executor._load_request(context, state)
+                return _StandaloneInvocation(0, "generate", request, None)
+        invocation = _standalone_invocation_store(
+            context.repository, context.run_id
+        ).read()
+        if invocation is not None:
+            if semantic_document(invocation.request) != dict(
+                context.semantic_input
+            ):
+                raise CorruptStateError(
+                    "standalone invocation does not match the run spec"
+                )
+            return invocation
         bootstrap = _standalone_bootstrap_store(
             context.repository,
             context.run_id,
             document_sha256(context.semantic_input),
         ).read()
-        if (
-            bootstrap is None
-            or semantic_document(bootstrap.request) != dict(context.semantic_input)
-        ):
-            raise RuntimeError("LLM run has no durable task request.")
-        return bootstrap.request
-
-
-class _AdoptHandler:
-    name = HANDLER_NAME
-
-    def __init__(
-        self,
-        service: LLMTaskService,
-        request: LLMRequest,
-        source: ArtifactSourceRef,
-        authorization: AdoptionAuthorization | None,
-    ) -> None:
-        self.service = service
-        self.request = request
-        self.source = source
-        self.authorization = authorization
-        self.last_outcome: LLMTaskOutcome | None = None
-
-    def execute(self, context: RunContext) -> Any:
-        outcome = self.service.adopt_and_revalidate(
-            context,
-            self.request,
-            self.source,
-            authorization=self.authorization,
+        if bootstrap is not None:
+            if semantic_document(bootstrap.request) != dict(
+                context.semantic_input
+            ):
+                raise CorruptStateError(
+                    "legacy standalone bootstrap does not match the run spec"
+                )
+            return _StandaloneInvocation(
+                0,
+                "generate",
+                bootstrap.request,
+                None,
+            )
+        raise _StandaloneInvocationMissing(
+            "Standalone LLM run has no recoverable invocation."
         )
-        self.last_outcome = outcome
-        return _run_outcome(self.service, context, self.request.task_id, outcome)
 
 
 def _run_outcome(
@@ -326,25 +567,12 @@ class LLMClient:
         options: LLMExecutionOptions = LLMExecutionOptions(),
     ) -> LLMRunResult:
         resolved_run_id = run_id or derive_run_id(HANDLER_NAME, request.task_id)
-        repository = RunRepository(run_root)
-        _publish_standalone_bootstrap(repository, resolved_run_id, request)
-        handler = _LLMHandler(self.service, options=options, request=request)
-        try:
-            snapshot = RunEngine(repository).execute(
-                RunSpec(
-                    resolved_run_id,
-                    HANDLER_NAME,
-                    semantic_document(request),
-                ),
-                handler,
-            )
-        except JobsIdempotencyConflictError:
-            snapshot = repository.inspect(resolved_run_id).snapshot
-            return LLMRunResult(snapshot, LLMFailed(IdempotencyConflictError()))
-        outcome = handler.last_outcome or self._replay_succeeded(
-            repository, snapshot, request
+        return self._invoke(
+            RunRepository(run_root),
+            resolved_run_id,
+            _StandaloneInvocation(0, "generate", request, None),
+            options=options,
         )
-        return LLMRunResult(snapshot, outcome)
 
     def resume(
         self,
@@ -355,7 +583,7 @@ class LLMClient:
         options: LLMExecutionOptions = LLMExecutionOptions(),
     ) -> LLMRunResult:
         repository = RunRepository(run_root)
-        handler = _LLMHandler(self.service, options=options)
+        handler = _StandaloneHandler(self.service, options=options)
         try:
             snapshot = RunEngine(repository).resume(
                 run_id,
@@ -388,20 +616,82 @@ class LLMClient:
         authorization: AdoptionAuthorization | None = None,
     ) -> LLMRunResult:
         resolved_run_id = run_id or derive_run_id(HANDLER_NAME, request.task_id)
-        repository = RunRepository(run_root)
-        spec = RunSpec(resolved_run_id, HANDLER_NAME, semantic_document(request))
-        handler = _AdoptHandler(
+        return self._invoke(
+            RunRepository(run_root),
+            resolved_run_id,
+            _StandaloneInvocation(
+                0,
+                "adopt",
+                request,
+                _StandaloneAdoption(source, authorization),
+            ),
+            options=LLMExecutionOptions(),
+        )
+
+    def _invoke(
+        self,
+        repository: RunRepository,
+        run_id: str,
+        invocation: _StandaloneInvocation,
+        *,
+        options: LLMExecutionOptions,
+    ) -> LLMRunResult:
+        try:
+            durable = _reserve_standalone_invocation(
+                repository,
+                run_id,
+                invocation,
+            )
+        except CorruptStateError as exc:
+            snapshot = _snapshot_for_standalone_result(
+                repository,
+                run_id,
+                fallback_request=invocation.request,
+            )
+            return LLMRunResult(
+                snapshot,
+                LLMFailed(
+                    CorruptTaskStateError(
+                        f"Standalone LLM invocation is corrupt: {exc}",
+                        details={"code": "standalone_invocation_corrupt"},
+                    )
+                ),
+            )
+        if durable is not None and durable != invocation:
+            snapshot = _snapshot_for_standalone_result(
+                repository,
+                run_id,
+                fallback_request=durable.request,
+            )
+            return LLMRunResult(
+                snapshot,
+                LLMFailed(IdempotencyConflictError()),
+            )
+        handler = _StandaloneHandler(
             self.service,
-            request,
-            source,
-            authorization,
+            options=options,
         )
-        snapshot = RunEngine(repository).execute(spec, handler)
-        return LLMRunResult(
+        try:
+            snapshot = RunEngine(repository).execute(
+                RunSpec(
+                    run_id,
+                    HANDLER_NAME,
+                    semantic_document(invocation.request),
+                ),
+                handler,
+            )
+        except JobsIdempotencyConflictError:
+            snapshot = repository.inspect(run_id).snapshot
+            return LLMRunResult(
+                snapshot,
+                LLMFailed(IdempotencyConflictError()),
+            )
+        outcome = handler.last_outcome or self._replay_succeeded(
+            repository,
             snapshot,
-            handler.last_outcome
-            or self._replay_succeeded(repository, snapshot, request),
+            invocation.request,
         )
+        return LLMRunResult(snapshot, outcome)
 
     def inspect(self, *, run_root: Path, run_id: str) -> LLMRunView:
         return LLMRunView(RunRepository(run_root).inspect(run_id))
@@ -440,6 +730,72 @@ class LLMClient:
         if state is None:
             raise RuntimeError("LLM run has no durable task request.")
         return self.service._executor._load_request(context, state)
+
+
+def _standalone_invocation_store(
+    repository: RunRepository,
+    run_id: str,
+) -> AtomicStateStore[_StandaloneInvocation]:
+    return AtomicStateStore(
+        repository.run_directory(run_id)
+        / "state"
+        / "llm-standalone-invocation.json",
+        _StandaloneInvocationContract(),
+    )
+
+
+def _reserve_standalone_invocation(
+    repository: RunRepository,
+    run_id: str,
+    invocation: _StandaloneInvocation,
+) -> _StandaloneInvocation | None:
+    run_directory = repository.run_directory(run_id)
+    spec_path = run_directory / "spec.json"
+    store = _standalone_invocation_store(repository, run_id)
+    if spec_path.exists():
+        spec = repository.read_spec(run_id)
+        existing = store.read()
+        if (
+            existing is not None
+            and semantic_document(existing.request)
+            != dict(spec.semantic_input)
+        ):
+            raise CorruptStateError(
+                "standalone invocation does not match the immutable run spec"
+            )
+        return existing
+    existing = store.read()
+    if existing is None:
+        try:
+            store.create(invocation)
+            return invocation
+        except StateConflictError:
+            existing = store.read()
+    if existing is None:
+        raise CorruptStateError(
+            "standalone invocation disappeared after create conflict"
+        )
+    return existing
+
+
+def _snapshot_for_standalone_result(
+    repository: RunRepository,
+    run_id: str,
+    *,
+    fallback_request: LLMRequest,
+) -> RunSnapshot:
+    run_directory = repository.run_directory(run_id)
+    if (run_directory / "snapshot.json").exists():
+        return repository.inspect(run_id).snapshot
+    if (run_directory / "spec.json").exists():
+        spec = repository.read_spec(run_id)
+    else:
+        spec = RunSpec(
+            run_id,
+            HANDLER_NAME,
+            semantic_document(fallback_request),
+        )
+    return repository.create(spec)
 
 
 def _standalone_bootstrap_store(

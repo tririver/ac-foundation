@@ -8,10 +8,12 @@ import threading
 
 import pytest
 
+import arc_llm.api as api_module
 from arc_jobs import (
     ArtifactDigest,
     ArtifactSourceRef,
     RunContext,
+    RunEngine,
     RunRepository,
     ResumeReason,
     RunSpec,
@@ -19,6 +21,7 @@ from arc_jobs import (
     StoppedError,
 )
 from arc_jobs import EffectStage
+from arc_jobs.lease import FileLease
 from arc_llm import (
     AdoptionAuthorization,
     ExecutionLimits,
@@ -49,11 +52,13 @@ from arc_llm import (
     ResumeAction,
     ResumeInput,
     SemanticKeyDigest,
+    request_to_document,
     resume_input_matches,
 )
 from arc_llm.identity import canonical_json_bytes, semantic_key
 from arc_llm.interaction import response_document
 from arc_llm.output import CandidateMaterial
+from arc_llm.executor import HANDLER_NAME
 from arc_llm.recovery import effect_id_for
 
 
@@ -836,7 +841,7 @@ def test_input_artifact_is_verified_and_materialized_before_provider_call(
     assert b'"mode":"read_tool"' in recipe.read_bytes()
 
 
-def test_relocated_input_source_replays_same_standalone_run(
+def test_relocated_input_source_conflicts_with_immutable_standalone_invocation(
     tmp_path: Path,
     adapter,
     registry,
@@ -869,8 +874,421 @@ def test_relocated_input_source_replays_same_standalone_run(
     second = client.generate(second_request, run_root=tmp_path, run_id="llm-run")
 
     assert isinstance(first.outcome, LLMCompleted)
-    assert isinstance(second.outcome, LLMCompleted)
+    assert isinstance(second.outcome, LLMFailed)
+    assert second.outcome.error.code.value == "idempotency_conflict"
+    assert semantic_key(first_request) == semantic_key(second_request)
     assert adapter.start_calls == 1
+
+
+def test_new_standalone_run_writes_only_fixed_closed_invocation_v1(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    request = _request("fixed-invocation")
+
+    result = LLMClient(registry=registry).generate(
+        request,
+        run_root=tmp_path,
+        run_id="llm-run",
+    )
+
+    assert isinstance(result.outcome, LLMCompleted)
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "llm-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    document = json.loads(invocation_path.read_text(encoding="utf-8"))
+    assert set(document) == {
+        "schema_version",
+        "contract_schema_version",
+        "revision",
+        "value",
+    }
+    assert document["schema_version"] == "arc.jobs.state.v1"
+    assert (
+        document["contract_schema_version"]
+        == "arc.llm.standalone_invocation.v1"
+    )
+    assert document["revision"] == 0
+    assert set(document["value"]) == {
+        "revision",
+        "mode",
+        "request",
+        "adoption",
+    }
+    assert document["value"]["revision"] == 0
+    assert document["value"]["mode"] == "generate"
+    assert document["value"]["request"] == request_to_document(request)
+    assert document["value"]["adoption"] is None
+    assert not list(invocation_path.parent.glob("llm-bootstrap-*.json"))
+
+
+def test_provider_runs_after_standalone_invocation_lock_is_released(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "llm-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    original_start = adapter.start
+
+    def start(request, observer, stop):
+        FileLease(
+            invocation_path.with_suffix(
+                f"{invocation_path.suffix}.lock"
+            )
+        ).acquire().release()
+        return original_start(request, observer, stop)
+
+    adapter.start = start
+    adapter.steps.append(_completed({"answer": 42}))
+
+    result = LLMClient(registry=registry).generate(
+        _request("released-invocation-lock"),
+        run_root=tmp_path,
+        run_id="llm-run",
+    )
+
+    assert isinstance(result.outcome, LLMCompleted)
+    assert adapter.start_calls == 1
+
+
+def test_conflicting_request_does_not_persist_into_existing_invocation(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    original = _request("bound-task")
+    conflicting = replace(original, prompt="A prompt that must not be persisted.")
+
+    first = client.generate(original, run_root=tmp_path, run_id="llm-run")
+    second = client.generate(
+        conflicting,
+        run_root=tmp_path,
+        run_id="llm-run",
+    )
+
+    assert isinstance(first.outcome, LLMCompleted)
+    assert isinstance(second.outcome, LLMFailed)
+    assert second.outcome.error.code.value == "idempotency_conflict"
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "llm-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    invocation_bytes = invocation_path.read_bytes()
+    assert original.prompt.encode() in invocation_bytes
+    assert conflicting.prompt.encode() not in invocation_bytes
+    assert not list(invocation_path.parent.glob("llm-bootstrap-*.json"))
+    assert adapter.start_calls == 1
+
+
+def test_closed_invocation_bound_to_different_spec_fails_as_corrupt(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    original = _request("bound-task")
+    completed = client.generate(
+        original,
+        run_root=tmp_path,
+        run_id="llm-run",
+    )
+    assert isinstance(completed.outcome, LLMCompleted)
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "llm-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    document = json.loads(invocation_path.read_text(encoding="utf-8"))
+    document["value"]["request"]["prompt"] = "Wrong durable prompt."
+    invocation_path.write_text(json.dumps(document), encoding="utf-8")
+
+    result = client.generate(
+        replace(original, prompt="Caller conflict."),
+        run_root=tmp_path,
+        run_id="llm-run",
+    )
+
+    assert isinstance(result.outcome, LLMFailed)
+    assert result.outcome.error.code.value == "corrupt_state"
+    assert (
+        result.outcome.error.details["code"]
+        == "standalone_invocation_corrupt"
+    )
+    assert adapter.start_calls == 1
+
+
+def test_concurrent_conflicting_invocations_publish_one_lineage(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    requests = (
+        _request("concurrent-task"),
+        replace(
+            _request("concurrent-task"),
+            prompt="Concurrent conflicting prompt.",
+        ),
+    )
+    ready = threading.Barrier(2)
+
+    def invoke(request):
+        ready.wait(timeout=5)
+        return request, client.generate(
+            request,
+            run_root=tmp_path,
+            run_id="llm-run",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(invoke, requests))
+
+    completed = [
+        (request, result)
+        for request, result in results
+        if isinstance(result.outcome, LLMCompleted)
+    ]
+    conflicts = [
+        result
+        for _, result in results
+        if isinstance(result.outcome, LLMFailed)
+    ]
+    assert len(completed) == 1
+    assert len(conflicts) == 1
+    assert conflicts[0].outcome.error.code.value == "idempotency_conflict"
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "llm-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    invocation = json.loads(
+        invocation_path.read_text(encoding="utf-8")
+    )["value"]
+    assert invocation["request"] == request_to_document(completed[0][0])
+    assert adapter.start_calls == 1
+
+
+def test_standalone_adopt_invocation_recovers_source_and_authorization(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    source_request = _request("source")
+    source_result = client.generate(
+        source_request,
+        run_root=tmp_path,
+        run_id="source-run",
+    )
+    assert source_result.snapshot.result_ref is not None
+    source = ArtifactSourceRef(
+        "source-run",
+        source_result.snapshot.result_ref.artifact_id,
+        source_result.snapshot.result_ref.digest,
+    )
+    target_request = replace(source_request, task_id="target")
+    authorization = AdoptionAuthorization(
+        semantic_key(source_request),
+        semantic_key(target_request),
+        "Reviewed recovery reuse",
+    )
+    original_adopt = client.service.adopt_and_revalidate
+
+    def crash_before_task_state(*args, **kwargs):
+        raise KeyboardInterrupt("simulated adoption crash")
+
+    monkeypatch.setattr(
+        client.service,
+        "adopt_and_revalidate",
+        crash_before_task_state,
+    )
+    with pytest.raises(KeyboardInterrupt, match="adoption crash"):
+        client.adopt(
+            target_request,
+            source,
+            run_root=tmp_path,
+            run_id="adopt-run",
+            authorization=authorization,
+        )
+
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "adopt-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    invocation = json.loads(
+        invocation_path.read_text(encoding="utf-8")
+    )["value"]
+    assert invocation["mode"] == "adopt"
+    assert invocation["adoption"] == {
+        "source_run_id": source.source_run_id,
+        "source_artifact_id": source.source_artifact_id,
+        "expected_digest": {
+            "algorithm": "sha256",
+            "value": source.expected_digest.value,
+            "size_bytes": source.expected_digest.size_bytes,
+        },
+        "authorization": {
+            "source_semantic_key_sha256": (
+                authorization.source_semantic_key.sha256
+            ),
+            "target_semantic_key_sha256": (
+                authorization.target_semantic_key.sha256
+            ),
+            "reason": authorization.reason,
+        },
+    }
+
+    monkeypatch.setattr(
+        client.service,
+        "adopt_and_revalidate",
+        original_adopt,
+    )
+    resumed = client.resume(run_root=tmp_path, run_id="adopt-run")
+
+    assert resumed.snapshot.status is RunStatus.SUCCEEDED
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 1
+
+
+def test_standalone_mode_change_returns_typed_conflict(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    request = _request("mode-conflict")
+    generated = client.generate(
+        request,
+        run_root=tmp_path,
+        run_id="llm-run",
+    )
+    assert generated.snapshot.result_ref is not None
+    source = ArtifactSourceRef(
+        generated.snapshot.run_id,
+        generated.snapshot.result_ref.artifact_id,
+        generated.snapshot.result_ref.digest,
+    )
+
+    conflict = client.adopt(
+        request,
+        source,
+        run_root=tmp_path,
+        run_id="llm-run",
+    )
+
+    assert isinstance(conflict.outcome, LLMFailed)
+    assert conflict.outcome.error.code.value == "idempotency_conflict"
+    assert adapter.start_calls == 1
+
+
+def test_standalone_adoption_source_and_authorization_are_immutable(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"answer": 1}, handle="source-1"),
+            _completed({"answer": 2}, handle="source-2"),
+        )
+    )
+    client = LLMClient(registry=registry)
+    first_request = _request("source-1")
+    second_request = _request("source-2")
+    first_result = client.generate(
+        first_request,
+        run_root=tmp_path,
+        run_id="source-run-1",
+    )
+    second_result = client.generate(
+        second_request,
+        run_root=tmp_path,
+        run_id="source-run-2",
+    )
+    assert first_result.snapshot.result_ref is not None
+    assert second_result.snapshot.result_ref is not None
+    first_source = ArtifactSourceRef(
+        first_result.snapshot.run_id,
+        first_result.snapshot.result_ref.artifact_id,
+        first_result.snapshot.result_ref.digest,
+    )
+    second_source = ArtifactSourceRef(
+        second_result.snapshot.run_id,
+        second_result.snapshot.result_ref.artifact_id,
+        second_result.snapshot.result_ref.digest,
+    )
+    target_request = _request("target")
+    first_authorization = AdoptionAuthorization(
+        semantic_key(first_request),
+        semantic_key(target_request),
+        "First reviewed reuse",
+    )
+    adopted = client.adopt(
+        target_request,
+        first_source,
+        run_root=tmp_path,
+        run_id="adopt-run",
+        authorization=first_authorization,
+    )
+
+    source_conflict = client.adopt(
+        target_request,
+        second_source,
+        run_root=tmp_path,
+        run_id="adopt-run",
+        authorization=AdoptionAuthorization(
+            semantic_key(second_request),
+            semantic_key(target_request),
+            "Second reviewed reuse",
+        ),
+    )
+    authorization_conflict = client.adopt(
+        target_request,
+        first_source,
+        run_root=tmp_path,
+        run_id="adopt-run",
+        authorization=AdoptionAuthorization(
+            semantic_key(first_request),
+            semantic_key(target_request),
+            "Changed reason",
+        ),
+    )
+
+    assert isinstance(adopted.outcome, LLMCompleted)
+    for conflict in (source_conflict, authorization_conflict):
+        assert isinstance(conflict.outcome, LLMFailed)
+        assert conflict.outcome.error.code.value == "idempotency_conflict"
+    assert adapter.start_calls == 2
 
 
 def test_standalone_resume_recovers_request_locators_before_task_state_exists(
@@ -918,6 +1336,152 @@ def test_standalone_resume_recovers_request_locators_before_task_state_exists(
     assert adapter.requests[0].inputs[0].sha256 == (
         input_artifact.source.expected_digest.value
     )
+
+
+def test_standalone_resume_reads_legacy_hashed_generate_bootstrap(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    request = _request("legacy-bootstrap")
+    repository = RunRepository(tmp_path)
+    api_module._publish_standalone_bootstrap(
+        repository,
+        "legacy-run",
+        request,
+    )
+
+    class CrashHandler:
+        name = HANDLER_NAME
+
+        def execute(self, context):
+            raise KeyboardInterrupt("legacy crash")
+
+    with pytest.raises(KeyboardInterrupt, match="legacy crash"):
+        RunEngine(repository).execute(
+            RunSpec(
+                "legacy-run",
+                HANDLER_NAME,
+                api_module.semantic_document(request),
+            ),
+            CrashHandler(),
+        )
+    adapter.steps.append(_completed({"answer": 42}))
+
+    client = LLMClient(registry=registry)
+    resumed = client.resume(
+        run_root=tmp_path,
+        run_id="legacy-run",
+    )
+    replayed = client.generate(
+        request,
+        run_root=tmp_path,
+        run_id="legacy-run",
+    )
+
+    assert resumed.snapshot.status is RunStatus.SUCCEEDED
+    assert isinstance(resumed.outcome, LLMCompleted)
+    assert resumed.outcome.value == {"answer": 42}
+    assert isinstance(replayed.outcome, LLMCompleted)
+    assert replayed.outcome.value == {"answer": 42}
+    assert not (
+        tmp_path
+        / "runs"
+        / "legacy-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    ).exists()
+
+
+def test_legacy_run_without_task_or_invocation_fails_typed_recovery(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    request = _request("legacy-adopt-crash")
+    repository = RunRepository(tmp_path)
+
+    class CrashHandler:
+        name = HANDLER_NAME
+
+        def execute(self, context):
+            raise KeyboardInterrupt("legacy adoption crash")
+
+    with pytest.raises(KeyboardInterrupt, match="legacy adoption crash"):
+        RunEngine(repository).execute(
+            RunSpec(
+                "legacy-adopt-run",
+                HANDLER_NAME,
+                api_module.semantic_document(request),
+            ),
+            CrashHandler(),
+        )
+
+    resumed = LLMClient(registry=registry).resume(
+        run_root=tmp_path,
+        run_id="legacy-adopt-run",
+    )
+
+    assert resumed.snapshot.status is RunStatus.FAILED
+    assert isinstance(resumed.outcome, LLMFailed)
+    assert resumed.outcome.error.code.value == "corrupt_state"
+    assert (
+        resumed.outcome.error.details["code"]
+        == "standalone_invocation_missing"
+    )
+    assert adapter.start_calls == 0
+
+
+def test_corrupt_standalone_invocation_fails_closed_without_provider(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    request = _request("corrupt-invocation")
+    client = LLMClient(registry=registry)
+    original_execute = client.service._executor.execute
+
+    def crash_before_task_state(*args, **kwargs):
+        raise KeyboardInterrupt("invocation corruption fixture")
+
+    monkeypatch.setattr(
+        client.service._executor,
+        "execute",
+        crash_before_task_state,
+    )
+    with pytest.raises(KeyboardInterrupt, match="corruption fixture"):
+        client.generate(
+            request,
+            run_root=tmp_path,
+            run_id="corrupt-run",
+        )
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "corrupt-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    document = json.loads(invocation_path.read_text(encoding="utf-8"))
+    document["value"]["unknown"] = True
+    invocation_path.write_text(json.dumps(document), encoding="utf-8")
+    monkeypatch.setattr(
+        client.service._executor,
+        "execute",
+        original_execute,
+    )
+
+    resumed = client.resume(run_root=tmp_path, run_id="corrupt-run")
+
+    assert resumed.snapshot.status is RunStatus.FAILED
+    assert isinstance(resumed.outcome, LLMFailed)
+    assert resumed.outcome.error.code.value == "corrupt_state"
+    assert (
+        resumed.outcome.error.details["code"]
+        == "standalone_invocation_corrupt"
+    )
+    assert adapter.start_calls == 0
 
 
 def test_standalone_resume_reuses_canonical_input_published_before_task_state(

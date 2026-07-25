@@ -154,8 +154,13 @@ class ExecutionMismatchError(ArcLLMError):
 
 
 class CorruptTaskStateError(ArcLLMError):
-    def __init__(self, message: str) -> None:
-        super().__init__(ErrorCode.CORRUPT_STATE, message)
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(ErrorCode.CORRUPT_STATE, message, details=details)
 
 
 class AdoptionConflictError(ArcLLMError):
