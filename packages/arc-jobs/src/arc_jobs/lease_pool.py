@@ -64,7 +64,7 @@ class BoundedLeasePool:
                 "capacity": self.capacity,
             }
             if not path.exists():
-                atomic_write_json(path, expected, exclusive=True)
+                atomic_write_json(path, expected)
                 return
             document = read_json_object(path)
             require_fields(document, required={"schema_version", "capacity"})

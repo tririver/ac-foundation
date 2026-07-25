@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 from .errors import RunBusyError
 
@@ -21,8 +23,10 @@ _LOCAL_LEASES: dict[str, threading.Lock] = {}
 
 
 class FileLease:
-    def __init__(self, path: Path):
-        self.path = path
+    """An exclusive advisory lease for cooperating local processes."""
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
         self._handle = None
         self._local_lock: threading.Lock | None = None
 
@@ -99,7 +103,27 @@ class FileLease:
                     local_lock.release()
 
     def __enter__(self) -> "FileLease":
+        if self._handle is not None:
+            return self
         return self.acquire()
 
     def __exit__(self, *_: object) -> None:
         self.release()
+
+
+@contextmanager
+def file_lease(
+    path: str | Path,
+    *,
+    blocking: bool = False,
+) -> Iterator[FileLease]:
+    """Acquire one cooperating-process lease exactly once for a context."""
+
+    lease = FileLease(path).acquire(blocking=blocking)
+    try:
+        yield lease
+    finally:
+        lease.release()
+
+
+__all__ = ["FileLease", "file_lease"]

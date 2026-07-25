@@ -189,7 +189,7 @@ def test_os_releases_execution_lease_when_owner_exits(tmp_path):
     script = (
         "import os, sys\n"
         "from pathlib import Path\n"
-        "from arc_jobs.lease import FileLease\n"
+        "from arc_jobs import FileLease\n"
         "FileLease(Path(sys.argv[1])).acquire()\n"
         "os._exit(0)\n"
     )
@@ -201,7 +201,7 @@ def test_os_releases_execution_lease_when_owner_exits(tmp_path):
     )
     assert completed.returncode == 0, completed.stderr.decode(errors="replace")
 
-    from arc_jobs.lease import FileLease
+    from arc_jobs import FileLease
 
     FileLease(lease_path).acquire().release()
 

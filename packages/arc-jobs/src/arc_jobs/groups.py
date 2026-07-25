@@ -195,7 +195,7 @@ class WorkGroupRunner:
             if existing_state != state:
                 raise ResumeMismatchError(f"group {group_id!r} unit set changed")
         else:
-            atomic_write_json(state_path, state, exclusive=True)
+            atomic_write_json(state_path, state)
 
         results: dict[str, UnitResult] = {}
         pending: deque[WorkUnit] = deque()
@@ -268,7 +268,6 @@ class WorkGroupRunner:
             atomic_write_json(
                 group_directory / "units" / f"{unit.unit_id}.json",
                 document,
-                exclusive=True,
             )
             self.events.emit(
                 "group_unit_finished",

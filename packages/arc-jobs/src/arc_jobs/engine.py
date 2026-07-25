@@ -369,13 +369,12 @@ class _SnapshotStore:
 
     def create(self, value: RunSnapshot) -> RunSnapshot:
         self._validate(None, value)
-        try:
-            atomic_write_json(self.path, self._encode(value), exclusive=True)
-        except FileExistsError:
+        if self.path.exists():
             current = self.read()
             if current != value:
                 raise RevisionConflictError("snapshot already exists")
             return current
+        atomic_write_json(self.path, self._encode(value))
         return value
 
     def compare_and_swap(
@@ -775,13 +774,7 @@ class RunEngine:
                     "the same resume key was submitted with different input"
                 )
         else:
-            try:
-                atomic_write_json(path, document, exclusive=True)
-            except FileExistsError:
-                if read_json_object(path) != document:
-                    raise ResumeInputConflictError(
-                        "the same resume key was submitted with different input"
-                    )
+            atomic_write_json(path, document)
         return resume_input
 
     def _validate_replayed_resume_input(

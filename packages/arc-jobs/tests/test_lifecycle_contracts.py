@@ -18,6 +18,7 @@ from arc_jobs import (
     EffectStage,
     EventWriter,
     Failed,
+    FileLease,
     FailureMode,
     InvalidTransitionError,
     Paused,
@@ -41,7 +42,6 @@ from arc_jobs import (
     validate_artifact_id,
     validate_simple_id,
 )
-from arc_jobs.lease import FileLease
 
 
 def test_simple_and_hierarchical_identifier_contracts():

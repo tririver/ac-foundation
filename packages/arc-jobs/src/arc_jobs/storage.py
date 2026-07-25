@@ -27,6 +27,7 @@ from .models import (
 )
 
 T = TypeVar("T")
+_WINDOWS = os.name == "nt"
 
 
 def utc_now() -> str:
@@ -44,7 +45,7 @@ def _ensure_directory(path: Path) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    if os.name == "nt":  # pragma: no cover - Windows
+    if _WINDOWS:  # pragma: no cover - Windows
         return
     fd = os.open(path, os.O_RDONLY)
     try:
@@ -53,28 +54,53 @@ def _fsync_directory(path: Path) -> None:
         os.close(fd)
 
 
-def atomic_write_bytes(path: Path, content: bytes, *, exclusive: bool = False) -> None:
+def _set_private_file_mode(fd: int, path: Path) -> None:
+    if not _WINDOWS:
+        os.fchmod(fd, 0o600)
+        return
+    try:  # pragma: no cover - Windows
+        os.chmod(path, 0o600)
+    except OSError:
+        # Windows permissions are ACL-backed and may not support POSIX modes.
+        pass
+
+
+def atomic_write_bytes(path: str | Path, content: bytes) -> None:
+    """Durably replace a file for callers using cooperating-process leases.
+
+    The final replace is atomic on supported local filesystems. This helper
+    does not provide create-if-absent semantics or hostile-filesystem safety.
+    """
+
+    path = Path(path)
+    if not isinstance(content, bytes):
+        raise TypeError("atomic content must be bytes")
     _ensure_directory(path.parent)
-    if exclusive and path.exists():
-        raise FileExistsError(path)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary_path = Path(temporary)
     try:
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "wb") as handle:
+        _set_private_file_mode(fd, temporary_path)
+        handle = os.fdopen(fd, "wb")
+        fd = -1
+        with handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        if exclusive and path.exists():
-            raise FileExistsError(path)
         os.replace(temporary_path, path)
         _fsync_directory(path.parent)
     finally:
+        if fd >= 0:
+            os.close(fd)
         temporary_path.unlink(missing_ok=True)
 
 
-def atomic_write_json(path: Path, value: Mapping[str, JsonValue], *, exclusive: bool = False) -> None:
-    atomic_write_bytes(path, canonical_json_bytes(value) + b"\n", exclusive=exclusive)
+def atomic_write_json(
+    path: str | Path,
+    value: Mapping[str, JsonValue],
+) -> None:
+    """Durably replace one canonical JSON object."""
+
+    atomic_write_bytes(path, canonical_json_bytes(value) + b"\n")
 
 
 def read_json_object(path: Path) -> dict[str, JsonValue]:

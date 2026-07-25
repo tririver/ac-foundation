@@ -30,6 +30,7 @@ from .errors import (
 )
 from .stopping import StopToken
 from .events import EventWriter
+from .lease import FileLease, file_lease
 from .lease_pool import BoundedLease, BoundedLeasePool
 from .identity import (
     canonical_json_bytes,
@@ -92,7 +93,12 @@ from .protocol import (
     validate_command_result,
 )
 from .progress import validate_progress_data
-from .storage import AtomicStateStore, ImmutableArtifactStore
+from .storage import (
+    AtomicStateStore,
+    ImmutableArtifactStore,
+    atomic_write_bytes,
+    atomic_write_json,
+)
 
 __version__ = "1.0.1"
 
@@ -122,6 +128,7 @@ __all__ = [
     "ExecutionFingerprint",
     "ExecutionSlice",
     "Failed",
+    "FileLease",
     "FailureMode",
     "GroupExecutionResult",
     "GroupResult",
@@ -168,6 +175,8 @@ __all__ = [
     "VerifiedArtifact",
     "WorkUnit",
     "canonical_json_bytes",
+    "atomic_write_bytes",
+    "atomic_write_json",
     "command_result_from_snapshot",
     "command_result_json",
     "decode_command_result",
@@ -178,6 +187,7 @@ __all__ = [
     "encode_artifact_ref",
     "encode_command_result",
     "encode_progress_event",
+    "file_lease",
     "resume_from_awaiting",
     "run_control_main",
     "semantic_key",
