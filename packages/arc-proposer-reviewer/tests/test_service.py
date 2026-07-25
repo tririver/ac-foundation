@@ -16,12 +16,16 @@ from arc_jobs import (
 )
 from arc_llm import (
     CapabilityPolicy,
+    InteractiveJsonOutput,
+    InteractionRequest,
+    InteractionResponse,
     InvalidRequestError,
     JsonOutput,
     LLMCompleted,
     LLMFailed,
     LLMPaused,
     ModelSelection,
+    OperationContract,
     ResumeReason,
     SessionRef,
 )
@@ -37,6 +41,7 @@ from arc_proposer_reviewer import (
 )
 from arc_proposer_reviewer.models import BATCH_SCHEMA_VERSION
 from arc_proposer_reviewer.protocol import decode_batch_result, encode_batch_request
+from arc_proposer_reviewer.prompts import reviewer_envelope_schema
 
 
 PROPOSAL_SCHEMA = {
@@ -51,6 +56,20 @@ REVIEW_PAYLOAD_SCHEMA = {
     "properties": {"score": {"type": "integer"}},
     "additionalProperties": False,
 }
+LOOKUP_OPERATION = OperationContract(
+    arguments_schema={
+        "type": "object",
+        "required": ["query"],
+        "properties": {"query": {"type": "string"}},
+        "additionalProperties": False,
+    },
+    response_schema={
+        "type": "object",
+        "required": ["value"],
+        "properties": {"value": {"type": "string"}},
+        "additionalProperties": False,
+    },
+)
 
 
 class FakeLLM:
@@ -97,7 +116,12 @@ def _completed(request):
             None,
             None,
         )
-    feedback_schema = request.output.schema["properties"]["feedback"]
+    output_schema = (
+        request.output.result_schema
+        if isinstance(request.output, InteractiveJsonOutput)
+        else request.output.schema
+    )
+    feedback_schema = output_schema["properties"]["feedback"]
     active_ids = feedback_schema["required"]
     return LLMCompleted(
         {
@@ -194,6 +218,88 @@ def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
     )
     assert replayed == snapshot
     assert len(fake.calls) == 2
+
+
+def test_interactive_worker_contracts_reach_proposer_and_reviewer(
+    tmp_path: Path,
+) -> None:
+    class FakeInteractionResolver:
+        def __init__(self) -> None:
+            self.requests: list[InteractionRequest] = []
+
+        def resolve(self, request: InteractionRequest) -> InteractionResponse:
+            self.requests.append(request)
+            return InteractionResponse(request.request_id, result={"value": "evidence"})
+
+    class InteractiveFake(FakeLLM):
+        def __init__(self, resolver: FakeInteractionResolver) -> None:
+            super().__init__()
+            self.resolver = resolver
+            self.requests = []
+            self.options = []
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.requests.append(request)
+            self.options.append(options)
+            assert isinstance(request.output, InteractiveJsonOutput)
+            assert options.interaction_resolver is self.resolver
+            self.resolver.resolve(
+                InteractionRequest(
+                    request_id=f"interaction-{len(self.requests)}",
+                    operation="lookup",
+                    arguments={"query": "evidence"},
+                )
+            )
+            return _completed(request)
+
+    resolver = FakeInteractionResolver()
+    fake = InteractiveFake(resolver)
+    proposer = WorkerSpec(
+        "loop-a-p",
+        "Produce a proposal.",
+        PROPOSAL_SCHEMA,
+        interaction_operations={"lookup": LOOKUP_OPERATION},
+        max_interaction_turns=2,
+    )
+    reviewer = WorkerSpec(
+        "loop-a-r",
+        "Review all proposals.",
+        REVIEW_PAYLOAD_SCHEMA,
+        interaction_operations={"lookup": LOOKUP_OPERATION},
+        max_interaction_turns=3,
+    )
+    loop = LoopSpec(
+        loop_id="loop-a",
+        context={"question": "loop-a"},
+        proposers=(proposer,),
+        reviewer=reviewer,
+        max_rounds=1,
+        allow_early_stop=True,
+    )
+
+    _repository, _handler, snapshot = _run(
+        tmp_path,
+        _request(loop),
+        fake,
+        options=ExecutionOptions(interaction_resolver=resolver),
+    )
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    assert len(fake.requests) == 2
+    proposer_output, reviewer_output = (request.output for request in fake.requests)
+    assert isinstance(proposer_output, InteractiveJsonOutput)
+    assert proposer_output.result_schema == PROPOSAL_SCHEMA
+    assert proposer_output.operations == {"lookup": LOOKUP_OPERATION}
+    assert proposer_output.max_interaction_turns == 2
+    assert isinstance(reviewer_output, InteractiveJsonOutput)
+    assert reviewer_output.result_schema == reviewer_envelope_schema(
+        payload_schema=REVIEW_PAYLOAD_SCHEMA,
+        active_proposer_ids=("loop-a-p",),
+    )
+    assert reviewer_output.operations == {"lookup": LOOKUP_OPERATION}
+    assert reviewer_output.max_interaction_turns == 3
+    assert [request.operation for request in resolver.requests] == ["lookup", "lookup"]
 
 
 def test_stop_is_recorded_but_ignored_when_early_stop_is_disabled(

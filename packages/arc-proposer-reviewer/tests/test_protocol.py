@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 
 import pytest
 
@@ -14,7 +15,7 @@ from arc_proposer_reviewer.models import (
 )
 from arc_proposer_reviewer.protocol import decode_batch_request, encode_batch_request
 from arc_proposer_reviewer.validation import RequestValidationError
-from arc_llm import CapabilityPolicy, ModelSelection
+from arc_llm import CapabilityPolicy, ModelSelection, OperationContract
 
 
 SCHEMA = {
@@ -23,6 +24,21 @@ SCHEMA = {
     "properties": {"answer": {"type": "string"}},
     "additionalProperties": False,
 }
+
+LOOKUP_OPERATION = OperationContract(
+    arguments_schema={
+        "type": "object",
+        "required": ["query"],
+        "properties": {"query": {"type": "string"}},
+        "additionalProperties": False,
+    },
+    response_schema={
+        "type": "object",
+        "required": ["value"],
+        "properties": {"value": {"type": "string"}},
+        "additionalProperties": False,
+    },
+)
 
 
 def request() -> BatchRequest:
@@ -67,6 +83,110 @@ def test_batch_request_round_trips_without_losing_typed_llm_options() -> None:
     assert proposer.model.model == "gpt-test"
     assert proposer.capabilities.internet is True
     assert proposer.capabilities.allowed_tools == ("search",)
+
+
+def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
+    original = request()
+    loop = original.loops[0]
+    proposer = replace(
+        loop.proposers[0],
+        interaction_operations={"lookup": LOOKUP_OPERATION},
+        max_interaction_turns=4,
+    )
+    reviewer = replace(
+        loop.reviewer,
+        interaction_operations={"lookup": LOOKUP_OPERATION},
+        max_interaction_turns=3,
+    )
+    configured = BatchRequest(
+        schema_version=original.schema_version,
+        batch_id=original.batch_id,
+        loops=(
+            LoopSpec(
+                loop_id=loop.loop_id,
+                context=loop.context,
+                proposers=(proposer,),
+                reviewer=reviewer,
+                max_rounds=loop.max_rounds,
+                allow_early_stop=loop.allow_early_stop,
+                on_proposer_failure=loop.on_proposer_failure,
+            ),
+        ),
+        failure_policy=original.failure_policy,
+    )
+
+    encoded = encode_batch_request(configured)
+    proposer_document = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
+    assert set(proposer_document) == {
+        "worker_id",
+        "instructions",
+        "output_schema",
+        "model",
+        "capabilities",
+        "interaction_operations",
+        "max_interaction_turns",
+    }
+    assert proposer_document["interaction_operations"] == {  # type: ignore[index]
+        "lookup": {
+            "arguments_schema": dict(LOOKUP_OPERATION.arguments_schema),
+            "response_schema": dict(LOOKUP_OPERATION.response_schema),
+        }
+    }
+    assert decode_batch_request(encoded) == configured
+
+    proposer_document["interaction_operations"]["lookup"]["surprise"] = True  # type: ignore[index]
+    with pytest.raises(RequestValidationError, match="unknown field"):
+        decode_batch_request(encoded)
+
+
+def test_default_worker_protocol_shape_remains_v1_compatible() -> None:
+    encoded = encode_batch_request(request())
+    proposer_document = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
+    assert set(proposer_document) == {
+        "worker_id",
+        "instructions",
+        "output_schema",
+        "model",
+        "capabilities",
+    }
+
+
+@pytest.mark.parametrize(
+    "interaction_operations,max_turns",
+    [
+        ({"": LOOKUP_OPERATION}, 2),
+        ({"lookup": object()}, 2),
+        ({"lookup": LOOKUP_OPERATION}, 0),
+    ],
+)
+def test_invalid_worker_interaction_contract_is_rejected(
+    interaction_operations, max_turns: int
+) -> None:
+    original = request()
+    loop = original.loops[0]
+    invalid_proposer = replace(
+        loop.proposers[0],
+        interaction_operations=interaction_operations,
+        max_interaction_turns=max_turns,
+    )
+    invalid = BatchRequest(
+        schema_version=original.schema_version,
+        batch_id=original.batch_id,
+        loops=(
+            LoopSpec(
+                loop_id=loop.loop_id,
+                context=loop.context,
+                proposers=(invalid_proposer,),
+                reviewer=loop.reviewer,
+                max_rounds=loop.max_rounds,
+                allow_early_stop=loop.allow_early_stop,
+                on_proposer_failure=loop.on_proposer_failure,
+            ),
+        ),
+        failure_policy=original.failure_policy,
+    )
+    with pytest.raises(RequestValidationError):
+        encode_batch_request(invalid)
 
 
 def test_unknown_request_field_is_rejected() -> None:

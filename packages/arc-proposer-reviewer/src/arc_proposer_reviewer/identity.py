@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Mapping
+from typing import Literal, Mapping, cast
 
 from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
 
@@ -12,7 +12,7 @@ LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v1"
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
-    return {
+    document: dict[str, JsonValue] = {
         "worker_id": worker.worker_id,
         "instructions": worker.instructions,
         "output_schema": dict(worker.output_schema),
@@ -27,6 +27,22 @@ def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
             "allowed_tools": list(worker.capabilities.allowed_tools),
         },
     }
+    # Preserve the v1 no-interaction durable bytes and semantic keys. Once
+    # configured, the interaction contract is closed and order-independent.
+    if worker.interaction_operations:
+        document["interaction_operations"] = {
+            name: {
+                "arguments_schema": cast(
+                    JsonValue, dict(contract.arguments_schema)
+                ),
+                "response_schema": cast(
+                    JsonValue, dict(contract.response_schema)
+                ),
+            }
+            for name, contract in sorted(worker.interaction_operations.items())
+        }
+        document["max_interaction_turns"] = worker.max_interaction_turns
+    return document
 
 
 def loop_semantic_projection(loop: LoopSpec) -> dict[str, JsonValue]:

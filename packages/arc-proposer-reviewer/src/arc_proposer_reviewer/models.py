@@ -10,6 +10,7 @@ from arc_llm import (
     ExecutionLimits,
     InteractionResolver,
     ModelSelection,
+    OperationContract,
 )
 
 
@@ -41,6 +42,10 @@ class WorkerSpec:
     output_schema: Mapping[str, JsonValue]
     model: ModelSelection = field(default_factory=ModelSelection)
     capabilities: CapabilityPolicy = field(default_factory=CapabilityPolicy)
+    interaction_operations: Mapping[str, OperationContract] = field(
+        default_factory=dict
+    )
+    max_interaction_turns: int = 2
 
 
 @dataclass(frozen=True)

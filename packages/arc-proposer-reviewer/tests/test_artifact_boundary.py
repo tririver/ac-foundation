@@ -7,7 +7,11 @@ from arc_proposer_reviewer.artifacts import (
     artifact_ref_from_document,
     artifact_ref_to_document,
 )
-from arc_proposer_reviewer.dialogue import TranscriptTurn, encode_transcript_turn
+from arc_proposer_reviewer.dialogue import (
+    TranscriptTurn,
+    decode_transcript_turn,
+    encode_transcript_turn,
+)
 
 
 def _ref() -> ArtifactRef:
@@ -24,6 +28,17 @@ def test_proposer_reviewer_artifact_codec_uses_the_shared_document() -> None:
     assert artifact_ref_from_document(artifact_ref_to_document(_ref())) == _ref()
     turn = encode_transcript_turn(TranscriptTurn("proposer", "worker", 1, _ref()))
     assert turn["content_ref"] == encode_artifact_ref(_ref())
+
+
+def test_transcript_turn_codec_is_closed_and_round_trips() -> None:
+    turn = TranscriptTurn("proposer", "worker", 1, _ref(), ("reviewer",))
+    document = encode_transcript_turn(turn)
+
+    assert decode_transcript_turn(document) == turn
+
+    document["unknown"] = None
+    with pytest.raises(ValueError, match="closed shape"):
+        decode_transcript_turn(document)
 
 
 @pytest.mark.parametrize(

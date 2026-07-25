@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Mapping, cast
 
 from arc_jobs import (
@@ -15,13 +15,12 @@ from arc_jobs import (
     RunContext,
     RunError,
     RunOutcome,
-    semantic_key,
-    StateContract,
     Succeeded,
     UnitResult,
     WorkUnit,
 )
 from arc_llm import (
+    InteractiveJsonOutput,
     JsonOutput,
     LLMCancelled,
     LLMCompleted,
@@ -70,180 +69,21 @@ from .prompts import (
     reviewer_envelope_schema,
 )
 from .protocol import encode_batch_request, encode_batch_result
+from .state import (
+    _LoopState,
+    _LoopStateContract,
+    _PauseRecord,
+    _session_document,
+    _session_from_document,
+    batch_group_id,
+    proposer_group_id,
+    state_namespace,
+)
 from .validation import (
     decode_review,
     validate_batch_request,
     validate_execution_options,
 )
-
-
-_STATE_SCHEMA = "arc.proposer_reviewer.loop_state.v1"
-
-
-@dataclass(frozen=True)
-class _PauseRecord:
-    role: str
-    worker_id: str
-    round_number: int
-    task_id: str
-    awaiting: Awaiting
-
-
-@dataclass(frozen=True)
-class _LoopState:
-    revision: int
-    loop_id: str
-    rounds_completed: int
-    proposal_refs: Mapping[str, ArtifactRef]
-    current_proposer_ids: tuple[str, ...]
-    review_ref: ArtifactRef | None
-    proposer_sessions: Mapping[str, SessionRef]
-    reviewer_session: SessionRef | None
-    transcript_refs: tuple[ArtifactRef, ...]
-    pauses: Mapping[str, _PauseRecord]
-    termination: LoopTermination | None
-
-
-class _LoopStateContract(StateContract[_LoopState]):
-    schema_version = _STATE_SCHEMA
-
-    def encode(self, value: _LoopState) -> Mapping[str, JsonValue]:
-        return {
-            "revision": value.revision,
-            "loop_id": value.loop_id,
-            "rounds_completed": value.rounds_completed,
-            "proposal_refs": {
-                worker_id: artifact_ref_to_document(ref)
-                for worker_id, ref in value.proposal_refs.items()
-            },
-            "current_proposer_ids": list(value.current_proposer_ids),
-            "review_ref": (
-                None
-                if value.review_ref is None
-                else artifact_ref_to_document(value.review_ref)
-            ),
-            "proposer_sessions": {
-                worker_id: _session_document(session)
-                for worker_id, session in value.proposer_sessions.items()
-            },
-            "reviewer_session": (
-                None
-                if value.reviewer_session is None
-                else _session_document(value.reviewer_session)
-            ),
-            "transcript_refs": [
-                artifact_ref_to_document(ref) for ref in value.transcript_refs
-            ],
-            "pauses": {
-                key: _pause_document(record) for key, record in value.pauses.items()
-            },
-            "termination": (
-                None if value.termination is None else value.termination.value
-            ),
-        }
-
-    def decode(self, document: Mapping[str, JsonValue]) -> _LoopState:
-        expected = {
-            "revision",
-            "loop_id",
-            "rounds_completed",
-            "proposal_refs",
-            "current_proposer_ids",
-            "review_ref",
-            "proposer_sessions",
-            "reviewer_session",
-            "transcript_refs",
-            "pauses",
-            "termination",
-        }
-        if set(document) != expected:
-            raise ValueError("loop state uses an invalid closed shape")
-        revision = document["revision"]
-        rounds_completed = document["rounds_completed"]
-        loop_id = document["loop_id"]
-        if (
-            type(revision) is not int
-            or revision < 0
-            or type(rounds_completed) is not int
-            or rounds_completed < 0
-            or not isinstance(loop_id, str)
-        ):
-            raise ValueError("loop state has invalid scalar fields")
-        raw_proposals = _mapping(document["proposal_refs"], "proposal_refs")
-        raw_current_ids = document["current_proposer_ids"]
-        if not isinstance(raw_current_ids, list) or not all(
-            isinstance(item, str) for item in raw_current_ids
-        ):
-            raise ValueError("current_proposer_ids must be an array of strings")
-        raw_sessions = _mapping(document["proposer_sessions"], "proposer_sessions")
-        raw_pauses = _mapping(document["pauses"], "pauses")
-        raw_transcript = document["transcript_refs"]
-        if not isinstance(raw_transcript, list):
-            raise ValueError("transcript_refs must be an array")
-        raw_review = document["review_ref"]
-        raw_reviewer_session = document["reviewer_session"]
-        raw_termination = document["termination"]
-        if raw_termination is not None and not isinstance(raw_termination, str):
-            raise ValueError("termination must be a string or null")
-        return _LoopState(
-            revision=revision,
-            loop_id=loop_id,
-            rounds_completed=rounds_completed,
-            proposal_refs={
-                key: artifact_ref_from_document(value)
-                for key, value in raw_proposals.items()
-            },
-            current_proposer_ids=tuple(raw_current_ids),
-            review_ref=(
-                None
-                if raw_review is None
-                else artifact_ref_from_document(raw_review)
-            ),
-            proposer_sessions={
-                key: _session_from_document(value)
-                for key, value in raw_sessions.items()
-            },
-            reviewer_session=(
-                None
-                if raw_reviewer_session is None
-                else _session_from_document(raw_reviewer_session)
-            ),
-            transcript_refs=tuple(
-                artifact_ref_from_document(value) for value in raw_transcript
-            ),
-            pauses={
-                key: _pause_from_document(value) for key, value in raw_pauses.items()
-            },
-            termination=(
-                None
-                if raw_termination is None
-                else LoopTermination(raw_termination)
-            ),
-        )
-
-    def validate_transition(
-        self, previous: _LoopState | None, next: _LoopState
-    ) -> None:
-        if previous is None:
-            if next.revision != 0 or next.rounds_completed != 0:
-                raise ValueError("loop state must start at revision zero")
-            return
-        if next.loop_id != previous.loop_id:
-            raise ValueError("loop_id cannot change")
-        if next.revision != previous.revision + 1:
-            raise ValueError("loop state revision must advance by one")
-        if next.rounds_completed not in {
-            previous.rounds_completed,
-            previous.rounds_completed + 1,
-        }:
-            raise ValueError("rounds_completed must stay fixed or advance by one")
-        if (
-            next.rounds_completed == previous.rounds_completed + 1
-            and next.pauses
-        ):
-            raise ValueError("a committed round cannot retain paused workers")
-        if previous.termination is not None and next != previous:
-            raise ValueError("terminated loop state is immutable")
 
 
 class ProposerReviewerService:
@@ -291,7 +131,7 @@ class ProposerReviewerService:
             return UnitResult(unit.unit_id, "succeeded", document)
 
         grouped = context.run_group(
-            "batch.loops",
+            batch_group_id(),
             units,
             run_loop,
             max_workers=options.max_concurrent_loops,
@@ -355,8 +195,7 @@ class ProposerReviewerService:
         *,
         options: ExecutionOptions,
     ) -> LoopResult | Paused:
-        runtime_loop_id = _runtime_loop_id(loop.loop_id)
-        store = context.state(f"pr-loop-{runtime_loop_id}", _LoopStateContract())
+        store = context.state(state_namespace(loop.loop_id), _LoopStateContract())
         state = store.read()
         if state is None:
             state = store.create(
@@ -494,7 +333,7 @@ class ProposerReviewerService:
                 request = LLMRequest(
                     task_id=task_id,
                     prompt=prompt,
-                    output=JsonOutput(worker.output_schema),
+                    output=_worker_output(worker, worker.output_schema),
                     model=worker.model,
                     session=state.proposer_sessions.get(worker.worker_id),
                     capabilities=worker.capabilities,
@@ -564,7 +403,7 @@ class ProposerReviewerService:
             current_state = store.read()
             assert current_state is not None
             grouped = context.run_group(
-                f"pr.{runtime_loop_id}.r{round_number:03d}.proposers",
+                proposer_group_id(loop.loop_id, round_number),
                 tuple(proposer_units),
                 run_proposer,
                 max_workers=(
@@ -659,11 +498,12 @@ class ProposerReviewerService:
                     failed_proposer_ids=failed_ids,
                     transcript_refs=transcript_refs,
                 ),
-                output=JsonOutput(
+                output=_worker_output(
+                    loop.reviewer,
                     reviewer_envelope_schema(
                         payload_schema=loop.reviewer.output_schema,
                         active_proposer_ids=tuple(proposals),
-                    )
+                    ),
                 ),
                 model=loop.reviewer.model,
                 session=state.reviewer_session,
@@ -867,6 +707,20 @@ def _successful_loop(
     )
 
 
+def _worker_output(
+    worker: WorkerSpec,
+    result_schema: Mapping[str, JsonValue],
+) -> JsonOutput | InteractiveJsonOutput:
+    """Build the worker's declared output contract without changing v1 defaults."""
+    if not worker.interaction_operations:
+        return JsonOutput(result_schema)
+    return InteractiveJsonOutput(
+        result_schema=result_schema,
+        operations=worker.interaction_operations,
+        max_interaction_turns=worker.max_interaction_turns,
+    )
+
+
 def _failed_loop(
     loop: LoopSpec,
     state: _LoopState,
@@ -1000,93 +854,6 @@ def _remove_pause(context: RunContext, store: object, key: str) -> None:
 
 def _pause_key(role: str, worker_id: str) -> str:
     return f"{role}.{worker_id}"
-
-
-def _runtime_loop_id(loop_id: str) -> str:
-    return semantic_key(
-        {
-            "semantic_key_schema": "arc.proposer_reviewer.runtime_loop_id.v1",
-            "loop_id": loop_id,
-        }
-    ).sha256[:32]
-
-
-def _session_document(value: SessionRef) -> dict[str, JsonValue]:
-    return {
-        "session_key": value.session_key,
-        "accepted_prefix_sha256": value.accepted_prefix_sha256,
-    }
-
-
-def _session_from_document(value: JsonValue) -> SessionRef:
-    document = _mapping(value, "session")
-    if set(document) != {"session_key", "accepted_prefix_sha256"}:
-        raise ValueError("session uses an invalid closed shape")
-    session_key = document["session_key"]
-    digest = document["accepted_prefix_sha256"]
-    if not isinstance(session_key, str) or not isinstance(digest, str):
-        raise ValueError("session has invalid fields")
-    return SessionRef(session_key, digest)
-
-
-def _pause_document(value: _PauseRecord) -> dict[str, JsonValue]:
-    awaiting = value.awaiting
-    return {
-        "role": value.role,
-        "worker_id": value.worker_id,
-        "round": value.round_number,
-        "task_id": value.task_id,
-        "awaiting": {
-            "reason": awaiting.reason.value,
-            "resume_key": awaiting.resume_key,
-            "input_required": awaiting.input_required,
-            "request_ref": (
-                None
-                if awaiting.request_ref is None
-                else artifact_ref_to_document(awaiting.request_ref)
-            ),
-            "response_contract": awaiting.response_contract,
-            "details": dict(awaiting.details),
-        },
-    }
-
-
-def _pause_from_document(value: JsonValue) -> _PauseRecord:
-    from arc_jobs import ResumeReason
-
-    document = _mapping(value, "pause")
-    if set(document) != {"role", "worker_id", "round", "task_id", "awaiting"}:
-        raise ValueError("pause uses an invalid closed shape")
-    awaiting_doc = _mapping(document["awaiting"], "awaiting")
-    if set(awaiting_doc) != {
-        "reason",
-        "resume_key",
-        "input_required",
-        "request_ref",
-        "response_contract",
-        "details",
-    }:
-        raise ValueError("awaiting uses an invalid closed shape")
-    request_ref = awaiting_doc["request_ref"]
-    details = _mapping(awaiting_doc["details"], "awaiting.details")
-    return _PauseRecord(
-        role=cast(str, document["role"]),
-        worker_id=cast(str, document["worker_id"]),
-        round_number=cast(int, document["round"]),
-        task_id=cast(str, document["task_id"]),
-        awaiting=Awaiting(
-            reason=ResumeReason(cast(str, awaiting_doc["reason"])),
-            resume_key=cast(str, awaiting_doc["resume_key"]),
-            input_required=cast(bool, awaiting_doc["input_required"]),
-            request_ref=(
-                None
-                if request_ref is None
-                else artifact_ref_from_document(request_ref)
-            ),
-            response_contract=cast(str | None, awaiting_doc["response_contract"]),
-            details=details,
-        ),
-    )
 
 
 def _loop_result_document(value: LoopResult) -> dict[str, JsonValue]:

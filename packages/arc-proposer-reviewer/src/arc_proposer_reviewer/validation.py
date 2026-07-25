@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arc_jobs import InvalidRunIdError, JsonValue, validate_simple_id
-from arc_llm import ArcLLMError, JsonOutput
+from arc_llm import ArcLLMError, InteractiveJsonOutput, JsonOutput, OperationContract
 
 from .models import (
     BATCH_SCHEMA_VERSION,
@@ -150,6 +150,38 @@ def _validate_loop(loop: LoopSpec, path: tuple[str | int, ...]) -> None:
         except (ArcLLMError, TypeError, ValueError) as exc:
             raise RequestValidationError(
                 str(exc), worker_path + ("output_schema",)
+            ) from exc
+        _positive_int(
+            worker.max_interaction_turns,
+            worker_path + ("max_interaction_turns",),
+        )
+        if not isinstance(worker.interaction_operations, Mapping):
+            raise RequestValidationError(
+                "must be an object",
+                worker_path + ("interaction_operations",),
+            )
+        if not worker.interaction_operations:
+            continue
+        for name, contract in worker.interaction_operations.items():
+            operation_path = worker_path + ("interaction_operations",)
+            if not isinstance(name, str) or not name:
+                raise RequestValidationError(
+                    "operation names must be non-empty strings", operation_path
+                )
+            if not isinstance(contract, OperationContract):
+                raise RequestValidationError(
+                    "operation contracts must be OperationContract values",
+                    operation_path + (name,),
+                )
+        try:
+            InteractiveJsonOutput(
+                result_schema=worker.output_schema,
+                operations=dict(worker.interaction_operations),
+                max_interaction_turns=worker.max_interaction_turns,
+            )
+        except (ArcLLMError, TypeError, ValueError) as exc:
+            raise RequestValidationError(
+                str(exc), worker_path + ("interaction_operations",)
             ) from exc
 
 

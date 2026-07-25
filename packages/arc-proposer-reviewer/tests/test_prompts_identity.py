@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from arc_proposer_reviewer.identity import worker_semantic_key
+from arc_llm import OperationContract
+from arc_proposer_reviewer.identity import worker_contract_document, worker_semantic_key
 from arc_proposer_reviewer.models import LoopSpec, WorkerSpec
 from arc_proposer_reviewer.prompts import (
     render_delta_proposer_prompt,
@@ -12,6 +13,18 @@ from arc_proposer_reviewer.prompts import (
 
 
 SCHEMA = {"type": "object", "additionalProperties": True}
+LOOKUP_OPERATION = OperationContract(
+    arguments_schema={
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "additionalProperties": False,
+    },
+    response_schema={
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "additionalProperties": False,
+    },
+)
 
 
 def loop(loop_id: str = "loop-a") -> LoopSpec:
@@ -132,3 +145,41 @@ def test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops() ->
         worker=worker,
         upstream_digests={"prior": "abc"},
     )
+
+
+def test_worker_identity_includes_the_closed_interaction_contract() -> None:
+    value = loop()
+    worker = value.proposers[0]
+    configured = replace(
+        worker,
+        interaction_operations={"lookup": LOOKUP_OPERATION},
+        max_interaction_turns=2,
+    )
+    base = worker_semantic_key(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=worker,
+        upstream_digests={},
+    )
+    configured_key = worker_semantic_key(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=configured,
+        upstream_digests={},
+    )
+    assert configured_key != base
+    assert configured_key != worker_semantic_key(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=replace(configured, max_interaction_turns=3),
+        upstream_digests={},
+    )
+    assert worker_contract_document(configured)["interaction_operations"] == {
+        "lookup": {
+            "arguments_schema": dict(LOOKUP_OPERATION.arguments_schema),
+            "response_schema": dict(LOOKUP_OPERATION.response_schema),
+        }
+    }

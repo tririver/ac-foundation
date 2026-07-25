@@ -3,14 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import fields, is_dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Mapping, cast
+from typing import Any, Mapping, cast
 
 from arc_jobs import (
     ArcJobsError,
     CommandError,
     CommandResult,
+    CommandRun,
     CommandStatus,
+    CommandWarning,
     JsonValue,
     RunEngine,
     RunRepository,
@@ -23,6 +27,11 @@ from arc_llm import ArcLLMError, LLMTaskService
 from .handler import ProposerReviewerHandler
 from .identity import derive_batch_run_id
 from .protocol import decode_batch_request, encode_batch_request
+from .projection import (
+    BatchProjection,
+    BatchProjectionIntegrityError,
+    CommittedRoundNotFoundError,
+)
 from .service import ProposerReviewerService
 
 
@@ -51,7 +60,21 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument("--run-root", required=True)
     resume.add_argument("--run-id", required=True)
     resume.add_argument("--input")
+    inspect = commands.add_parser("inspect")
+    _query_arguments(inspect)
+    inspect.add_argument("--include-trace", action="store_true")
+    trace = commands.add_parser("trace")
+    _query_arguments(trace)
+    show_round = commands.add_parser("show-round")
+    _query_arguments(show_round)
+    show_round.add_argument("--loop-id", required=True)
+    show_round.add_argument("--round", required=True, type=int, dest="round_number")
     return parser
+
+
+def _query_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--run-root", required=True)
+    parser.add_argument("--run-id", required=True)
 
 
 def _load_object(path: str) -> Mapping[str, JsonValue]:
@@ -89,6 +112,50 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         repository = RunRepository(args.run_root)
+        if args.command in {"inspect", "trace", "show-round"}:
+            projection = BatchProjection(repository, args.run_id)
+            if args.command == "inspect":
+                inspection = projection.inspect()
+                data: dict[str, Any] = {
+                    "inspection": _json_value(inspection),
+                }
+                warnings = ()
+                if args.include_trace:
+                    try:
+                        data["trace"] = _json_value(projection.trace())
+                    except BatchProjectionIntegrityError:
+                        data["trace"] = None
+                        warnings = (
+                            CommandWarning(
+                                "trace_integrity_error",
+                                "committed trace could not be verified",
+                            ),
+                        )
+                result = CommandResult(
+                    CommandStatus.COMPLETED,
+                    CommandRun(args.run_id, inspection.run_revision),
+                    data,
+                    warnings=warnings,
+                )
+            elif args.command == "trace":
+                trace = projection.trace()
+                result = CommandResult(
+                    CommandStatus.COMPLETED,
+                    CommandRun(args.run_id, trace.run_revision),
+                    {"trace": _json_value(trace)},
+                )
+            else:
+                inspection = projection.inspect()
+                expanded = projection.read_round(
+                    args.loop_id, args.round_number
+                )
+                result = CommandResult(
+                    CommandStatus.COMPLETED,
+                    CommandRun(args.run_id, inspection.run_revision),
+                    {"round": _json_value(expanded)},
+                )
+            return _emit(result, exit_code=0)
+
         handler = _handler()
         if args.command == "run":
             request = decode_batch_request(_load_object(args.request))
@@ -129,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
             "ResumeInputConflictError": "resume_input_conflict",
             "RunNotFoundError": "run_not_found",
             "RunBusyError": "run_busy",
+            "BatchProjectionIntegrityError": "trace_integrity_error",
+            "CommittedRoundNotFoundError": "committed_round_not_found",
         }.get(type(exc).__name__, "invalid_request")
         return _emit(
             CommandResult(
@@ -148,6 +217,23 @@ def main(argv: list[str] | None = None) -> int:
             ),
             exit_code=1,
         )
+
+
+def _json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Enum):
+        return _json_value(value.value)
+    if is_dataclass(value):
+        return {
+            item.name: _json_value(getattr(value, item.name))
+            for item in fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_value(item) for item in value]
+    raise TypeError(f"unsupported projection value: {type(value).__name__}")
 
 
 if __name__ == "__main__":  # pragma: no cover
