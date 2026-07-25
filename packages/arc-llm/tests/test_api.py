@@ -1338,79 +1338,24 @@ def test_standalone_resume_recovers_request_locators_before_task_state_exists(
     )
 
 
-def test_standalone_resume_reads_legacy_hashed_generate_bootstrap(
+def test_standalone_run_without_task_or_invocation_fails_typed_recovery(
     tmp_path: Path,
     adapter,
     registry,
 ) -> None:
-    request = _request("legacy-bootstrap")
-    repository = RunRepository(tmp_path)
-    api_module._publish_standalone_bootstrap(
-        repository,
-        "legacy-run",
-        request,
-    )
-
-    class CrashHandler:
-        name = HANDLER_NAME
-
-        def execute(self, context):
-            raise KeyboardInterrupt("legacy crash")
-
-    with pytest.raises(KeyboardInterrupt, match="legacy crash"):
-        RunEngine(repository).execute(
-            RunSpec(
-                "legacy-run",
-                HANDLER_NAME,
-                api_module.semantic_document(request),
-            ),
-            CrashHandler(),
-        )
-    adapter.steps.append(_completed({"answer": 42}))
-
-    client = LLMClient(registry=registry)
-    resumed = client.resume(
-        run_root=tmp_path,
-        run_id="legacy-run",
-    )
-    replayed = client.generate(
-        request,
-        run_root=tmp_path,
-        run_id="legacy-run",
-    )
-
-    assert resumed.snapshot.status is RunStatus.SUCCEEDED
-    assert isinstance(resumed.outcome, LLMCompleted)
-    assert resumed.outcome.value == {"answer": 42}
-    assert isinstance(replayed.outcome, LLMCompleted)
-    assert replayed.outcome.value == {"answer": 42}
-    assert not (
-        tmp_path
-        / "runs"
-        / "legacy-run"
-        / "state"
-        / "llm-standalone-invocation.json"
-    ).exists()
-
-
-def test_legacy_run_without_task_or_invocation_fails_typed_recovery(
-    tmp_path: Path,
-    adapter,
-    registry,
-) -> None:
-    request = _request("legacy-adopt-crash")
+    request = _request("missing-invocation")
     repository = RunRepository(tmp_path)
 
     class CrashHandler:
         name = HANDLER_NAME
 
         def execute(self, context):
-            raise KeyboardInterrupt("legacy adoption crash")
+            raise KeyboardInterrupt("missing invocation fixture")
 
-    with pytest.raises(KeyboardInterrupt, match="legacy adoption crash"):
+    with pytest.raises(KeyboardInterrupt, match="missing invocation fixture"):
         RunEngine(repository).execute(
             RunSpec(
-                "legacy-adopt-run",
+                "missing-invocation-run",
                 HANDLER_NAME,
                 api_module.semantic_document(request),
             ),
@@ -1419,7 +1364,7 @@ def test_legacy_run_without_task_or_invocation_fails_typed_recovery(
 
     resumed = LLMClient(registry=registry).resume(
         run_root=tmp_path,
-        run_id="legacy-adopt-run",
+        run_id="missing-invocation-run",
     )
 
     assert resumed.snapshot.status is RunStatus.FAILED
@@ -1429,7 +1374,55 @@ def test_legacy_run_without_task_or_invocation_fails_typed_recovery(
         resumed.outcome.error.details["code"]
         == "standalone_invocation_missing"
     )
+    repeated = LLMClient(registry=registry).resume(
+        run_root=tmp_path,
+        run_id="missing-invocation-run",
+    )
+    assert repeated.snapshot.status is RunStatus.FAILED
+    assert isinstance(repeated.outcome, LLMFailed)
+    assert repeated.outcome.error.code.value == "corrupt_state"
+    assert (
+        repeated.outcome.error.details["code"]
+        == "standalone_invocation_missing"
+    )
     assert adapter.start_calls == 0
+
+
+def test_terminal_resume_requires_fixed_invocation_despite_task_state(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    client = LLMClient(registry=registry)
+    generated = client.generate(
+        _request("missing-terminal-invocation"),
+        run_root=tmp_path,
+        run_id="missing-terminal-invocation-run",
+    )
+    assert generated.snapshot.status is RunStatus.SUCCEEDED
+    invocation_path = (
+        tmp_path
+        / "runs"
+        / "missing-terminal-invocation-run"
+        / "state"
+        / "llm-standalone-invocation.json"
+    )
+    invocation_path.unlink()
+
+    resumed = client.resume(
+        run_root=tmp_path,
+        run_id="missing-terminal-invocation-run",
+    )
+
+    assert resumed.snapshot.status is RunStatus.SUCCEEDED
+    assert isinstance(resumed.outcome, LLMFailed)
+    assert resumed.outcome.error.code.value == "corrupt_state"
+    assert (
+        resumed.outcome.error.details["code"]
+        == "standalone_invocation_missing"
+    )
+    assert adapter.start_calls == 1
 
 
 def test_corrupt_standalone_invocation_fails_closed_without_provider(
@@ -1479,6 +1472,14 @@ def test_corrupt_standalone_invocation_fails_closed_without_provider(
     assert resumed.outcome.error.code.value == "corrupt_state"
     assert (
         resumed.outcome.error.details["code"]
+        == "standalone_invocation_corrupt"
+    )
+    repeated = client.resume(run_root=tmp_path, run_id="corrupt-run")
+    assert repeated.snapshot.status is RunStatus.FAILED
+    assert isinstance(repeated.outcome, LLMFailed)
+    assert repeated.outcome.error.code.value == "corrupt_state"
+    assert (
+        repeated.outcome.error.details["code"]
         == "standalone_invocation_corrupt"
     )
     assert adapter.start_calls == 0

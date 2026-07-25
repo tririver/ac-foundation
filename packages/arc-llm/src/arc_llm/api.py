@@ -38,7 +38,6 @@ from .executor import HANDLER_NAME, LLMTaskExecutor
 from .identity import (
     AdoptionAuthorization,
     derive_run_id,
-    document_sha256,
     semantic_document,
     semantic_key,
 )
@@ -76,48 +75,6 @@ class LLMRunResult:
 @dataclass(frozen=True)
 class LLMRunView:
     run: RunView
-
-
-@dataclass(frozen=True)
-class _StandaloneBootstrap:
-    revision: int
-    request: LLMRequest
-
-
-class _StandaloneBootstrapContract:
-    schema_version = "arc.llm.standalone_bootstrap.v1"
-
-    def encode(self, value: _StandaloneBootstrap) -> Mapping[str, JsonValue]:
-        return {
-            "revision": value.revision,
-            "request": request_to_document(value.request),
-        }
-
-    def decode(self, document: Mapping[str, JsonValue]) -> _StandaloneBootstrap:
-        if set(document) != {"revision", "request"}:
-            raise CorruptStateError("invalid standalone LLM bootstrap fields")
-        revision = document["revision"]
-        request = document["request"]
-        if (
-            not isinstance(revision, int)
-            or isinstance(revision, bool)
-            or revision != 0
-            or not isinstance(request, Mapping)
-        ):
-            raise CorruptStateError("invalid standalone LLM bootstrap")
-        try:
-            decoded = decode_request(request)
-        except Exception as exc:
-            raise CorruptStateError("invalid standalone LLM bootstrap request") from exc
-        return _StandaloneBootstrap(revision, decoded)
-
-    def validate_transition(
-        self,
-        previous: _StandaloneBootstrap | None,
-        next: _StandaloneBootstrap,
-    ) -> None:
-        if previous is not None or next.revision != 0:
-            raise ValueError("Standalone LLM bootstrap is immutable.")
 
 
 @dataclass(frozen=True)
@@ -442,24 +399,12 @@ class _StandaloneHandler:
                         request,
                         options=self.options,
                     )
-        except _StandaloneInvocationMissing as exc:
-            outcome = LLMFailed(
-                CorruptTaskStateError(
-                    str(exc),
-                    details={"code": "standalone_invocation_missing"},
-                )
-            )
-            request = None
-        except CorruptTaskStateError as exc:
-            outcome = LLMFailed(exc)
-            request = None
-        except CorruptStateError as exc:
-            outcome = LLMFailed(
-                CorruptTaskStateError(
-                    f"Standalone LLM invocation is corrupt: {exc}",
-                    details={"code": "standalone_invocation_corrupt"},
-                )
-            )
+        except (
+            _StandaloneInvocationMissing,
+            CorruptTaskStateError,
+            CorruptStateError,
+        ) as exc:
+            outcome = _standalone_invocation_failure(exc)
             request = None
         self.last_outcome = outcome
         return _run_outcome(
@@ -473,12 +418,6 @@ class _StandaloneHandler:
         self,
         context: RunContext,
     ) -> _StandaloneInvocation:
-        task_id = context.semantic_input.get("task_id")
-        if isinstance(task_id, str):
-            state = self.service._executor._task_store(context, task_id).read()
-            if state is not None:
-                request = self.service._executor._load_request(context, state)
-                return _StandaloneInvocation(0, "generate", request, None)
         invocation = _standalone_invocation_store(
             context.repository, context.run_id
         ).read()
@@ -490,24 +429,6 @@ class _StandaloneHandler:
                     "standalone invocation does not match the run spec"
                 )
             return invocation
-        bootstrap = _standalone_bootstrap_store(
-            context.repository,
-            context.run_id,
-            document_sha256(context.semantic_input),
-        ).read()
-        if bootstrap is not None:
-            if semantic_document(bootstrap.request) != dict(
-                context.semantic_input
-            ):
-                raise CorruptStateError(
-                    "legacy standalone bootstrap does not match the run spec"
-                )
-            return _StandaloneInvocation(
-                0,
-                "generate",
-                bootstrap.request,
-                None,
-            )
         raise _StandaloneInvocationMissing(
             "Standalone LLM run has no recoverable invocation."
         )
@@ -601,9 +522,28 @@ class LLMClient:
                 LLMFailed(ResumeKeyMismatchError()),
             )
         outcome = handler.last_outcome
-        if outcome is None and snapshot.result_ref is not None:
-            request = self._durable_request(repository, snapshot)
-            outcome = self._replay_succeeded(repository, snapshot, request)
+        if outcome is None:
+            context = RunContext(
+                repository,
+                snapshot,
+                resume_input=None,
+                execution_slice=None,
+            )
+            try:
+                invocation = handler._load_durable_invocation(context)
+            except (
+                _StandaloneInvocationMissing,
+                CorruptTaskStateError,
+                CorruptStateError,
+            ) as exc:
+                outcome = _standalone_invocation_failure(exc)
+            else:
+                if snapshot.result_ref is not None:
+                    outcome = self._replay_succeeded(
+                        repository,
+                        snapshot,
+                        invocation.request,
+                    )
         return LLMRunResult(snapshot, outcome)
 
     def adopt(
@@ -712,26 +652,6 @@ class LLMClient:
         )
         return self.service.execute(context, request)
 
-    def _durable_request(
-        self,
-        repository: RunRepository,
-        snapshot: RunSnapshot,
-    ) -> LLMRequest:
-        context = RunContext(
-            repository,
-            snapshot,
-            resume_input=None,
-            execution_slice=None,
-        )
-        task_id = context.semantic_input.get("task_id")
-        if not isinstance(task_id, str):
-            raise RuntimeError("LLM run semantic input has no task_id.")
-        state = self.service._executor._task_store(context, task_id).read()
-        if state is None:
-            raise RuntimeError("LLM run has no durable task request.")
-        return self.service._executor._load_request(context, state)
-
-
 def _standalone_invocation_store(
     repository: RunRepository,
     run_id: str,
@@ -741,6 +661,28 @@ def _standalone_invocation_store(
         / "state"
         / "llm-standalone-invocation.json",
         _StandaloneInvocationContract(),
+    )
+
+
+def _standalone_invocation_failure(
+    error: _StandaloneInvocationMissing
+    | CorruptTaskStateError
+    | CorruptStateError,
+) -> LLMFailed:
+    if isinstance(error, _StandaloneInvocationMissing):
+        return LLMFailed(
+            CorruptTaskStateError(
+                str(error),
+                details={"code": "standalone_invocation_missing"},
+            )
+        )
+    if isinstance(error, CorruptTaskStateError):
+        return LLMFailed(error)
+    return LLMFailed(
+        CorruptTaskStateError(
+            f"Standalone LLM invocation is corrupt: {error}",
+            details={"code": "standalone_invocation_corrupt"},
+        )
     )
 
 
@@ -796,32 +738,3 @@ def _snapshot_for_standalone_result(
             semantic_document(fallback_request),
         )
     return repository.create(spec)
-
-
-def _standalone_bootstrap_store(
-    repository: RunRepository,
-    run_id: str,
-    semantic_sha256: str,
-) -> AtomicStateStore[_StandaloneBootstrap]:
-    namespace = f"llm-bootstrap-{semantic_sha256[:32]}"
-    return AtomicStateStore(
-        repository.run_directory(run_id) / "state" / f"{namespace}.json",
-        _StandaloneBootstrapContract(),
-    )
-
-
-def _publish_standalone_bootstrap(
-    repository: RunRepository,
-    run_id: str,
-    request: LLMRequest,
-) -> None:
-    key = semantic_key(request).sha256
-    store = _standalone_bootstrap_store(repository, run_id, key)
-    existing = store.read()
-    if existing is None:
-        try:
-            store.create(_StandaloneBootstrap(0, request))
-        except StateConflictError:
-            existing = store.read()
-    if existing is not None and semantic_key(existing.request).sha256 != key:
-        raise RuntimeError("Standalone LLM bootstrap semantic key mismatch.")
