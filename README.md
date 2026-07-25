@@ -1,6 +1,6 @@
 # ARC
 
-Agent Research Copilot (ARC) is a CLI-first research toolkit for theoretical
+Agent Research Copilot (ARC) is a research toolkit for theoretical
 physics. It combines deterministic paper access with reusable LLM execution,
 research-domain construction, proposer-reviewer loops, translation, companion
 readers, and source-aware calculation workflows.
@@ -143,9 +143,9 @@ With the ARC Skill installed, ask for the research outcome directly:
 
 ```text
 Use ARC to summarize a paper.
-Use ARC to build a domain from this seed paper and research intent.
+Use ARC to build a domain from arXiv:0911.3380 with new papers since 2024.
 Use ARC to develop and review ideas from the resulting domain.
-Use ARC to plan and check this calculation.
+Use ARC to check this calculation.
 ```
 
 The Skill selects package commands, manages project-local artifacts, and
