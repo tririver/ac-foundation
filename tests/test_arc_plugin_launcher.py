@@ -21,6 +21,7 @@ CORE_TOOLS = (
     "arc-domain",
     "arc-llm",
     "arc-proposer-reviewer",
+    "arc-translate",
     "arc-companion",
     "arc-jobs",
 )
@@ -427,6 +428,7 @@ def test_runtime_fingerprint_covers_ref_constraints_python_and_local_content(
         "arc-proposer-reviewer",
         "arc-paper",
         "arc-domain",
+        "arc-translate",
         "arc-companion",
     ):
         package_dir = checkout / "packages" / package
@@ -739,6 +741,7 @@ def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> 
         "arc-proposer-reviewer",
         "arc-paper",
         "arc-domain",
+        "arc-translate",
         "arc-companion",
     ):
         package_dir = checkout / "packages" / package

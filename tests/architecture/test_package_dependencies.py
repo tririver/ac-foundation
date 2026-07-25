@@ -15,7 +15,13 @@ ALLOWED = {
     "arc_proposer_reviewer": {"arc_jobs", "arc_llm"},
     "arc_paper": {"arc_jobs", "arc_llm"},
     "arc_domain": {"arc_jobs", "arc_llm", "arc_paper"},
-    "arc_companion": {"arc_jobs", "arc_llm", "arc_paper"},
+    "arc_translate": {"arc_jobs", "arc_llm", "arc_paper"},
+    "arc_companion": {
+        "arc_jobs",
+        "arc_llm",
+        "arc_paper",
+        "arc_translate",
+    },
 }
 
 DIST_TO_MODULE = {name.replace("_", "-"): name for name in ALLOWED}

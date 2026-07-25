@@ -11,6 +11,8 @@ ARC is CLI-first. Its workflow Skill uses the supported package CLIs:
 - `arc-llm`: reusable host LLM execution and provider selection.
 - `arc-proposer-reviewer`: typed proposer-worker and reviewer batch
   orchestration with read-only committed-round inspection.
+- `arc-translate`: reusable language detection, bilingual glossary generation,
+  and source-block translation over verified `arc-paper` documents.
 - `arc-companion`: builds source-faithful, chapter-aware PDF and static-web
   original/translation/commentary readers for papers, lecture notes, and books
   from a paired rich source and PDF.
@@ -27,6 +29,8 @@ Use ARC when you want to:
 - Parse and reconcile local or provider-acquired paper sources.
 - Search text and inline/display mathematics in typed parsed documents.
 - Summarize any parsed document through a durable `arc-jobs` workflow.
+- Detect source language, build an approximate bilingual glossary, or
+  translate verified source blocks independently of Companion rendering.
 - Generate Chinese-by-default companion-reading PDF and static-web readers with
   chapter guides, a unified glossary, and an original/translation/commentary
   sequence while retaining source equations, figures, tables, links, and
@@ -104,9 +108,9 @@ Install for Claude Code (run in Claude Code):
 /plugin install arc
 ```
 
-The plugin exposes `arc-paper`, `arc-domain`, `arc-llm`, `arc-companion`,
-`arc-jobs`, and `arc-runtime`. Its isolated core profile also includes
-`arc-proposer-reviewer`, which is intentionally invoked through
+The plugin exposes `arc-paper`, `arc-domain`, `arc-llm`, `arc-translate`,
+`arc-companion`, `arc-jobs`, and `arc-runtime`. Its isolated core profile also
+includes `arc-proposer-reviewer`, which is intentionally invoked through
 `arc-runtime arc-proposer-reviewer ...` rather than a plugin-bin wrapper. On
 first CLI use, `arc-runtime` installs the immutable ARC release into an
 isolated core profile under `~/.codex/arc/runtimes`. It never performs a global
@@ -135,6 +139,7 @@ the ARC commands are not on `PATH`, use:
 
 ```bash
 <skill-dir>/scripts/arc-runtime arc-paper --help
+<skill-dir>/scripts/arc-runtime arc-translate --help
 <skill-dir>/scripts/arc-runtime arc-proposer-reviewer --help
 <skill-dir>/scripts/arc-runtime setup --profile core
 ```
@@ -156,6 +161,7 @@ Check the launcher directly from a source checkout:
 
 ```bash
 plugins/arc/bin/arc-paper --help
+plugins/arc/bin/arc-translate --help
 plugins/arc/bin/arc-jobs --help
 plugins/arc/bin/arc-runtime arc-proposer-reviewer --help
 plugins/arc/bin/arc-runtime doctor --profile core
@@ -213,6 +219,7 @@ python -m pip install -e packages/arc-llm[test]
 python -m pip install -e packages/arc-proposer-reviewer[test]
 python -m pip install -e packages/arc-paper[test]
 python -m pip install -e packages/arc-domain[test]
+python -m pip install -e packages/arc-translate[test]
 python -m pip install -e packages/arc-companion[test]
 ```
 
@@ -223,6 +230,7 @@ arc-paper --help
 arc-domain --help
 arc-llm --help
 arc-proposer-reviewer --help
+arc-translate --help
 arc-companion --help
 arc-jobs --help
 ```
@@ -236,6 +244,23 @@ arc-paper get-title arXiv:0911.3380
 
 Export a Markdown report to PDF with the canonical Pandoc command in
 `plugins/arc/skills/arc/rules/math_typeset.md`.
+
+Run the translation stages independently when a Companion is not needed:
+
+```bash
+arc-translate detect-language note.md \
+  --project-dir ./local/translate/note --target-language zh-CN
+arc-translate build-glossary note.md \
+  --project-dir ./local/translate/note --approx-term-count 50
+arc-translate translate-blocks note.md \
+  --project-dir ./local/translate/note
+```
+
+Each command runs only its named stage and requires verified earlier-stage
+artifacts in the same project directory. Approximate term counts deliberately
+allow extraction headroom and deduplicated underfill. See
+`plugins/arc/skills/arc/manuals/arc-translate.md` for artifact, pause, and
+source-format contracts.
 
 Build a source-anchored Companion from Markdown, HTML, flattened TeX, or a
 paper identifier. A PDF may be supplied as a validator, while the rich source
@@ -716,11 +741,15 @@ Package boundaries:
   foundation selection, domain paper selection, graph artifacts, evidence
   packs, HTML rendering, and domain summaries. It calls `arc-paper` for
   single-paper work and `arc-llm` for LLM work.
+- `packages/arc-translate` owns reusable language detection, bilingual
+  glossary construction, source-block translation, translation review, and
+  their durable artifacts. It calls `arc-paper` for parsing and approximate
+  keyword inventory, `arc-jobs` for execution, and `arc-llm` for model work.
 - `packages/arc-companion` owns paired-source/PDF chapter orchestration,
-  Index-aware glossary projection, ordered stateful translation and commentary
-  lanes, bounded source selection, supervised resume, review checkpoints,
-  deterministic LaTeX/PDF and static-web rendering, and validation. It consumes
-  document and asset caches from `arc-paper` and LLM calls from `arc-llm`.
+  chapter guide generation, translation/guide joining, supervised resume,
+  deterministic LaTeX/PDF and static-web rendering, and validation. It
+  consumes document and asset caches from `arc-paper` and reusable translation
+  stages from `arc-translate`.
 - `packages/arc-jobs` owns protocol-neutral persistent CLI execution, status,
   stop control, output capture, and ETA. It has no core package dependency.
 - `plugins/arc/skills/arc`, prompts, schemas, and plugin manifests describe or
@@ -753,6 +782,7 @@ python -m pytest \
   packages/arc-llm/tests \
   packages/arc-paper/tests \
   packages/arc-domain/tests \
+  packages/arc-translate/tests \
   packages/arc-companion/tests
 ```
 
@@ -764,6 +794,7 @@ python -m pytest \
   packages/arc-llm/tests \
   packages/arc-paper/tests \
   packages/arc-domain/tests \
+  packages/arc-translate/tests \
   packages/arc-companion/tests \
   tests -q
 ```

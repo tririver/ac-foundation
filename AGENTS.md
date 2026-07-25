@@ -37,7 +37,15 @@ service commands it names.
   `arc-jobs` for durable execution and `arc-llm` for model calls.
 - `packages/arc-paper`: Owns deterministic paper access and caching, ID
   normalization, ar5iv/INSPIRE metadata, references, citers,
-  full-text/equation search, paper summaries, and summary batches.
+  full-text/equation search, approximate keyword inventory, paper summaries,
+  and summary batches.
+- `packages/arc-translate`: Owns reusable language detection, bilingual
+  glossary generation, block translation, and translation review. It uses
+  `arc-paper` for verified documents and term inventory, `arc-jobs` for
+  durable execution, and `arc-llm` for model calls.
+- `packages/arc-companion`: Owns source-anchored chapter-guide orchestration,
+  joins reusable translation results with guide content, and renders and
+  validates Companion releases.
 
 ## Research Tool Development
 
@@ -197,12 +205,20 @@ another.
   It should call `arc-jobs` for durable execution and `arc-llm` for model work.
 - `packages/arc-paper` owns deterministic paper data access, ID
   normalization, caching, parsing, paper-summary contracts, paper-summary
-  orchestration, and batch execution.
+  orchestration, approximate keyword inventory, and batch execution.
 - `packages/arc-domain` owns research-domain construction from seed
   papers: foundation selection, domain paper selection, network artifacts,
   evidence packs, HTML rendering, and domain summaries. It should call
   `arc-paper` for single-paper operations and `arc-llm` for host
   LLM work.
+- `packages/arc-translate` owns reusable language detection, bilingual
+  glossary generation, block translation, and translation review. It should
+  call `arc-paper` for verified documents and term inventory, `arc-jobs` for
+  durable execution, and `arc-llm` for model work.
+- `packages/arc-companion` owns chapter-guide orchestration, deterministic
+  joining of translation and guide lanes, rendering, and validation. It should
+  call the public `arc-translate` facade instead of duplicating translation
+  prompts, validation, or review.
 - `plugins/arc/skills/arc`, `prompts/`, `schemas/`, and plugin manifests
   should describe or wrap package behavior rather than reimplementing it.
 - Package source under `packages/` must not import, read, discover, execute, or
@@ -233,9 +249,11 @@ another.
 
   ```bash
   packages/arc-paper/.venv/bin/python -m pytest \
-    packages/arc-llm/tests \
-    packages/arc-paper/tests \
-    packages/arc-domain/tests
+  packages/arc-llm/tests \
+  packages/arc-paper/tests \
+  packages/arc-domain/tests \
+  packages/arc-translate/tests \
+  packages/arc-companion/tests
   ```
 
 - Unit tests must not require network access. Network integration tests should

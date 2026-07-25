@@ -70,7 +70,16 @@ def _write_minimal_arc_repo(work: Path) -> None:
         ],
         "arc-paper": ['"arc-llm>=0.1,<0.2"'],
         "arc-domain": ['"arc-llm>=0.1,<0.2"', '"arc-paper>=0.1,<0.2"'],
-        "arc-companion": ['"arc-llm>=0.1,<0.2"', '"arc-paper>=0.1,<0.2"'],
+        "arc-translate": [
+            '"arc-jobs>=0.1,<0.2"',
+            '"arc-llm>=0.1,<0.2"',
+            '"arc-paper>=0.1,<0.2"',
+        ],
+        "arc-companion": [
+            '"arc-llm>=0.1,<0.2"',
+            '"arc-paper>=0.1,<0.2"',
+            '"arc-translate>=0.1,<0.2"',
+        ],
     }
     for package, dependencies in package_dependencies.items():
         package_dir = work / "packages" / package
@@ -100,6 +109,11 @@ def _write_minimal_arc_repo(work: Path) -> None:
         encoding="utf-8",
     )
     (work / "packages/arc-companion/src/arc_companion/__init__.py").write_text(
+        '__version__ = "0.1.0"\n',
+        encoding="utf-8",
+    )
+    (work / "packages/arc-translate/src/arc_translate").mkdir(parents=True)
+    (work / "packages/arc-translate/src/arc_translate/__init__.py").write_text(
         '__version__ = "0.1.0"\n',
         encoding="utf-8",
     )
@@ -174,6 +188,7 @@ def _apply_release_bump(work: Path, version: str = "0.2.0") -> None:
         pyproject.write_text(text, encoding="utf-8")
     _replace(work / "packages/arc-jobs/src/arc_jobs/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-companion/src/arc_companion/__init__.py", '0.1.0', version)
+    _replace(work / "packages/arc-translate/src/arc_translate/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-paper/src/arc_paper/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-paper/tests/test_import.py", '0.1.0', version)
     _replace(work / "packages/arc-paper/tests/test_package_metadata.py", ">=0.1,<0.2", ">=0.2,<0.3")
@@ -214,6 +229,10 @@ def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_pat
     assert '"arc-llm>=0.2,<0.3"' in (work / "packages/arc-paper/pyproject.toml").read_text(encoding="utf-8")
     assert '__version__ = "0.2.0"' in (work / "packages/arc-jobs/src/arc_jobs/__init__.py").read_text(encoding="utf-8")
     assert '__version__ = "0.2.0"' in (work / "packages/arc-companion/src/arc_companion/__init__.py").read_text(encoding="utf-8")
+    assert '__version__ = "0.2.0"' in (work / "packages/arc-translate/src/arc_translate/__init__.py").read_text(encoding="utf-8")
+    assert '"arc-translate>=0.2,<0.3"' in (
+        work / "packages/arc-companion/pyproject.toml"
+    ).read_text(encoding="utf-8")
     assert 'assert __version__ == "0.2.0"' in (work / "packages/arc-paper/tests/test_import.py").read_text(encoding="utf-8")
     assert "arc-llm>=0.2,<0.3" in (work / "packages/arc-paper/tests/test_package_metadata.py").read_text(encoding="utf-8")
     assert json.loads((work / "plugins/arc/.codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"

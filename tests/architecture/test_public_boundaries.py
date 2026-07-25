@@ -93,8 +93,38 @@ def test_arc_domain_only_uses_public_dependency_facades():
                 )
 
 
-def test_arc_companion_only_uses_public_dependency_facades():
+def test_arc_translate_only_uses_public_dependency_facades():
     dependencies = {"arc_jobs", "arc_llm", "arc_paper"}
+    exports = {
+        package: _public_exports(package.replace("_", "-"))
+        for package in dependencies
+    }
+    for path in _python_files("arc-translate"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                modules = [(alias.name, None) for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                modules = [(node.module, node.names)]
+            else:
+                continue
+            for module, names in modules:
+                root = module.split(".", 1)[0]
+                if root not in dependencies:
+                    continue
+                assert module == root, (
+                    f"{path.relative_to(ROOT)} imports private dependency module {module}"
+                )
+                if names is not None:
+                    assert all(alias.name in exports[root] for alias in names), (
+                        f"{path.relative_to(ROOT)} imports non-facade symbols from "
+                        f"{root}: "
+                        f"{[alias.name for alias in names if alias.name not in exports[root]]}"
+                    )
+
+
+def test_arc_companion_only_uses_public_dependency_facades():
+    dependencies = {"arc_jobs", "arc_llm", "arc_paper", "arc_translate"}
     exports = {
         package: _public_exports(package.replace("_", "-"))
         for package in dependencies
@@ -159,6 +189,7 @@ def test_core_does_not_import_plugin_or_test_code():
         "arc-proposer-reviewer",
         "arc-paper",
         "arc-domain",
+        "arc-translate",
         "arc-companion",
     ):
         for path in _python_files(package):
@@ -194,6 +225,7 @@ def test_package_source_does_not_depend_on_arc_skill_or_plugin_files():
         "arc-proposer-reviewer",
         "arc-paper",
         "arc-domain",
+        "arc-translate",
         "arc-companion",
     ):
         for path in _python_files(package):

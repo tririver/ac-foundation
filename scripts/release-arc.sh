@@ -69,10 +69,12 @@ version_paths=(
   "packages/arc-proposer-reviewer/pyproject.toml"
   "packages/arc-paper/pyproject.toml"
   "packages/arc-domain/pyproject.toml"
+  "packages/arc-translate/pyproject.toml"
   "packages/arc-companion/pyproject.toml"
   "packages/arc-llm/src/arc_llm/__init__.py"
   "packages/arc-jobs/src/arc_jobs/__init__.py"
   "packages/arc-proposer-reviewer/src/arc_proposer_reviewer/__init__.py"
+  "packages/arc-translate/src/arc_translate/__init__.py"
   "packages/arc-companion/src/arc_companion/__init__.py"
   "packages/arc-paper/src/arc_paper/__init__.py"
   "packages/arc-paper/tests/test_import.py"
@@ -281,6 +283,7 @@ packages = [
     "arc-proposer-reviewer",
     "arc-paper",
     "arc-domain",
+    "arc-translate",
     "arc-companion",
 ]
 
