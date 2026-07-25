@@ -223,6 +223,24 @@ def test_base_plugin_is_cli_only_without_mcp_surface() -> None:
     assert not (BASE_PLUGIN / ".mcp.json").exists()
     assert not (BASE_PLUGIN / "bin/arc-mcp").exists()
 
+
+def test_bundled_plugin_release_metadata_uses_version_and_immutable_source_pin() -> None:
+    approved_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    manifests = (
+        BASE_PLUGIN / ".codex-plugin/plugin.json",
+        BASE_PLUGIN / ".claude-plugin/plugin.json",
+    )
+    assert all(
+        json.loads(path.read_text(encoding="utf-8"))["version"] == approved_version
+        for path in manifests
+    )
+    constraints = (SKILL / "scripts/runtime-constraints.txt").read_text(encoding="utf-8")
+    assert constraints.splitlines()[0] == (
+        f"# Direct external dependencies tested for ARC v{approved_version}."
+    )
+    install_ref = (SKILL / ".arc-install-ref").read_text(encoding="utf-8").strip()
+    assert re.fullmatch(r"[0-9a-f]{40}", install_ref)
+
 def test_core_runtime_profile_and_constraints_are_mcp_free() -> None:
     assert (SKILL / "scripts/.arc-runtime-profile").read_text().strip() == "core"
     constraints = (SKILL / "scripts/runtime-constraints.txt").read_text()
@@ -317,9 +335,13 @@ def test_first_core_use_lazy_installs_only_core_packages(tmp_path: Path) -> None
     assert second.stdout == "installed:arc-paper:references\n"
     install_calls = calls.read_text().splitlines()
     assert len(install_calls) == 2
-    assert "arc-jobs @ git+https://github.com/tririver/arc.git@v1.0.0" in install_calls[1]
+    bundled_ref = (SKILL / ".arc-install-ref").read_text(encoding="utf-8").strip()
     assert (
-        "arc-proposer-reviewer @ git+https://github.com/tririver/arc.git@v1.0.0"
+        f"arc-jobs @ git+https://github.com/tririver/arc.git@{bundled_ref}"
+        in install_calls[1]
+    )
+    assert (
+        f"arc-proposer-reviewer @ git+https://github.com/tririver/arc.git@{bundled_ref}"
         in install_calls[1]
     )
     assert "arc-mcp @" not in install_calls[1]
@@ -352,10 +374,12 @@ def test_runtime_fingerprint_covers_ref_constraints_python_and_local_content(
     runtime_home = tmp_path / "runtimes"
 
     default_dir = _runtime_dir(runtime_home)
+    bundled_ref = (SKILL / ".arc-install-ref").read_text(encoding="utf-8").strip()
+    alternate_ref = "f" * 40 if bundled_ref != "f" * 40 else "e" * 40
     changed_ref = _run(
         runtime_home,
         "doctor",
-        extra_env={"ARC_INSTALL_REF": "v1.0.1"},
+        extra_env={"ARC_INSTALL_REF": alternate_ref},
     )
     assert changed_ref.returncode == 1
     changed_ref_dir = Path(
@@ -635,7 +659,7 @@ def test_python_venv_fallback_uses_constraints(tmp_path: Path) -> None:
     assert "venv-python:-m pip install --constraint " in text
 
 
-def test_installed_plugin_commit_wins_over_bundled_tag(tmp_path: Path) -> None:
+def test_installed_plugin_commit_wins_over_bundled_source_pin(tmp_path: Path) -> None:
     plugin_root = tmp_path / ".claude/plugins/cache/arc/arc/1.0.0"
     skill_root = plugin_root / "skills/arc"
     scripts = skill_root / "scripts"
@@ -678,7 +702,8 @@ def test_installed_plugin_commit_wins_over_bundled_tag(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert f"@{commit}#subdirectory=packages/arc-paper" in calls.read_text()
-    assert "@v1.0.0#subdirectory=packages/arc-paper" not in calls.read_text()
+    bundled_ref = (SKILL / ".arc-install-ref").read_text(encoding="utf-8").strip()
+    assert f"@{bundled_ref}#subdirectory=packages/arc-paper" not in calls.read_text()
 
 
 def test_mutable_install_refs_and_cross_profile_access_are_rejected(tmp_path: Path) -> None:
