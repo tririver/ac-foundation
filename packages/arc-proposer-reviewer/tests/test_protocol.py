@@ -91,7 +91,9 @@ def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
     proposer = replace(
         loop.proposers[0],
         interaction_operations={"lookup": LOOKUP_OPERATION},
-        max_interaction_turns=4,
+        # The arc-llm contract counts automatic resolved interaction turns;
+        # two means turns one and two are automatic and a third pauses.
+        max_interaction_turns=2,
     )
     reviewer = replace(
         loop.reviewer,
@@ -132,6 +134,7 @@ def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
             "response_schema": dict(LOOKUP_OPERATION.response_schema),
         }
     }
+    assert proposer_document["max_interaction_turns"] == 2  # type: ignore[index]
     assert decode_batch_request(encoded) == configured
 
     proposer_document["interaction_operations"]["lookup"]["surprise"] = True  # type: ignore[index]

@@ -52,8 +52,8 @@ fi
 default_repo_root="$(CDPATH= cd -- "$plugin_root/../.." 2>/dev/null && pwd -P || printf '%s' "$plugin_root")"
 repo_root="${ARC_INSTALL_REPO_ROOT:-$default_repo_root}"
 
-core_tools="arc-paper arc-domain arc-llm arc-companion arc-jobs"
-core_packages="arc-jobs arc-llm arc-paper arc-domain arc-companion"
+core_tools="arc-paper arc-domain arc-llm arc-proposer-reviewer arc-companion arc-jobs"
+core_packages="arc-jobs arc-llm arc-proposer-reviewer arc-paper arc-domain arc-companion"
 
 is_true() {
   case "${1:-}" in

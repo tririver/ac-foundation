@@ -22,6 +22,7 @@ from arc_llm import (
     AdoptionAuthorization,
     ExecutionLimits,
     InteractiveJsonOutput,
+    InvalidRequestError,
     InteractionResponse,
     JsonOutput,
     LLMClient,
@@ -1722,9 +1723,18 @@ def test_session_commit_closes_hard_crash_window_before_task_accepted_cas(
     assert effect.stage is EffectStage.COMMITTED
 
 
-def test_interaction_limit_pause_carries_request_and_can_resume(
-    tmp_path: Path, adapter, registry
+@pytest.mark.parametrize("max_interaction_turns", [1, 2])
+def test_interaction_limit_auto_resolves_allowance_then_pauses_next_turn(
+    tmp_path: Path, adapter, registry, max_interaction_turns: int
 ) -> None:
+    class AutoResolver:
+        def __init__(self) -> None:
+            self.requests: list[str] = []
+
+        def resolve(self, request):
+            self.requests.append(request.request_id)
+            return InteractionResponse(request.request_id, result={"value": request.request_id})
+
     contract = InteractiveJsonOutput(
         {"type": "object", "required": ["answer"]},
         {
@@ -1733,10 +1743,10 @@ def test_interaction_limit_pause_carries_request_and_can_resume(
                 {"type": "object", "required": ["value"]},
             )
         },
-        max_interaction_turns=1,
+        max_interaction_turns=max_interaction_turns,
     )
-    adapter.steps.extend(
-        [
+    for number in range(1, max_interaction_turns + 2):
+        adapter.steps.append(
             _completed(
                 {
                     "schema_version": "arc.llm.interactive_turn.v1",
@@ -1744,33 +1754,41 @@ def test_interaction_limit_pause_carries_request_and_can_resume(
                     "result": None,
                     "requests": [
                         {
-                            "request_id": "req-limit",
+                            "request_id": f"req-limit-{number}",
                             "operation": "lookup",
-                            "arguments": {"query": "x"},
+                            "arguments": {"query": str(number)},
                         }
                     ],
                 }
-            ),
-            _completed(
-                {
-                    "schema_version": "arc.llm.interactive_turn.v1",
-                    "state": "complete",
-                    "result": {"answer": 8},
-                    "requests": [],
-                }
-            ),
-        ]
+            )
+        )
+    adapter.steps.append(
+        _completed(
+            {
+                "schema_version": "arc.llm.interactive_turn.v1",
+                "state": "complete",
+                "result": {"answer": 8},
+                "requests": [],
+            }
+        )
     )
+    resolver = AutoResolver()
     client = LLMClient(registry=registry)
     paused = client.generate(
         LLMRequest("interaction-limit", "Solve.", contract, ModelSelection("codex")),
         run_root=tmp_path,
+        options=LLMExecutionOptions(interaction_resolver=resolver),
     )
     assert isinstance(paused.outcome, LLMPaused)
     assert paused.outcome.reason.value == "execution_budget_exhausted"
     assert paused.outcome.input_required
     assert paused.outcome.request_ref is not None
     assert paused.outcome.response_contract == "arc.llm.resume_input.v1"
+    assert resolver.requests == [
+        f"req-limit-{number}" for number in range(1, max_interaction_turns + 1)
+    ]
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == max_interaction_turns
 
     resumed = client.resume(
         run_root=tmp_path,
@@ -1778,12 +1796,31 @@ def test_interaction_limit_pause_carries_request_and_can_resume(
         input=ResumeInput(
             paused.outcome.resume_key,
             ResumeAction.CONTINUE,
-            (InteractionResponse("req-limit", result={"value": "found"}),),
+            (
+                InteractionResponse(
+                    f"req-limit-{max_interaction_turns + 1}",
+                    result={"value": "found"},
+                ),
+            ),
         ),
     )
     assert isinstance(resumed.outcome, LLMCompleted)
     assert resumed.outcome.value == {"answer": 8}
-    assert adapter.resume_calls == 1
+    assert adapter.resume_calls == max_interaction_turns + 1
+
+
+def test_interactive_output_rejects_zero_automatic_interactions() -> None:
+    with pytest.raises(InvalidRequestError, match="positive integer"):
+        InteractiveJsonOutput(
+            {"type": "object"},
+            {
+                "lookup": OperationContract(
+                    {"type": "object"},
+                    {"type": "object"},
+                )
+            },
+            max_interaction_turns=0,
+        )
 
 
 def test_uncertain_delivery_with_saved_handle_uses_one_native_resume(

@@ -20,8 +20,12 @@ CORE_TOOLS = (
     "arc-paper",
     "arc-domain",
     "arc-llm",
+    "arc-proposer-reviewer",
     "arc-companion",
     "arc-jobs",
+)
+PLUGIN_BIN_TOOLS = tuple(
+    tool for tool in CORE_TOOLS if tool != "arc-proposer-reviewer"
 )
 
 
@@ -183,13 +187,21 @@ python.chmod(0o755)
     return path
 
 
-def test_workflow_scripts_bootstrap_arc_llm_without_external_pythonpath() -> None:
+def test_moved_workflow_scripts_show_help_from_source_checkout_without_pythonpath() -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = ""
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    for script in ("ideas_runner.py", "calculate_runner.py"):
+    for script in (
+        "run-ideas.py",
+        "run-calculate.py",
+        "rank-ideas.py",
+        "write-domain-manifest.py",
+        "write-cross-domain-pair-manifest.py",
+        "resolve-project-dir.py",
+        "verify-source-runtime.py",
+    ):
         result = subprocess.run(
-            [sys.executable, str(SKILL / "workflows/scripts" / script), "--help"],
+            [sys.executable, str(SKILL / "scripts" / script), "--help"],
             cwd=ROOT,
             env=env,
             text=True,
@@ -227,9 +239,10 @@ def test_core_runtime_profile_and_constraints_are_mcp_free() -> None:
 
 
 def test_plugin_bins_expose_runtime_jobs_and_profile_commands() -> None:
-    for command in (*CORE_TOOLS, "arc-runtime"):
+    for command in (*PLUGIN_BIN_TOOLS, "arc-runtime"):
         assert (CORE_BIN / command).is_file()
         assert os.access(CORE_BIN / command, os.X_OK)
+    assert not (CORE_BIN / "arc-proposer-reviewer").exists()
 
 
 def test_core_shims_reuse_the_ready_core_runtime(tmp_path: Path) -> None:
@@ -239,10 +252,22 @@ def test_core_shims_reuse_the_ready_core_runtime(tmp_path: Path) -> None:
     )
     assert "/core/" in core_dir.as_posix()
 
-    for tool in CORE_TOOLS:
+    for tool in PLUGIN_BIN_TOOLS:
         result = _run(runtime_home, "--probe", launcher=CORE_BIN / tool)
         assert result.returncode == 0, result.stderr
         assert result.stdout == f"core-{tool}:--probe\n"
+
+
+def test_core_runtime_exposes_proposer_reviewer_without_plugin_wrapper(tmp_path: Path) -> None:
+    runtime_home = tmp_path / "runtimes"
+    _prepare_ready_runtime(
+        runtime_home, launcher=CORE_LAUNCHER, tools=CORE_TOOLS, prefix="core"
+    )
+
+    result = _run(runtime_home, "arc-proposer-reviewer", "--probe")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "core-arc-proposer-reviewer:--probe\n"
 
 
 def test_pinned_runtime_wins_over_same_named_path_command(tmp_path: Path) -> None:
@@ -293,6 +318,10 @@ def test_first_core_use_lazy_installs_only_core_packages(tmp_path: Path) -> None
     install_calls = calls.read_text().splitlines()
     assert len(install_calls) == 2
     assert "arc-jobs @ git+https://github.com/tririver/arc.git@v1.0.0" in install_calls[1]
+    assert (
+        "arc-proposer-reviewer @ git+https://github.com/tririver/arc.git@v1.0.0"
+        in install_calls[1]
+    )
     assert "arc-mcp @" not in install_calls[1]
     assert "--constraint" in install_calls[1]
 
@@ -369,7 +398,14 @@ def test_runtime_fingerprint_covers_ref_constraints_python_and_local_content(
     }
 
     checkout = tmp_path / "checkout"
-    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-companion"):
+    for package in (
+        "arc-jobs",
+        "arc-llm",
+        "arc-proposer-reviewer",
+        "arc-paper",
+        "arc-domain",
+        "arc-companion",
+    ):
         package_dir = checkout / "packages" / package
         package_dir.mkdir(parents=True)
         (package_dir / "pyproject.toml").write_text("[project]\nname='example'\n")
@@ -673,7 +709,14 @@ def test_mutable_install_refs_and_cross_profile_access_are_rejected(tmp_path: Pa
 
 def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> None:
     checkout = tmp_path / "checkout"
-    for package in ("arc-jobs", "arc-llm", "arc-paper", "arc-domain", "arc-companion"):
+    for package in (
+        "arc-jobs",
+        "arc-llm",
+        "arc-proposer-reviewer",
+        "arc-paper",
+        "arc-domain",
+        "arc-companion",
+    ):
         package_dir = checkout / "packages" / package
         package_dir.mkdir(parents=True)
         (package_dir / "pyproject.toml").write_text("[project]\n")
@@ -700,7 +743,7 @@ def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> 
 def test_launcher_surface_has_no_legacy_mcp_or_dot_local_paths() -> None:
     files = [
         CORE_LAUNCHER,
-        *(CORE_BIN / name for name in (*CORE_TOOLS, "arc-runtime")),
+        *(CORE_BIN / name for name in (*PLUGIN_BIN_TOOLS, "arc-runtime")),
     ]
     combined = "\n".join(path.read_text() for path in files)
     assert "ARC_MCP_" not in combined

@@ -894,7 +894,11 @@ class LLMTaskExecutor:
             + tuple(item.request_id for item in turn.requests),
         )
         store.compare_and_swap(next_state.revision - 1, next_state)
-        if next_round >= request.output.max_interaction_turns:
+        # The contract is the number of interaction turns that the host may
+        # resolve automatically.  Pause only when the provider asks for one
+        # more than that allowance: max=2 resolves turns 1 and 2, then pauses
+        # turn 3 for an explicit host decision.
+        if next_round > request.output.max_interaction_turns:
             return self._pause(
                 store,
                 next_state,
