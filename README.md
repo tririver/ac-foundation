@@ -8,8 +8,9 @@ ARC is CLI-first. Its workflow Skill uses the supported package CLIs:
   HTML/Markdown/TeX/PDF parsing, reconciliation, and durable paper workflows.
 - `arc-domain`: builds a cached research-domain package from a seed paper and
   optional scientific intent.
-- `arc-llm`: reusable host LLM execution, provider selection, and
-  proposers-reviewer workflows.
+- `arc-llm`: reusable host LLM execution and provider selection.
+- `arc-proposer-reviewer`: typed proposer-worker and reviewer batch
+  orchestration with read-only committed-round inspection.
 - `arc-companion`: builds source-faithful, chapter-aware PDF and static-web
   original/translation/commentary readers for papers, lecture notes, and books
   from a paired rich source and PDF.
@@ -103,9 +104,12 @@ Install for Claude Code (run in Claude Code):
 ```
 
 The plugin exposes `arc-paper`, `arc-domain`, `arc-llm`, `arc-companion`,
-`arc-jobs`, and `arc-runtime`. On first CLI use,
-`arc-runtime` installs the immutable ARC release into an isolated core profile
-under `~/.codex/arc/runtimes`. It never performs a global `pip install`.
+`arc-jobs`, and `arc-runtime`. Its isolated core profile also includes
+`arc-proposer-reviewer`, which is intentionally invoked through
+`arc-runtime arc-proposer-reviewer ...` rather than a plugin-bin wrapper. On
+first CLI use, `arc-runtime` installs the immutable ARC release into an
+isolated core profile under `~/.codex/arc/runtimes`. It never performs a global
+`pip install`.
 
 Prewarm or diagnose the core runtime when needed:
 
@@ -130,6 +134,7 @@ the ARC commands are not on `PATH`, use:
 
 ```bash
 <skill-dir>/scripts/arc-runtime arc-paper --help
+<skill-dir>/scripts/arc-runtime arc-proposer-reviewer --help
 <skill-dir>/scripts/arc-runtime setup --profile core
 ```
 
@@ -141,7 +146,7 @@ copy can set `ARC_REQUIRE_REPO_ROOT` to the checkout root. Workflow scripts then
 prepend that checkout's package sources, verify module origins, and fail before
 LLM work if any ARC module or workflow file comes from another installation.
 First run `<skill-dir>/scripts/arc-runtime setup --profile core`, then use
-`python3 <skill-dir>/workflows/scripts/verify-source-runtime.py --repo-root
+`python3 <skill-dir>/scripts/verify-source-runtime.py --repo-root
 <checkout> --output <record.json>` to capture module, Git working-tree, and
 workflow-file provenance. A verifier launched by system Python re-executes
 with the installed core runtime Python before loading checkout sources.
@@ -151,6 +156,7 @@ Check the launcher directly from a source checkout:
 ```bash
 plugins/arc/bin/arc-paper --help
 plugins/arc/bin/arc-jobs --help
+plugins/arc/bin/arc-runtime arc-proposer-reviewer --help
 plugins/arc/bin/arc-runtime doctor --profile core
 ```
 
@@ -203,6 +209,7 @@ python -m pip install --upgrade pip
 
 python -m pip install -e packages/arc-jobs[test]
 python -m pip install -e packages/arc-llm[test]
+python -m pip install -e packages/arc-proposer-reviewer[test]
 python -m pip install -e packages/arc-paper[test]
 python -m pip install -e packages/arc-domain[test]
 python -m pip install -e packages/arc-companion[test]
@@ -214,6 +221,7 @@ Check the installed commands:
 arc-paper --help
 arc-domain --help
 arc-llm --help
+arc-proposer-reviewer --help
 arc-companion --help
 arc-jobs --help
 ```
@@ -439,9 +447,8 @@ provider, or read and manage Kimi credentials itself.
 Check what ARC detects:
 
 ```bash
-arc-llm doctor host --json
-arc-llm doctor provider --json
-arc-llm doctor config --json
+arc-llm doctor --provider auto
+arc-llm doctor --provider kimi
 ```
 
 With `--provider auto`, ARC uses only host-native providers: Codex selects
@@ -455,15 +462,17 @@ home, authentication, configuration, and persistent sessions. Change the run
 model through the run config/CLI: `provider` plus `model_tier`, or exact
 `model` with an explicit built-in provider.
 
+Kimi Code retains provider-side persistent sessions. ARC may retain a native
+resume handle for its durable run, but does not copy, migrate, or delete Kimi sessions.
+
 `kimi-code-cli` is experimental. Before its first call ARC warns:
 
 > `kimi-code-cli is experimental and inherits Kimi Code configuration, instructions, skills, hooks, plugins, MCP, tool permissions, and persistent sessions; it may access the network, run commands, and modify files.`
 
 ARC denies ACP permission and filesystem reverse requests, but that is not a
 sandbox: Kimi automation, hooks, plugins, MCP servers, and local tools may act
-outside those reverse requests. Review `arc-llm doctor provider` and
-`arc-llm doctor config` before use. Kimi does not report token usage through
-this ACP integration, so usage fields remain null.
+outside those reverse requests. Review `arc-llm doctor --provider kimi` before
+use. Kimi does not report token usage through this ACP integration, so usage fields remain null.
 
 ## Use ARC Through An Agent
 
@@ -572,28 +581,47 @@ generation. Different trimmed intent strings produce different domain IDs.
 ### Direct LLM Checks
 
 Most users should call `arc-paper` or `arc-domain` instead of
-calling `arc-llm` directly. Direct LLM calls are useful for diagnosis:
+calling `arc-llm` directly. For a bounded structured task, create a complete
+`arc.llm.request.v2` document and use the durable CLI:
 
 ```bash
-arc-llm run-text --prompt-text "Say hello." --provider auto
-arc-llm run-json --prompt-text "Return {\"ok\": true}" --provider auto --json
+arc-llm generate \
+  --request <request.json> \
+  --run-root <project-dir>/context/arc-llm \
+  --run-id <stable-run-id>
+arc-llm status \
+  --run-root <project-dir>/context/arc-llm \
+  --run-id <stable-run-id>
 ```
 
-Use `--prompt-text` for literal text and `--prompt-file` for a UTF-8 prompt
-file (`--prompt-file -` reads stdin). The legacy `--prompt` flag remains a
-file/stdin alias for compatibility.
+Use `arc-llm resume` only with the returned resume input, and `arc-llm cancel`
+only for that durable run. `arc-llm doctor --provider auto` is the supported
+provider diagnostic.
 
-Direct `arc-llm run-*` calls are stateless unless `--session-policy stateful`
-is paired with a session root and session key. For Kimi, stateless means ARC
-does not reuse the native session ID; Kimi Code still uses provider-side
-persistence for its own session. ARC does not copy, migrate, or delete Kimi sessions.
-Proposers-reviewer workflows use stateful delta sessions by default and write
-cache/session audit data under the run artifacts.
+### Proposer-Reviewer Batches
 
-Custom `json_runner` wrappers must explicitly declare `session_policy`,
-`session_manager`, `session_key`, `artifact_dir`, `call_label`, and
-`static_prefix` to receive stateful session reuse. A bare `**kwargs` wrapper is
-treated as legacy/stateless by design.
+`arc-proposer-reviewer` owns typed multi-worker batches; it is a core tool, not
+an `arc-llm` subcommand. In a plugin or standalone Skill installation, invoke
+it through the runtime launcher:
+
+```bash
+<skill-dir>/scripts/arc-runtime arc-proposer-reviewer inspect \
+  --run-root <run-root> --run-id <run-id>
+<skill-dir>/scripts/arc-runtime arc-proposer-reviewer trace \
+  --run-root <run-root> --run-id <run-id>
+<skill-dir>/scripts/arc-runtime arc-proposer-reviewer show-round \
+  --run-root <run-root> --run-id <run-id> --loop-id <loop-id> --round <number>
+```
+
+These are read-only, no-model-call queries. `inspect` is available for every
+run lifecycle and reports best-effort activity that must not guide ranking,
+recovery, retries, or resume. `trace` returns only verified, atomically
+committed round references plus the run and per-loop revision vector; it never
+claims a globally linearized snapshot. A partial published round remains
+invisible until its loop commits it. `show-round` is the only public query that
+returns committed proposal and review JSON. The public projection does not
+expose sessions, task IDs, group IDs, pause records, or physical paths; trace
+and round expansion fail closed when verification fails.
 
 ## Background Jobs
 
@@ -632,17 +660,38 @@ Output includes:
 <project-dir>/domain/<seed-safe>_domain_summary.json
 <project-dir>/domain/<seed-safe>_domain_summary.md
 <project-dir>/domain/foundation_<foundation-safe>.md
+<project-dir>/domain/domain-manifest.json
 ```
 
 Use this when you need a reliable overview of a local research area before
 asking for ideas or calculations.
 
+When several domain packages are exported, the manifest helper makes one typed,
+deterministic pair-classification LLM request and records the resulting field
+groups in `domain/field-grouping.json`. Malformed or inconsistent grouping
+content conservatively merges packages with a warning; a typed LLM pause,
+failure, or cancellation stops the ideas handoff rather than silently merging.
+
 ### 2. Ideas
 
 Input: a not-yet-explicit research request plus built domain context.
 
-The release idea workflow feeds ARC-built domain Markdown to proposers. It uses
-reviewer marks and writes a ranked task-to-be-planned candidate report:
+The release idea workflow feeds ARC-built domain Markdown to proposers. It
+materializes one public `BatchRequest` in the project-local run repository,
+then ranks only verified committed proposer-reviewer rounds. The ranker chooses
+the best qualified committed round for every succeeded loop, not necessarily
+the final round; failed, cancelled, and incomplete loops remain visible in
+inspection but are not candidates. Use the durable root and ID rather than
+reading internal loop, transcript, session, or artifact paths:
+
+```bash
+python3 <skill-dir>/scripts/rank-ideas.py \
+  --run-root <project-dir>/ideas \
+  --run-id <run-id> \
+  --format markdown
+```
+
+The workflow writes a ranked task-to-be-planned candidate report:
 
 ```text
 <project-dir>/ideas/<run-id>/
@@ -653,7 +702,13 @@ reviewer marks and writes a ranked task-to-be-planned candidate report:
 The report starts with a compact marked summary for each candidate, then
 appends one detail section per idea with all round-by-round referee marks and
 selected handoff text: title, idea summary, and calculation plan. It should not
-invent novelty claims or hide failed idea history.
+invent novelty claims or hide failed idea history. When evidence is enabled,
+the entire batch shares a 24-request ARC-paper interaction budget across
+`get-metadata`, `get-references`, `get-citers`, `search-metadata`,
+`get-arxiv-table-of-contents`, `get-arxiv-section`,
+`search-arxiv-full-text`, and `search-arxiv-equations`. Workers have at most
+two automatic interaction rounds; a third request pauses for durable resume.
+No worker can recurse through shell, ARC CLI, MCP, or nested LLM calls.
 
 The no-info variant is disabled by default and kept as an opt-in test fixture
 for workflow development.
@@ -680,7 +735,7 @@ Primary outputs:
 <project-dir>/calculate/<run-id>/work-notes/work-note-v001.md
 <project-dir>/calculate/<run-id>/work-notes/work-note-v002.md
 <project-dir>/calculate/<run-id>/execute/calculate.config.json
-<project-dir>/calculate/<run-id>/execute/<calculate-run-id>/
+<project-dir>/calculate/<run-id>/execute/<calculate-run-id>/state.json
 ```
 
 `work-note.md` is the human and agent source of truth. It contains notation,
@@ -693,6 +748,15 @@ execution.
 The workflow is deliberately conservative: it requires source evidence,
 explicit quantity contracts, independent agreement checks, and recorded
 validation history before accepting results.
+
+Each ready calculation step is a deterministic public proposer-reviewer batch.
+Each initial attempt or bounded recalculation is an independent one-round
+`BatchRequest`; the runner consumes proposal and review content only from its
+verified committed round. Calculation status records public batch and loop
+identities rather than private worker/session or artifact paths. Blind reference
+claims are reviewer-only, and a `two_agree` result locks the two accepted
+outputs while recalculating only the remaining proposer. Unresolved or
+planning-changing results become a human question or a `plan.md` handoff.
 
 ## Caches And Refreshing
 
@@ -768,8 +832,7 @@ arc-paper get-metadata <paper-id> --refresh
 If LLM generation is unavailable:
 
 ```bash
-arc-llm doctor host --json
-arc-llm doctor provider --json
+arc-llm doctor --provider auto
 ```
 
 If a domain summary or graph is missing:
