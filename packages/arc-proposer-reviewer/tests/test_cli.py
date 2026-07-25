@@ -118,6 +118,14 @@ class _Projection:
         return _round()
 
 
+class _Runner:
+    def __init__(self, *, corrupt_trace: bool = False) -> None:
+        self.corrupt_trace = corrupt_trace
+
+    def projection(self, _run_root, run_id: str) -> _Projection:
+        return _Projection(None, run_id, corrupt_trace=self.corrupt_trace)
+
+
 def _query_envelope(capsys) -> dict:
     captured = capsys.readouterr()
     assert captured.err == ""
@@ -146,12 +154,7 @@ def _assert_query_output_is_safe(envelope: dict) -> None:
 def test_inspect_query_emits_one_safe_command_envelope(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
-    monkeypatch.setattr(cli, "BatchProjection", _Projection)
-    monkeypatch.setattr(
-        cli,
-        "_handler",
-        lambda: (_ for _ in ()).throw(AssertionError("query must not construct an LLM")),
-    )
+    monkeypatch.setattr(cli, "BatchRunner", _Runner)
 
     assert (
         cli.main(["inspect", "--run-root", str(tmp_path), "--run-id", "run-cli"])
@@ -167,7 +170,7 @@ def test_inspect_query_emits_one_safe_command_envelope(
 def test_trace_and_show_round_queries_emit_safe_command_envelopes(
     tmp_path: Path, capsys, monkeypatch
 ) -> None:
-    monkeypatch.setattr(cli, "BatchProjection", _Projection)
+    monkeypatch.setattr(cli, "_runner", _Runner)
 
     assert cli.main(["trace", "--run-root", str(tmp_path), "--run-id", "run-cli"]) == 0
     trace_envelope = _query_envelope(capsys)
@@ -202,10 +205,8 @@ def test_inspect_include_trace_warns_without_exposing_corruption_details(
 ) -> None:
     monkeypatch.setattr(
         cli,
-        "BatchProjection",
-        lambda repository, run_id: _Projection(
-            repository, run_id, corrupt_trace=True
-        ),
+        "_runner",
+        lambda: _Runner(corrupt_trace=True),
     )
 
     assert (
@@ -247,8 +248,8 @@ def test_validate_emits_one_command_envelope_and_constructs_no_llm(
     )
     monkeypatch.setattr(
         cli,
-        "_handler",
-        lambda: (_ for _ in ()).throw(AssertionError("LLM must not be constructed")),
+        "_runner",
+        lambda: (_ for _ in ()).throw(AssertionError("runner must not be constructed")),
     )
     assert cli.main(["validate", "--request", str(request_path)]) == 0
     captured = capsys.readouterr()
@@ -280,16 +281,14 @@ def test_run_emits_no_synthetic_progress_events(
         json.dumps(encode_batch_request(request())),
         encoding="utf-8",
     )
-    monkeypatch.setattr(
-        cli,
-        "_handler",
-        lambda: type("_Handler", (), {"name": "test.handler"})(),
-    )
-    monkeypatch.setattr(
-        cli.RunEngine,
-        "execute",
-        lambda self, spec, handler: object(),
-    )
+    calls = []
+
+    class _RunRunner:
+        def run(self, batch, run_root, run_id):
+            calls.append((batch, run_root, run_id))
+            return object()
+
+    monkeypatch.setattr(cli, "_runner", _RunRunner)
     monkeypatch.setattr(
         cli,
         "command_result_from_snapshot",
@@ -311,6 +310,50 @@ def test_run_emits_no_synthetic_progress_events(
     captured = capsys.readouterr()
     assert captured.err == ""
     assert len(captured.out.splitlines()) == 1
+    assert calls == [(request(), str(tmp_path / "runs"), None)]
+
+
+def test_resume_delegates_to_shared_runner(
+    tmp_path: Path,
+    capsys,
+    monkeypatch,
+) -> None:
+    input_path = tmp_path / "input.json"
+    resume_input = {"resume_key": "resume-a", "action": "continue"}
+    input_path.write_text(json.dumps(resume_input), encoding="utf-8")
+    calls = []
+
+    class _ResumeRunner:
+        def resume(self, run_root, run_id, input):
+            calls.append((run_root, run_id, input))
+            return object()
+
+    monkeypatch.setattr(cli, "_runner", _ResumeRunner)
+    monkeypatch.setattr(
+        cli,
+        "command_result_from_snapshot",
+        lambda snapshot: cli.CommandResult(cli.CommandStatus.COMPLETED),
+    )
+
+    assert (
+        cli.main(
+            [
+                "resume",
+                "--run-root",
+                str(tmp_path / "runs"),
+                "--run-id",
+                "run-a",
+                "--input",
+                str(input_path),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert len(captured.out.splitlines()) == 1
+    assert calls == [(str(tmp_path / "runs"), "run-a", resume_input)]
 
 
 def test_unexpected_exception_uses_internal_error_envelope(
@@ -325,7 +368,7 @@ def test_unexpected_exception_uses_internal_error_envelope(
     )
     monkeypatch.setattr(
         cli,
-        "_handler",
+        "_runner",
         lambda: (_ for _ in ()).throw(RuntimeError("sensitive detail")),
     )
 

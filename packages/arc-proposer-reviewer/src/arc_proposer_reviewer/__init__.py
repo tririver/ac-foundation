@@ -13,8 +13,10 @@ from .models import (
     WorkerSpec,
 )
 from .service import ProposerReviewerService
+from .runner import BatchRunner
 from .projection import (
     BatchInspection,
+    BatchProjection,
     BatchProjectionIntegrityError,
     BatchTrace,
     CommittedRound,
@@ -29,9 +31,11 @@ __version__ = "1.0.1"
 __all__ = [
     "BatchFailurePolicy",
     "BatchInspection",
+    "BatchProjection",
     "BatchProjectionIntegrityError",
     "BatchRequest",
     "BatchResult",
+    "BatchRunner",
     "BatchTrace",
     "CommittedRound",
     "CommittedRoundNotFoundError",

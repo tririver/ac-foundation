@@ -11,10 +11,19 @@ fabrication.
 
 ## Python API
 
-Construct a `BatchRequest`, an `LLMTaskService`, and a
-`ProposerReviewerService`. Execute it inside an `arc-jobs` `RunContext`, either
-through `ProposerReviewerHandler` and `RunEngine` or through an embedding
-handler.
+`BatchRunner` is the reusable durable facade. It prepares a request before
+execution, keeps operational execution options out of semantic input, resumes
+the same lineage, exposes stop and run inspection, and returns the existing
+read-only `BatchProjection`:
+
+```python
+runner = BatchRunner()
+snapshot = runner.run(request, run_root, run_id=None, options=options)
+inspection = runner.projection(run_root, snapshot.run_id).inspect()
+```
+
+Lower-level embeddings may still construct a `ProposerReviewerService` and
+execute it through `ProposerReviewerHandler` and `RunEngine`.
 
 Completed round history is observed through one read-only projection:
 

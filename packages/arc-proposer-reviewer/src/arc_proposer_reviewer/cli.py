@@ -16,23 +16,17 @@ from arc_jobs import (
     CommandStatus,
     CommandWarning,
     JsonValue,
-    RunEngine,
-    RunRepository,
-    RunSpec,
     command_result_from_snapshot,
     command_result_json,
 )
-from arc_llm import ArcLLMError, LLMTaskService
+from arc_llm import ArcLLMError
 
-from .handler import ProposerReviewerHandler
-from .identity import derive_batch_run_id
-from .protocol import decode_batch_request, encode_batch_request
+from .protocol import decode_batch_request
 from .projection import (
-    BatchProjection,
     BatchProjectionIntegrityError,
     CommittedRoundNotFoundError,
 )
-from .service import ProposerReviewerService
+from .runner import BatchRunner
 
 
 class _UsageError(Exception):
@@ -89,8 +83,8 @@ def _emit(result: CommandResult, *, exit_code: int) -> int:
     return exit_code
 
 
-def _handler() -> ProposerReviewerHandler:
-    return ProposerReviewerHandler(ProposerReviewerService(LLMTaskService()))
+def _runner() -> BatchRunner:
+    return BatchRunner()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -111,9 +105,9 @@ def main(argv: list[str] | None = None) -> int:
                 exit_code=0,
             )
 
-        repository = RunRepository(args.run_root)
+        runner = _runner()
         if args.command in {"inspect", "trace", "show-round"}:
-            projection = BatchProjection(repository, args.run_id)
+            projection = runner.projection(args.run_root, args.run_id)
             if args.command == "inspect":
                 inspection = projection.inspect()
                 data: dict[str, Any] = {
@@ -156,23 +150,21 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return _emit(result, exit_code=0)
 
-        handler = _handler()
         if args.command == "run":
             request = decode_batch_request(_load_object(args.request))
-            run_id = args.run_id or derive_batch_run_id(request.batch_id)
-            snapshot = RunEngine(repository).execute(
-                RunSpec(run_id, handler.name, encode_batch_request(request)),
-                handler,
+            snapshot = runner.run(
+                request,
+                args.run_root,
+                args.run_id,
             )
         elif args.command == "resume":
-            run_id = args.run_id
             resume_input = (
                 None if args.input is None else _load_object(args.input)
             )
-            snapshot = RunEngine(repository).resume(
-                run_id,
-                handler,
-                input=resume_input,
+            snapshot = runner.resume(
+                args.run_root,
+                args.run_id,
+                resume_input,
             )
         else:
             raise AssertionError(args.command)
