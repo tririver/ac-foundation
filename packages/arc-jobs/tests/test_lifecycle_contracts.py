@@ -17,7 +17,9 @@ from arc_jobs import (
     EffectRequestDigest,
     EffectStage,
     EventWriter,
+    Failed,
     FailureMode,
+    InvalidTransitionError,
     Paused,
     RecoveryDecision,
     ResumeReason,
@@ -25,6 +27,7 @@ from arc_jobs import (
     RunEngine,
     RunError,
     RunRepository,
+    RunSnapshot,
     RunSpec,
     RunStatus,
     RunContext,
@@ -172,6 +175,90 @@ def test_event_validation_rejects_tampered_identity(tmp_path):
     path.write_text(json.dumps(document) + "\n")
     with pytest.raises(Exception):
         writer.validate()
+
+
+class MalformedFailureHandler:
+    name = "malformed-failure.v1"
+
+    def __init__(self, error):
+        self.error = error
+
+    def execute(self, context):
+        return Failed(self.error)
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        RunError(7, "message"),
+        RunError("", "message"),
+        RunError("error_code", 7),
+        RunError("error_code", ""),
+        RunError("error_code", "message", []),
+        {"code": "error_code", "message": "message", "details": {}},
+    ),
+)
+def test_malformed_failed_outcome_becomes_valid_terminal_error(tmp_path, error):
+    repository = RunRepository(tmp_path)
+    handler = MalformedFailureHandler(error)
+
+    snapshot = RunEngine(repository).execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+
+    assert snapshot.status is RunStatus.FAILED
+    assert snapshot.error is not None
+    assert snapshot.error.code == "handler_unhandled_exception"
+    assert isinstance(snapshot.error.message, str)
+    assert repository.inspect("run-1").snapshot == snapshot
+    assert repository.validate("run-1").ok
+
+
+def test_snapshot_create_rejects_malformed_run_error_before_write(tmp_path):
+    path = tmp_path / "snapshot.json"
+    store = engine_module._SnapshotStore(path)
+    snapshot = RunSnapshot(
+        "run-1",
+        0,
+        RunStatus.FAILED,
+        0,
+        "2026-01-01T00:00:00Z",
+        "2026-01-01T00:00:00Z",
+        error=RunError("error_code", 7),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="invalid run error fields"):
+        store.create(snapshot)
+
+    assert not path.exists()
+
+
+def test_snapshot_compare_and_swap_rejects_malformed_run_error_before_write(
+    tmp_path,
+):
+    repository = RunRepository(tmp_path)
+    pending = repository.create(RunSpec("run-1", "example.v1", {}))
+    store = repository._snapshot_store("run-1")
+    running = replace(
+        pending,
+        revision=1,
+        status=RunStatus.RUNNING,
+        attempt=1,
+        updated_at="2026-01-01T00:00:01Z",
+    )
+    store.compare_and_swap(pending.revision, running)
+    failed = replace(
+        running,
+        revision=2,
+        status=RunStatus.FAILED,
+        updated_at="2026-01-01T00:00:02Z",
+        error=RunError("error_code", "message", []),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="invalid run error fields"):
+        store.compare_and_swap(running.revision, failed)
+
+    assert store.read() == running
 
 
 class BlockingHandler:

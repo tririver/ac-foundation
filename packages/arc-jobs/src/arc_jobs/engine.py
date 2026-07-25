@@ -200,6 +200,19 @@ def _validate_awaiting(value: Awaiting) -> None:
         )
 
 
+def _validate_run_error(value: RunError, *, reading: bool = False) -> None:
+    if (
+        not isinstance(value, RunError)
+        or not isinstance(value.code, str)
+        or not value.code
+        or not isinstance(value.message, str)
+        or not value.message
+        or not isinstance(value.details, Mapping)
+    ):
+        error_type = CorruptStateError if reading else InvalidTransitionError
+        raise error_type("invalid run error fields")
+
+
 class _SnapshotStore:
     def __init__(self, path: Path):
         self.path = path
@@ -279,12 +292,6 @@ class _SnapshotStore:
             if not isinstance(error_json, dict):
                 raise CorruptStateError("run error must be an object")
             require_fields(error_json, required={"code", "message", "details"})
-            if (
-                not isinstance(error_json["code"], str)
-                or not isinstance(error_json["message"], str)
-                or not isinstance(error_json["details"], dict)
-            ):
-                raise CorruptStateError("invalid run error")
             error = RunError(
                 error_json["code"], error_json["message"], error_json["details"]
             )
@@ -328,6 +335,8 @@ class _SnapshotStore:
             raise InvalidTransitionError("failed run requires an error")
         if next_value.status is not RunStatus.FAILED and next_value.error is not None:
             raise InvalidTransitionError("only failed runs may contain an error")
+        if next_value.error is not None:
+            _validate_run_error(next_value.error, reading=reading)
         if reading or previous is None:
             return
         if next_value.run_id != previous.run_id or next_value.created_at != previous.created_at:
@@ -907,6 +916,7 @@ class RunEngine:
                         awaiting=outcome.awaiting,
                     )
                 elif isinstance(outcome, Failed):
+                    _validate_run_error(outcome.error)
                     next_snapshot = replace(
                         snapshot,
                         revision=snapshot.revision + 1,
