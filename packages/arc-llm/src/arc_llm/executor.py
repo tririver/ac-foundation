@@ -292,6 +292,8 @@ class LLMTaskExecutor:
                 input=input,
                 options=options,
             )
+        except StoppedError:
+            return LLMStopped()
         finally:
             lease.release()
 
@@ -1247,6 +1249,8 @@ class LLMTaskExecutor:
                 session,
                 None,
             )
+        except StoppedError:
+            return LLMStopped()
         except Exception as exc:
             if isinstance(exc, ArcLLMError):
                 return LLMFailed(exc)

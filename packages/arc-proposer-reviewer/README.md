@@ -51,5 +51,5 @@ arc-proposer-reviewer show-round --run-root DIR --run-id ID --loop-id ID --round
 
 `validate`, `inspect`, `trace`, and `show-round` perform no model call. `run`
 and `resume` are blocking commands. Every command uses the shared
-`arc.command_result.v1` command envelope; `inspect --include-trace` retains its
+`arc.command_result.v2` command envelope; `inspect --include-trace` retains its
 inspection and emits a warning when a strict trace cannot be verified.

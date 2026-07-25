@@ -1,7 +1,7 @@
 # arc-jobs
 
 `arc-jobs` is ARC's zero-dependency durable run kernel. It owns atomic state,
-immutable artifacts, cooperative cancellation, pause/resume, effect recovery,
+immutable artifacts, cooperative stopping, pause/resume, effect recovery,
 joined work groups, and the shared command JSON codec.
 
 It deliberately does **not** own detached processes, provider selection,
@@ -66,7 +66,7 @@ For a small cross-process concurrency limit, use an explicit-root lease pool:
 from arc_jobs import BoundedLeasePool
 
 pool = BoundedLeasePool("/explicit/run/root/provider-slots", capacity=2)
-with pool.acquire(limit=current_limit, checkpoint=cancel.raise_if_requested):
+with pool.acquire(limit=current_limit, checkpoint=context.stop.raise_if_requested):
     call_provider()
 ```
 
@@ -77,7 +77,7 @@ slot. A call may supply a current `limit`, where `1 <= limit <= capacity`,
 without changing the persisted pool contract. Lowering that limit does not
 revoke existing leases, but no new lease is granted until the total active
 holder count is below the new limit. The optional checkpoint keeps blocking
-waits cooperatively cancellable. The pool does not create a daemon, detached
+waits cooperatively stoppable. The pool does not create a daemon, detached
 worker, or implicit global path.
 
 ## CLI
@@ -86,10 +86,10 @@ The CLI is intentionally limited to read/control operations:
 
 ```text
 arc-jobs status   --run-root DIR --run-id ID
-arc-jobs cancel   --run-root DIR --run-id ID [--reason TEXT]
+arc-jobs stop     --run-root DIR --run-id ID [--reason TEXT]
 arc-jobs validate --run-root DIR --run-id ID
 ```
 
-stdout contains exactly one `arc.command_result.v1` object. A successfully
-recorded cancellation is a terminal outcome and uses exit code 0; failure to
-request cancellation uses exit code 1.
+stdout contains exactly one `arc.command_result.v2` object. A successful stop
+acknowledges the current attempt and uses exit code 0. The attempt then pauses
+at its next cooperative checkpoint; `resume` continues the same run.

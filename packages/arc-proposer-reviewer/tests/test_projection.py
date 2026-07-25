@@ -297,24 +297,6 @@ def test_failed_group_unit_controls_loop_lifecycle(tmp_path: Path) -> None:
     assert loop_inspection.activity.loop_group_status == "failed"
 
 
-def test_cancelled_batch_controls_unstarted_loop_lifecycle(tmp_path: Path) -> None:
-    repository, snapshot, loop = _running_repository(tmp_path)
-    repository._snapshot_store("run-a").compare_and_swap(  # type: ignore[attr-defined]
-        snapshot.revision,
-        replace(
-            snapshot,
-            revision=snapshot.revision + 1,
-            status=RunStatus.CANCELLED,
-        ),
-    )
-
-    inspection = inspect_batch(repository, "run-a")
-
-    assert inspection.run_lifecycle == "cancelled"
-    assert inspection.loops[0].loop_id == loop.loop_id
-    assert inspection.loops[0].lifecycle == "cancelled"
-
-
 def test_succeeded_batch_without_loop_state_is_an_integrity_error(tmp_path: Path) -> None:
     repository, snapshot, loop = _running_repository(tmp_path)
     repository._snapshot_store("run-a").compare_and_swap(  # type: ignore[attr-defined]

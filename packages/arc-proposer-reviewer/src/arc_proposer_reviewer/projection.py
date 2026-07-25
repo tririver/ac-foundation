@@ -40,7 +40,7 @@ from .state import (
 
 
 _LoopLifecycle = Literal[
-    "pending", "running", "paused", "succeeded", "failed", "cancelled", "integrity_error"
+    "pending", "running", "paused", "succeeded", "failed", "integrity_error"
 ]
 _LoopPhase = Literal["not_started", "proposers", "reviewer", "paused", "completed"]
 
@@ -80,7 +80,6 @@ class BestEffortActivity:
     proposer_pending: int
     proposer_succeeded: int
     proposer_failed: int
-    proposer_cancelled: int
 
 
 @dataclass(frozen=True)
@@ -181,7 +180,7 @@ class BatchProjection:
                 and data.state is None
                 and (
                     batch_units.get(loop.loop_id) is None
-                    or batch_units[loop.loop_id].status not in {"failed", "cancelled"}
+                    or batch_units[loop.loop_id].status != "failed"
                 )
             )
             self._loop_data[loop.loop_id] = _LoopData(
@@ -551,7 +550,7 @@ def _group_units(group: object) -> Mapping[str, GroupUnitView]:
 def _activity(
     batch_unit: GroupUnitView | None, proposer_group: object
 ) -> BestEffortActivity:
-    counts = {"pending": 0, "succeeded": 0, "failed": 0, "cancelled": 0}
+    counts = {"pending": 0, "succeeded": 0, "failed": 0}
     if proposer_group is not None:
         for unit in proposer_group.units:  # type: ignore[attr-defined]
             counts[unit.status] += 1
@@ -561,7 +560,6 @@ def _activity(
         proposer_pending=counts["pending"],
         proposer_succeeded=counts["succeeded"],
         proposer_failed=counts["failed"],
-        proposer_cancelled=counts["cancelled"],
     )
 
 
@@ -573,8 +571,6 @@ def _lifecycle(
     if batch_unit is not None:
         if batch_unit.status == "failed":
             return "failed"
-        if batch_unit.status == "cancelled":
-            return "cancelled"
         if batch_unit.status == "succeeded":
             return "succeeded"
     if state is not None:
@@ -584,8 +580,6 @@ def _lifecycle(
             return "succeeded"
         if state.pauses:
             return "paused"
-    if run_status is RunStatus.CANCELLED:
-        return "cancelled"
     if run_status is RunStatus.FAILED:
         return "failed"
     if run_status is RunStatus.PAUSED:

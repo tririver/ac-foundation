@@ -16,6 +16,7 @@ from arc_jobs import (
     ResumeReason,
     RunSpec,
     RunStatus,
+    StoppedError,
 )
 from arc_jobs import EffectStage
 from arc_llm import (
@@ -141,6 +142,34 @@ def test_client_generate_replays_accepted_result_without_provider_call(
     assert second.snapshot.result_ref == first.snapshot.result_ref
     assert isinstance(second.outcome, LLMCompleted)
     assert second.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 1
+
+
+def test_replay_commit_checkpoint_returns_stopped_outcome(
+    tmp_path: Path, adapter, registry, monkeypatch
+) -> None:
+    adapter.steps.append(_completed({"answer": 42}))
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("replay-stop", "test.parent", {"case": "replay-stop"})
+    )
+    context = RunContext(
+        repository,
+        snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    service = LLMTaskService(registry=registry)
+    first = service.execute(context, _request())
+    assert isinstance(first, LLMCompleted)
+
+    def stop_at_commit(effect_id: str) -> None:
+        raise StoppedError(f"stopped before committing {effect_id}")
+
+    monkeypatch.setattr(context.effects, "commit", stop_at_commit)
+    replayed = service.execute(context, _request())
+
+    assert isinstance(replayed, LLMStopped)
     assert adapter.start_calls == 1
 
 
@@ -1939,6 +1968,69 @@ def test_provider_stop_during_interactive_resume_pauses_the_outer_run(
             paused.outcome.resume_key,
             ResumeAction.CONTINUE,
             (InteractionResponse("lookup-stop", result={"value": "found"}),),
+        ),
+    )
+
+    assert stopped.snapshot.status is RunStatus.PAUSED
+    assert isinstance(stopped.outcome, LLMStopped)
+    assert adapter.resume_calls == 1
+
+
+def test_process_stop_during_interactive_resume_returns_typed_outcome(
+    tmp_path: Path, adapter, registry, monkeypatch
+) -> None:
+    request = LLMRequest(
+        "interactive-process-stop",
+        "Resolve the request.",
+        InteractiveJsonOutput(
+            {"type": "object", "required": ["answer"]},
+            {
+                "lookup": OperationContract(
+                    {"type": "object", "required": ["query"]},
+                    {"type": "object", "required": ["value"]},
+                )
+            },
+        ),
+        ModelSelection("codex"),
+    )
+    adapter.steps.append(
+        _completed(
+            {
+                "schema_version": "arc.llm.interactive_turn.v1",
+                "state": "interact",
+                "result": None,
+                "requests": [
+                    {
+                        "request_id": "lookup-process-stop",
+                        "operation": "lookup",
+                        "arguments": {"query": "x"},
+                    }
+                ],
+            }
+        )
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(request, run_root=tmp_path)
+    assert isinstance(paused.outcome, LLMPaused)
+
+    def stop_during_resume(handle, provider_request, observer, stop):
+        adapter.resume_calls += 1
+        observer.before_delivery()
+        raise StoppedError("provider process stopped")
+
+    monkeypatch.setattr(adapter, "resume", stop_during_resume)
+    stopped = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(
+            paused.outcome.resume_key,
+            ResumeAction.CONTINUE,
+            (
+                InteractionResponse(
+                    "lookup-process-stop",
+                    result={"value": "found"},
+                ),
+            ),
         ),
     )
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+from dataclasses import replace
 
 import pytest
 
+import arc_jobs.engine as engine_module
 import arc_jobs.groups as group_storage
 import arc_jobs.lease as lease_module
 
@@ -243,6 +245,48 @@ def test_repeated_stop_keeps_first_request_metadata(tmp_path):
     requests = [event for event in events if event["event"] == "attempt_stop_requested"]
     assert len(requests) == 1
     assert requests[0]["data"]["reason"] == "first"
+
+
+def test_terminal_winning_stop_race_hides_stale_request_and_event(
+    tmp_path, monkeypatch
+):
+    repository = RunRepository(tmp_path)
+    pending = repository.create(RunSpec("run-1", "example.v1", {}))
+    running = replace(
+        pending,
+        revision=pending.revision + 1,
+        status=RunStatus.RUNNING,
+        attempt=1,
+    )
+    store = repository._snapshot_store("run-1")
+    store.compare_and_swap(pending.revision, running)
+    original_request = engine_module.StopToken.request
+
+    def request_then_finish(token, *, reason=None):
+        request = original_request(token, reason=reason)
+        current = store.read()
+        succeeded = replace(
+            current,
+            revision=current.revision + 1,
+            status=RunStatus.SUCCEEDED,
+        )
+        store.compare_and_swap(current.revision, succeeded)
+        return request
+
+    monkeypatch.setattr(engine_module.StopToken, "request", request_then_finish)
+
+    view = repository.request_stop("run-1", reason="too late")
+
+    assert view.snapshot.status is RunStatus.SUCCEEDED
+    assert view.stop_request is None
+    assert repository.inspect("run-1").stop_request is None
+    assert (
+        repository.run_directory("run-1") / "stop-requests" / "1.json"
+    ).exists()
+    events = EventWriter(
+        repository.run_directory("run-1") / "events.jsonl", run_id="run-1"
+    ).tail()
+    assert all(event["event"] != "attempt_stop_requested" for event in events)
 
 
 def test_stop_is_idempotent_for_an_already_paused_run(tmp_path):

@@ -480,12 +480,14 @@ class RunRepository:
 
     def inspect(self, run_id: str) -> RunView:
         snapshot = self._snapshot_store(run_id).read()
-        stop = StopToken(
-            self.run_directory(run_id)
-            / "stop-requests"
-            / f"{snapshot.attempt}.json",
-            target_attempt=snapshot.attempt,
-        ).read()
+        stop = None
+        if snapshot.status not in _TERMINAL:
+            stop = StopToken(
+                self.run_directory(run_id)
+                / "stop-requests"
+                / f"{snapshot.attempt}.json",
+                target_attempt=snapshot.attempt,
+            ).read()
         return RunView(snapshot, stop)
 
     def inspect_group(self, run_id: str, group_id: str) -> GroupView:
@@ -506,7 +508,20 @@ class RunRepository:
             )
             existing = token.read()
             request = token.request(reason=reason)
-            if existing is None:
+            current = store.read()
+            accepted = (
+                current.attempt == snapshot.attempt
+                and (
+                    current.status in {RunStatus.PENDING, RunStatus.RUNNING}
+                    or (
+                        current.status is RunStatus.PAUSED
+                        and current.awaiting is not None
+                        and current.awaiting.reason
+                        is ResumeReason.EXECUTION_STOPPED
+                    )
+                )
+            )
+            if existing is None and accepted:
                 events.emit(
                     "attempt_stop_requested",
                     _stop_details(snapshot, request),

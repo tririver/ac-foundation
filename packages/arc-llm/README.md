@@ -87,7 +87,7 @@ arc-llm stop --run-root DIR --run-id ID [--reason TEXT]
 arc-llm doctor [--provider auto|codex|claude|kimi]
 ```
 
-Every command writes exactly one `arc.command_result.v1` JSON object to stdout.
+Every command writes exactly one `arc.command_result.v2` JSON object to stdout.
 Accepted provider output is stored as an immutable artifact; provider streams
 are never copied to stdout or stderr.
 

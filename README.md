@@ -522,7 +522,7 @@ arc-paper import-source note.md
 arc-paper parse-local note.md --validator paper.pdf
 ```
 
-Every invocation emits one `arc.command_result.v1` JSON document. arXiv auto
+Every invocation emits one `arc.command_result.v2` JSON document. arXiv auto
 fetches ar5iv HTML only; PDF acquisition is explicit. Local TeX input is one
 already-flattened file.
 
@@ -549,7 +549,7 @@ doi:10.1088/1475-7516/2010/04/027
 `PaperSummaryService`, `SummaryBatchRunner`, `ReferenceInferenceService`, and
 `ReferenceInferenceRunner` are typed Python workflows. They run child LLM tasks
 inside the same parent `RunContext`; group unit results are the only batch item
-terminal state. Generic status, cancellation, and validation come from
+terminal state. Generic status, stop control, and validation come from
 `arc-jobs`.
 
 ### Research Domains
@@ -574,7 +574,8 @@ arc-domain get-graph --domain-id <domain-id>
 ```
 
 `build` reports the durable run ID and domain ID. Use `resume <run-id>`,
-`cancel <run-id>`, and `validate <run-id>` for run control. The catalog's
+`stop <run-id>`, and `validate <run-id>` for run control. A stop pauses the
+current attempt; resume continues the same durable run. The catalog's
 `latest` run backs `status --domain-id`; `get-*` reads the published `active`
 generation. Different trimmed intent strings produce different domain IDs.
 
@@ -594,8 +595,9 @@ arc-llm status \
   --run-id <stable-run-id>
 ```
 
-Use `arc-llm resume` only with the returned resume input, and `arc-llm cancel`
-only for that durable run. `arc-llm doctor --provider auto` is the supported
+Use `arc-llm resume` only with the returned resume input, and `arc-llm stop`
+only for that durable run. A stop pauses the current attempt and resumes the
+same durable run. `arc-llm doctor --provider auto` is the supported
 provider diagnostic.
 
 ### Proposer-Reviewer Batches
@@ -670,7 +672,7 @@ When several domain packages are exported, the manifest helper makes one typed,
 deterministic pair-classification LLM request and records the resulting field
 groups in `domain/field-grouping.json`. Malformed or inconsistent grouping
 content conservatively merges packages with a warning; a typed LLM pause,
-failure, or cancellation stops the ideas handoff rather than silently merging.
+failure, or stop pauses the ideas handoff rather than silently merging.
 
 ### 2. Ideas
 
@@ -680,7 +682,7 @@ The release idea workflow feeds ARC-built domain Markdown to proposers. It
 materializes one public `BatchRequest` in the project-local run repository,
 then ranks only verified committed proposer-reviewer rounds. The ranker chooses
 the best qualified committed round for every succeeded loop, not necessarily
-the final round; failed, cancelled, and incomplete loops remain visible in
+the final round; failed and incomplete loops remain visible in
 inspection but are not candidates. Use the durable root and ID rather than
 reading internal loop, transcript, session, or artifact paths:
 
@@ -882,7 +884,7 @@ Package boundaries:
   deterministic LaTeX/PDF and static-web rendering, and validation. It consumes
   document and asset caches from `arc-paper` and LLM calls from `arc-llm`.
 - `packages/arc-jobs` owns protocol-neutral persistent CLI execution, status,
-  cancellation, output capture, and ETA. It has no core package dependency.
+  stop control, output capture, and ETA. It has no core package dependency.
 - `plugins/arc/skills/arc`, prompts, schemas, and plugin manifests describe or
   wrap package behavior; they should not reimplement package internals.
 

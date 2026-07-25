@@ -6,7 +6,6 @@ from typing import Mapping, cast
 from arc_jobs import (
     ArtifactRef,
     Awaiting,
-    CancelledError,
     FailureMode,
     GroupResult,
     JsonValue,
@@ -16,13 +15,14 @@ from arc_jobs import (
     RunError,
     RunOutcome,
     Succeeded,
+    StoppedError,
     UnitResult,
     WorkUnit,
 )
 from arc_llm import (
     InteractiveJsonOutput,
     JsonOutput,
-    LLMCancelled,
+    LLMStopped,
     LLMCompleted,
     LLMExecutionOptions,
     LLMFailed,
@@ -146,8 +146,6 @@ class ProposerReviewerService:
         assert isinstance(grouped, GroupResult)
         result_by_id: dict[str, LoopResult] = {}
         for unit in grouped.units:
-            if unit.status == "cancelled":
-                raise CancelledError(unit.error.message if unit.error else "cancelled")
             if isinstance(unit.value, Mapping):
                 result_by_id[unit.unit_id] = _loop_result_from_document(unit.value)
             else:
@@ -368,12 +366,8 @@ class ProposerReviewerService:
                         ),
                     )
                     return paused
-                if isinstance(outcome, LLMCancelled):
-                    return UnitResult(
-                        unit.unit_id,
-                        "cancelled",
-                        error=RunError("cancelled", "LLM task was cancelled"),
-                    )
+                if isinstance(outcome, LLMStopped):
+                    raise StoppedError("proposer LLM task stopped")
                 if isinstance(outcome, LLMFailed):
                     return UnitResult(
                         unit.unit_id,
@@ -419,10 +413,6 @@ class ProposerReviewerService:
             successful_sessions: dict[str, SessionRef] = {}
             failed: list[UnitResult] = []
             for unit in grouped.units:
-                if unit.status == "cancelled":
-                    raise CancelledError(
-                        unit.error.message if unit.error else "LLM task cancelled"
-                    )
                 if unit.status != "succeeded":
                     failed.append(unit)
                     continue
@@ -541,8 +531,8 @@ class ProposerReviewerService:
                     ),
                 )
                 return paused
-            if isinstance(reviewer_outcome, LLMCancelled):
-                raise CancelledError("reviewer LLM task was cancelled")
+            if isinstance(reviewer_outcome, LLMStopped):
+                raise StoppedError("reviewer LLM task stopped")
             if isinstance(reviewer_outcome, LLMFailed):
                 return _failed_loop(
                     loop,

@@ -65,7 +65,7 @@ def _inspection() -> BatchInspection:
                 rounds_completed=1,
                 revision=3,
                 pause=None,
-                activity=BestEffortActivity(True, None, 0, 1, 0, 0),
+                activity=BestEffortActivity(True, None, 0, 1, 0),
             ),
         ),
     )
@@ -124,7 +124,7 @@ def _query_envelope(capsys) -> dict:
     lines = captured.out.splitlines()
     assert len(lines) == 1
     envelope = json.loads(lines[0])
-    assert envelope["schema_version"] == "arc.command_result.v1"
+    assert envelope["schema_version"] == "arc.command_result.v2"
     assert envelope["status"] == "completed"
     assert envelope["run"] == {"id": "run-cli", "revision": 7}
     return envelope
@@ -255,7 +255,7 @@ def test_validate_emits_one_command_envelope_and_constructs_no_llm(
     lines = captured.out.splitlines()
     assert len(lines) == 1
     envelope = json.loads(lines[0])
-    assert envelope["schema_version"] == "arc.command_result.v1"
+    assert envelope["schema_version"] == "arc.command_result.v2"
     assert envelope["status"] == "completed"
     assert envelope["run"] is None
     assert envelope["data"]["valid"] is True
