@@ -340,6 +340,7 @@ class ProposerReviewerService:
                 outcome = self._call_worker(
                     context,
                     request,
+                    loop_id=loop.loop_id,
                     task_id=task_id,
                     pause=state.pauses.get(pause_key),
                     options=options,
@@ -505,6 +506,7 @@ class ProposerReviewerService:
             reviewer_outcome = self._call_worker(
                 context,
                 reviewer_request,
+                loop_id=loop.loop_id,
                 task_id=reviewer_task_id,
                 pause=latest_state.pauses.get(reviewer_pause_key),
                 options=options,
@@ -648,13 +650,17 @@ class ProposerReviewerService:
         context: RunContext,
         request: LLMRequest,
         *,
+        loop_id: str,
         task_id: str,
         pause: _PauseRecord | None,
         options: ExecutionOptions,
     ):
         llm_options = LLMExecutionOptions(
             limits=options.llm_limits,
-            interaction_resolver=options.interaction_resolver,
+            interaction_resolver=options.loop_interaction_resolvers.get(
+                loop_id,
+                options.interaction_resolver,
+            ),
         )
         if pause is None:
             return self.llm.execute(context, request, options=llm_options)

@@ -60,6 +60,18 @@ def validate_execution_options(options: ExecutionOptions) -> None:
         options.max_concurrent_workers,
         ("max_concurrent_workers",),
     )
+    if not isinstance(options.loop_interaction_resolvers, Mapping):
+        raise RequestValidationError(
+            "must be an object",
+            ("loop_interaction_resolvers",),
+        )
+    for loop_id, resolver in options.loop_interaction_resolvers.items():
+        _valid_id(loop_id, ("loop_interaction_resolvers", loop_id))
+        if not callable(getattr(resolver, "resolve", None)):
+            raise RequestValidationError(
+                "resolver must provide resolve(request)",
+                ("loop_interaction_resolvers", loop_id),
+            )
 
 
 def decode_review(

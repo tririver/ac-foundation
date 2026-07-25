@@ -73,6 +73,9 @@ class ExecutionOptions:
     max_concurrent_workers: int = 1
     llm_limits: ExecutionLimits = field(default_factory=ExecutionLimits)
     interaction_resolver: InteractionResolver | None = None
+    loop_interaction_resolvers: Mapping[str, InteractionResolver] = field(
+        default_factory=dict
+    )
 
 
 @dataclass(frozen=True)

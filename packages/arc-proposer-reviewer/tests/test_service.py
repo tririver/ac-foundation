@@ -305,6 +305,68 @@ def test_interactive_worker_contracts_reach_proposer_and_reviewer(
     assert [request.operation for request in resolver.requests] == ["lookup", "lookup"]
 
 
+def test_loop_interaction_resolvers_scope_workers_without_using_global(
+    tmp_path: Path,
+) -> None:
+    class Resolver:
+        def resolve(self, request):
+            return InteractionResponse(request.request_id, result={"value": "ok"})
+
+    class ResolverRecordingFake(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.resolvers = []
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.resolvers.append(options.interaction_resolver)
+            return _completed(request)
+
+    def interactive_loop(loop_id: str) -> LoopSpec:
+        return LoopSpec(
+            loop_id=loop_id,
+            context={"question": loop_id},
+            proposers=(
+                WorkerSpec(
+                    f"{loop_id}-p",
+                    "Produce a proposal.",
+                    PROPOSAL_SCHEMA,
+                    interaction_operations={"lookup": LOOKUP_OPERATION},
+                ),
+            ),
+            reviewer=WorkerSpec(
+                f"{loop_id}-r",
+                "Review all proposals.",
+                REVIEW_PAYLOAD_SCHEMA,
+                interaction_operations={"lookup": LOOKUP_OPERATION},
+            ),
+            max_rounds=1,
+        )
+
+    global_resolver = Resolver()
+    loop_a_resolver = Resolver()
+    loop_b_resolver = Resolver()
+    fake = ResolverRecordingFake()
+    _repository, _handler, snapshot = _run(
+        tmp_path,
+        _request(interactive_loop("loop-a"), interactive_loop("loop-b")),
+        fake,
+        options=ExecutionOptions(
+            max_concurrent_loops=2,
+            interaction_resolver=global_resolver,
+            loop_interaction_resolvers={
+                "loop-a": loop_a_resolver,
+                "loop-b": loop_b_resolver,
+            },
+        ),
+    )
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    assert fake.resolvers.count(loop_a_resolver) == 2
+    assert fake.resolvers.count(loop_b_resolver) == 2
+    assert global_resolver not in fake.resolvers
+
+
 def test_stop_is_recorded_but_ignored_when_early_stop_is_disabled(
     tmp_path: Path,
 ) -> None:
