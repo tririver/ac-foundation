@@ -111,7 +111,7 @@ def provider_schema(contract: OutputContract) -> dict[str, Any] | None:
         return None
     if isinstance(contract, JsonOutput):
         return dict(contract.schema)
-    return _interactive_schema(contract)
+    return _interactive_provider_schema(contract)
 
 
 def _select_text(materials: tuple[CandidateMaterial, ...]) -> str:
@@ -290,4 +290,58 @@ def _interactive_schema(contract: InteractiveJsonOutput) -> dict[str, Any]:
                 "additionalProperties": False,
             },
         ]
+    }
+
+
+def _interactive_provider_schema(
+    contract: InteractiveJsonOutput,
+) -> dict[str, Any]:
+    """Return the provider-compatible superset of an interactive turn.
+
+    Provider structured-output dialects require an object at the schema root.
+    Cross-field state/result/request invariants remain enforced locally by the
+    strict interactive schema and ``decode_interactive_turn``.
+    """
+
+    request_variants = []
+    for operation, operation_contract in contract.operations.items():
+        request_variants.append(
+            {
+                "type": "object",
+                "properties": {
+                    "request_id": {"type": "string"},
+                    "operation": {"type": "string", "const": operation},
+                    "arguments": dict(operation_contract.arguments_schema),
+                },
+                "required": ["request_id", "operation", "arguments"],
+                "additionalProperties": False,
+            }
+        )
+    request_schema: dict[str, Any] = (
+        {"anyOf": request_variants} if request_variants else False
+    )
+    return {
+        "type": "object",
+        "properties": {
+            "schema_version": {
+                "type": "string",
+                "const": "arc.llm.interactive_turn.v1",
+            },
+            "state": {
+                "type": "string",
+                "enum": ["complete", "interact"],
+            },
+            "result": {
+                "anyOf": [
+                    dict(contract.result_schema),
+                    {"type": "null"},
+                ]
+            },
+            "requests": {
+                "type": "array",
+                "items": request_schema,
+            },
+        },
+        "required": ["schema_version", "state", "result", "requests"],
+        "additionalProperties": False,
     }

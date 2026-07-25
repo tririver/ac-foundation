@@ -355,7 +355,7 @@ def _project_schema_node(schema: Any) -> Any:
     projected = {
         key: deepcopy(value)
         for key, value in schema.items()
-        if key != "uniqueItems"
+        if key not in {"$schema", "default", "uniqueItems"}
     }
     for key in _SCHEMA_SINGLE_CHILDREN:
         if key not in schema:
@@ -390,6 +390,20 @@ def _project_schema_node(schema: Any) -> Any:
         value_type = _const_json_type(schema["const"])
         if value_type is not None:
             projected["type"] = value_type
+    if "enum" in schema and "type" not in schema:
+        enum_values = schema["enum"]
+        if isinstance(enum_values, list) and enum_values:
+            enum_types = {_const_json_type(value) for value in enum_values}
+            if len(enum_types) == 1 and None not in enum_types:
+                projected["type"] = enum_types.pop()
+    raw_type = projected.get("type")
+    if isinstance(raw_type, list):
+        projected.pop("type")
+        projected["anyOf"] = [{"type": value} for value in raw_type]
+    properties = projected.get("properties")
+    if projected.get("type") == "object" and isinstance(properties, Mapping):
+        projected["required"] = list(properties)
+        projected["additionalProperties"] = False
     return projected
 
 

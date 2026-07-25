@@ -256,7 +256,13 @@ def test_codex_projects_native_schema_without_relaxing_local_contract() -> None:
                 "items": {
                     "type": "object",
                     "required": ["kind"],
-                    "properties": {"kind": {"const": "guide"}},
+                    "properties": {
+                        "kind": {"const": "guide"},
+                        "mode": {
+                            "default": "brief",
+                            "enum": ["brief", "full"],
+                        },
+                    },
                 },
             },
             # A user property can itself be named ``uniqueItems``.  Only the
@@ -284,6 +290,11 @@ def test_codex_projects_native_schema_without_relaxing_local_contract() -> None:
     assert native_schema["properties"]["items"]["items"]["properties"][
         "kind"
     ]["type"] == "string"
+    native_item_schema = native_schema["properties"]["items"]["items"]
+    assert native_item_schema["required"] == ["kind", "mode"]
+    assert native_item_schema["additionalProperties"] is False
+    assert "default" not in native_item_schema["properties"]["mode"]
+    assert native_item_schema["properties"]["mode"]["type"] == "string"
     assert native_schema["properties"]["uniqueItems"]["type"] == "string"
     with pytest.raises(OutputInvalidError):
         select_output(result.candidates, JsonOutput(schema))

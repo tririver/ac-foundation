@@ -224,15 +224,21 @@ def _interactive_contract() -> InteractiveJsonOutput:
 def test_interactive_provider_schema_types_every_const_node() -> None:
     schema = provider_schema(_interactive_contract())
     assert schema is not None
-    complete, interact = schema["oneOf"]
-    for branch in (complete, interact):
-        properties = branch["properties"]
-        assert properties["schema_version"]["type"] == "string"
-        assert properties["state"]["type"] == "string"
-    operation = interact["properties"]["requests"]["items"]["oneOf"][0][
+    properties = schema["properties"]
+    assert properties["schema_version"]["type"] == "string"
+    assert properties["state"]["type"] == "string"
+    operation = properties["requests"]["items"]["anyOf"][0][
         "properties"
     ]["operation"]
     assert operation["type"] == "string"
+
+
+def test_interactive_provider_schema_has_object_root_without_one_of() -> None:
+    schema = provider_schema(_interactive_contract())
+    assert schema is not None
+    assert schema["type"] == "object"
+    assert "oneOf" not in schema
+    assert schema["properties"]["state"]["enum"] == ["complete", "interact"]
 
 
 def test_interaction_is_operation_opaque_and_binds_exact_response_ids() -> None:
