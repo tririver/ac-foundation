@@ -352,6 +352,46 @@ def test_codex_observed_error_pair_yields_one_terminal_failure() -> None:
     assert len(execution.diagnostics["raw_events"]) == 2
 
 
+def test_codex_detailed_invalid_request_overrides_earlier_generic_error() -> None:
+    runner = FakeRunner(
+        b'{"type":"error","message":"temporary provider problem"}\n'
+        + _captured_codex_invalid_schema_stdout("turn.failed"),
+        returncode=1,
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.INVALID_REQUEST
+    assert execution.failure.delivery is DeliveryState.NOT_DELIVERED
+    assert execution.failure.details["provider_code"] == "invalid_json_schema"
+    assert execution.failure.details["param"] == "text.format.schema"
+
+
+def test_codex_stderr_authentication_overrides_generic_jsonl_error() -> None:
+    runner = FakeRunner(
+        b'{"type":"error","message":"temporary provider problem"}\n',
+        returncode=1,
+        stderr=b"401 unauthorized",
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.AUTHENTICATION
+    assert not execution.failure.retryable
+
+
 def test_kimi_acp_client_denies_reverse_permission_and_filesystem_requests() -> None:
     from acp import RequestError
 

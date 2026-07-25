@@ -86,8 +86,11 @@ class EventAccumulator:
             self._record_raw({"kind": "value"})
             return
         self._record_raw(event)
-        if self.failure is None and self.extract_failure is not None:
-            self.failure = self.extract_failure(event)
+        if self.extract_failure is not None:
+            self.failure = _prefer_definitive_failure(
+                self.failure,
+                self.extract_failure(event),
+            )
         candidate, handle, usage = self.parse_event(event)
         if handle is not None and (self.handle is None or self.handle.value != handle):
             self.handle = NativeResumeHandle(self.provider, handle)
@@ -157,20 +160,13 @@ def run_cli(
             and accumulator.failure is None
         )
     )
-    if accumulator.failure is not None:
-        return ProviderExecution(
-            ProviderTerminalKind.FAILED,
-            candidates=tuple(accumulator.candidates),
-            native_handle=accumulator.handle,
-            usage=accumulator.usage,
-            failure=accumulator.failure,
-            diagnostics={
-                "returncode": result.returncode,
-                **accumulator.diagnostics(),
-            },
-        )
+    failure = accumulator.failure
     if result.returncode != 0:
-        failure = classify_cli_failure(result.stderr.decode("utf-8", "replace"))
+        failure = _prefer_definitive_failure(
+            failure,
+            classify_cli_failure(result.stderr.decode("utf-8", "replace")),
+        )
+    if failure is not None:
         return ProviderExecution(
             ProviderTerminalKind.FAILED,
             candidates=tuple(accumulator.candidates),
@@ -189,6 +185,23 @@ def run_cli(
         usage=accumulator.usage,
         diagnostics=accumulator.diagnostics(),
     )
+
+
+def _prefer_definitive_failure(
+    current: ProviderFailure | None,
+    candidate: ProviderFailure | None,
+) -> ProviderFailure | None:
+    """Replace a generic transport failure only with definitive evidence."""
+
+    if current is None:
+        return candidate
+    if (
+        candidate is not None
+        and current.category is FailureCategory.TRANSPORT
+        and candidate.category is not FailureCategory.TRANSPORT
+    ):
+        return candidate
+    return current
 
 
 def executable_diagnostic(provider: str, binary: str) -> tuple[bool, str | None]:
