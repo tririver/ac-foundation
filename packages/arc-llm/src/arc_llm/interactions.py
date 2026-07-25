@@ -18,7 +18,7 @@ class ScopedInteractionLedger:
     """Share one resolver while accounting for requests by scope.
 
     The ledger observes requests only. It does not cache responses, change
-    admission order, or alter the shared resolver's global request budget.
+    admission order, impose limits, or alter the shared resolver's policy.
     """
 
     def __init__(
