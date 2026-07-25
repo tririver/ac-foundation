@@ -99,10 +99,25 @@ def _prepare_ready_runtime(
     runtime_dir = Path(values["runtime"])
     bin_dir = runtime_dir / "venv/bin"
     bin_dir.mkdir(parents=True)
+    source_fields = (
+        (
+            f"source_root={values['source_root']}",
+            f"source_revision={values['source_revision']}",
+            f"source_content_sha256={values['source_content_sha256']}",
+        )
+        if values["source"] == "local"
+        else (
+            f"source_repo={values['source_repo']}",
+            f"source_ref={values['source_ref']}",
+        )
+    )
     (runtime_dir / "install.ok").write_text(
         "\n".join(
             (
                 f"profile={values['profile']}",
+                f"source={values['source']}",
+                f"pinned_ref={values['pinned_ref']}",
+                *source_fields,
                 f"runtime_fingerprint={values['fingerprint']}",
                 f"constraints_sha256={values['constraints_sha256']}",
             )
@@ -577,6 +592,10 @@ def test_doctor_exposes_deterministic_runtime_identity_and_ready_marker(tmp_path
     assert values["status"] == "ready"
     assert values["profile"] == "core"
     assert values["source"] == "git"
+    assert values["pinned_ref"] == values["source_ref"]
+    assert values["source_repo"] == "https://github.com/tririver/arc.git"
+    assert "ref" not in values
+    assert "repo" not in values
     assert re.fullmatch(r"[0-9a-f]{64}", values["fingerprint"])
     assert re.fullmatch(r"[0-9a-f]{64}", values["constraints_sha256"])
     assert Path(values["runtime"]).name == values["fingerprint"]
@@ -587,9 +606,61 @@ def test_doctor_exposes_deterministic_runtime_identity_and_ready_marker(tmp_path
     assert marker["runtime_fingerprint"] == values["fingerprint"]
     assert marker["constraints_sha256"] == values["constraints_sha256"]
     assert marker["profile"] == "core"
+    assert marker["source"] == values["source"]
+    assert marker["pinned_ref"] == values["pinned_ref"]
+    assert marker["source_repo"] == values["source_repo"]
+    assert marker["source_ref"] == values["source_ref"]
     for path in Path(values["runtime"]).rglob("*"):
         mode = path.stat().st_mode
         assert mode & 0o077 == 0, f"runtime state is not private: {path}"
+
+
+def test_ready_marker_without_selected_source_identity_is_rebuilt(
+    tmp_path: Path,
+) -> None:
+    runtime_home = tmp_path / "runtimes"
+    doctor = _run(runtime_home, "doctor")
+    assert doctor.returncode == 1
+    values = dict(line.split("=", 1) for line in doctor.stdout.splitlines())
+    runtime_dir = Path(values["runtime"])
+    bin_dir = runtime_dir / "venv/bin"
+    bin_dir.mkdir(parents=True)
+    for tool in CORE_TOOLS:
+        _write_fake_runtime_tool(bin_dir, tool)
+    Path(values["ready_file"]).write_text(
+        "\n".join(
+            (
+                f"profile={values['profile']}",
+                f"source={values['source']}",
+                f"runtime_fingerprint={values['fingerprint']}",
+                f"constraints_sha256={values['constraints_sha256']}",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stale = _run(runtime_home, "doctor")
+    assert stale.returncode == 1
+    assert "status=not-installed" in stale.stdout
+
+    calls = tmp_path / "uv.log"
+    rebuilt = _run(
+        runtime_home,
+        "setup",
+        uv=_fake_uv(tmp_path / "uv", prefix="rebuilt"),
+        extra_env={"UV_CALLS": str(calls)},
+    )
+    assert rebuilt.returncode == 0, rebuilt.stderr
+    marker = dict(
+        line.split("=", 1)
+        for line in Path(values["ready_file"])
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert marker["pinned_ref"] == values["pinned_ref"]
+    assert marker["source_ref"] == values["source_ref"]
+    assert len(calls.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_repository_credentials_are_redacted_from_runtime_state(tmp_path: Path) -> None:
@@ -617,6 +688,10 @@ def test_repository_credentials_are_redacted_from_runtime_state(tmp_path: Path) 
     assert "top-secret" not in doctor.stdout
     assert "https://[REDACTED]@example.invalid/org/arc.git" in doctor.stdout
     values = dict(line.split("=", 1) for line in doctor.stdout.splitlines())
+    assert (
+        values["source_repo"]
+        == "https://[REDACTED]@example.invalid/org/arc.git"
+    )
     runtime_dir = Path(values["runtime"])
 
     failed = _run(
@@ -765,6 +840,154 @@ def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> 
     install_call = calls.read_text().splitlines()[1]
     assert str(checkout / "packages/arc-paper") in install_call
     assert "git+" not in install_call
+    doctor = _run(
+        tmp_path / "runtimes",
+        "doctor",
+        launcher=CORE_LAUNCHER,
+        extra_env={
+            "ARC_INSTALL_SOURCE": "local",
+            "ARC_INSTALL_REPO_ROOT": str(checkout),
+        },
+    )
+    assert doctor.returncode == 0, doctor.stderr
+    values = dict(line.split("=", 1) for line in doctor.stdout.splitlines())
+    assert values["source"] == "local"
+    assert values["source_root"] == str(checkout.resolve())
+    assert values["source_revision"] == "no-vcs-revision"
+    assert re.fullmatch(r"[0-9a-f]{64}", values["source_content_sha256"])
+    assert "source_repo" not in values
+    assert "source_ref" not in values
+
+
+def test_auto_local_separates_checkout_identity_from_fallback_pin(
+    tmp_path: Path,
+) -> None:
+    checkout = tmp_path / "checkout"
+    for package in (
+        "arc-jobs",
+        "arc-llm",
+        "arc-proposer-reviewer",
+        "arc-paper",
+        "arc-domain",
+        "arc-translate",
+        "arc-companion",
+    ):
+        package_dir = checkout / "packages" / package
+        package_dir.mkdir(parents=True)
+        (package_dir / "pyproject.toml").write_text(
+            f"[project]\nname='{package}'\n",
+            encoding="utf-8",
+        )
+    subprocess.run(
+        ["git", "init", "-q"],
+        cwd=checkout,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "add", "packages"],
+        cwd=checkout,
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=ARC Test",
+            "-c",
+            "user.email=arc-test@example.invalid",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        cwd=checkout,
+        check=True,
+    )
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=checkout,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    ).stdout.strip()
+    first_pin = "e" * 40
+    second_pin = "f" * 40
+    runtime_home = tmp_path / "runtimes"
+    local_env = {
+        "ARC_INSTALL_SOURCE": "auto",
+        "ARC_INSTALL_REPO_ROOT": str(checkout),
+        "ARC_INSTALL_REF": first_pin,
+    }
+
+    first = _run(runtime_home, "doctor", extra_env=local_env)
+    assert first.returncode == 1, first.stderr
+    first_values = dict(
+        line.split("=", 1) for line in first.stdout.splitlines()
+    )
+    assert first_values["source"] == "local"
+    assert first_values["source_request"] == "auto"
+    assert first_values["pinned_ref"] == first_pin
+    assert first_values["source_root"] == str(checkout.resolve())
+    assert first_values["source_revision"] == revision
+    assert re.fullmatch(
+        r"[0-9a-f]{64}", first_values["source_content_sha256"]
+    )
+    assert "ref" not in first_values
+    assert "repo" not in first_values
+
+    second = _run(
+        runtime_home,
+        "doctor",
+        extra_env={**local_env, "ARC_INSTALL_REF": second_pin},
+    )
+    second_values = dict(
+        line.split("=", 1) for line in second.stdout.splitlines()
+    )
+    assert second_values["pinned_ref"] == second_pin
+    assert second_values["fingerprint"] == first_values["fingerprint"]
+
+    calls = tmp_path / "uv.log"
+    setup = _run(
+        runtime_home,
+        "setup",
+        uv=_fake_uv(tmp_path / "uv", prefix="auto-local"),
+        extra_env={**local_env, "UV_CALLS": str(calls)},
+    )
+    assert setup.returncode == 0, setup.stderr
+    assert f"source=local source_revision={revision}" in setup.stdout
+    install_call = calls.read_text(encoding="utf-8").splitlines()[1]
+    assert str(checkout / "packages/arc-paper") in install_call
+    assert "git+" not in install_call
+    marker = dict(
+        line.split("=", 1)
+        for line in Path(first_values["ready_file"])
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    assert marker["source"] == "local"
+    assert marker["pinned_ref"] == first_pin
+    assert marker["source_root"] == str(checkout.resolve())
+    assert marker["source_revision"] == revision
+    assert (
+        marker["source_content_sha256"]
+        == first_values["source_content_sha256"]
+    )
+
+    forced_git = _run(
+        runtime_home,
+        "doctor",
+        extra_env={
+            "ARC_INSTALL_SOURCE": "git",
+            "ARC_INSTALL_REPO_ROOT": str(checkout),
+            "ARC_INSTALL_REF": second_pin,
+        },
+    )
+    forced_values = dict(
+        line.split("=", 1) for line in forced_git.stdout.splitlines()
+    )
+    assert forced_values["source"] == "git"
+    assert forced_values["source_ref"] == second_pin
+    assert forced_values["pinned_ref"] == second_pin
+    assert forced_values["fingerprint"] != first_values["fingerprint"]
 
 
 def test_launcher_surface_has_only_current_core_paths() -> None:

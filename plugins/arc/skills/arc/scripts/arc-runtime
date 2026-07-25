@@ -287,11 +287,8 @@ else
   resolved_source="git"
 fi
 
-local_checkout_identity() {
-  canonical_root="$(resolve_path "$repo_root")"
-  revision="$(git -C "$repo_root" rev-parse --verify HEAD 2>/dev/null || true)"
-  [ -n "$revision" ] || revision="no-vcs-revision"
-  content_hash="$({
+local_checkout_content_hash() {
+  {
     for package in $profile_packages; do
       package_root="${repo_root}/packages/${package}"
       find "$package_root" -type f \
@@ -307,17 +304,24 @@ local_checkout_identity() {
       printf '%s\0' "$relative_file"
       sha256_file "$source_file"
     done
-  } | sha256_stream)"
-  printf 'root=%s;revision=%s;content=%s\n' "$canonical_root" "$revision" "$content_hash"
+  } | sha256_stream
 }
 
 runtime_home="${ARC_RUNTIME_HOME:-${ARC_HOME}/runtimes}"
 export ARC_RUNTIME_HOME="$runtime_home"
 constraints_hash="$(sha256_file "$constraints_file")"
 python_fingerprint="$(python_identity)"
+display_repo="$(printf '%s\n' "$install_repo" | redact_stream)"
+pinned_ref="$install_ref"
 if [ "$resolved_source" = "local" ]; then
-  source_fingerprint="local:$(local_checkout_identity)"
+  source_root="$(resolve_path "$repo_root")"
+  source_revision="$(git -C "$repo_root" rev-parse --verify HEAD 2>/dev/null || true)"
+  [ -n "$source_revision" ] || source_revision="no-vcs-revision"
+  source_content_sha256="$(local_checkout_content_hash)"
+  source_fingerprint="local:root=${source_root};revision=${source_revision};content=${source_content_sha256}"
 else
+  source_repo="$display_repo"
+  source_ref="$install_ref"
   source_fingerprint="git:repo=${install_repo};ref=${install_ref}"
 fi
 runtime_fingerprint="$(printf '%s\n' \
@@ -335,7 +339,19 @@ status_file="${runtime_dir}/install.status"
 log_file="${runtime_dir}/install.log"
 lock_dir="${runtime_dir}/install.lock"
 permissions_file="${runtime_dir}/permissions.ok"
-display_repo="$(printf '%s\n' "$install_repo" | redact_stream)"
+
+print_selected_source_identity() {
+  printf 'source=%s\n' "$resolved_source"
+  printf 'pinned_ref=%s\n' "$pinned_ref"
+  if [ "$resolved_source" = "local" ]; then
+    printf 'source_root=%s\n' "$source_root"
+    printf 'source_revision=%s\n' "$source_revision"
+    printf 'source_content_sha256=%s\n' "$source_content_sha256"
+  else
+    printf 'source_repo=%s\n' "$source_repo"
+    printf 'source_ref=%s\n' "$source_ref"
+  fi
+}
 
 runtime_permissions_ready() {
   [ -f "$permissions_file" ] || return 1
@@ -356,6 +372,16 @@ runtime_ready() {
   [ "$(sed -n 's/^profile=//p' "$ready_file" | head -n 1)" = "$selected_profile" ] || return 1
   [ "$(sed -n 's/^runtime_fingerprint=//p' "$ready_file" | head -n 1)" = "$runtime_fingerprint" ] || return 1
   [ "$(sed -n 's/^constraints_sha256=//p' "$ready_file" | head -n 1)" = "$constraints_hash" ] || return 1
+  [ "$(sed -n 's/^source=//p' "$ready_file" | head -n 1)" = "$resolved_source" ] || return 1
+  [ -n "$(sed -n 's/^pinned_ref=//p' "$ready_file" | head -n 1)" ] || return 1
+  if [ "$resolved_source" = "local" ]; then
+    [ "$(sed -n 's/^source_root=//p' "$ready_file" | head -n 1)" = "$source_root" ] || return 1
+    [ "$(sed -n 's/^source_revision=//p' "$ready_file" | head -n 1)" = "$source_revision" ] || return 1
+    [ "$(sed -n 's/^source_content_sha256=//p' "$ready_file" | head -n 1)" = "$source_content_sha256" ] || return 1
+  else
+    [ "$(sed -n 's/^source_repo=//p' "$ready_file" | head -n 1)" = "$source_repo" ] || return 1
+    [ "$(sed -n 's/^source_ref=//p' "$ready_file" | head -n 1)" = "$source_ref" ] || return 1
+  fi
   for expected_tool in $expected_tools; do
     [ -x "${venv_dir}/bin/${expected_tool}" ] || return 1
   done
@@ -476,9 +502,7 @@ install_runtime() {
   "${venv_dir}/bin/${expected_tools%% *}" --help >/dev/null || return $?
   {
     printf 'profile=%s\n' "$selected_profile"
-    printf 'repo=%s\n' "$display_repo"
-    printf 'ref=%s\n' "$install_ref"
-    printf 'source=%s\n' "$resolved_source"
+    print_selected_source_identity
     printf 'installer=%s\n' "$installer"
     printf 'launcher_version=%s\n' "$launcher_version"
     printf 'runtime_fingerprint=%s\n' "$runtime_fingerprint"
@@ -669,9 +693,7 @@ ensure_runtime() {
 
 if [ "$management_command" = "doctor" ]; then
   printf 'profile=%s\n' "$selected_profile"
-  printf 'repo=%s\n' "$display_repo"
-  printf 'ref=%s\n' "$install_ref"
-  printf 'source=%s\n' "$resolved_source"
+  print_selected_source_identity
   printf 'source_request=%s\n' "$install_source"
   printf 'fingerprint=%s\n' "$runtime_fingerprint"
   printf 'python=%s\n' "$python_fingerprint"
@@ -706,7 +728,13 @@ if [ "$ensure_status" -ne 0 ]; then
 fi
 
 if [ "$management_command" = "setup" ]; then
-  printf 'ARC %s runtime ready: %s\n' "$selected_profile" "$runtime_dir"
+  if [ "$resolved_source" = "local" ]; then
+    printf 'ARC %s runtime ready: %s source=local source_revision=%s\n' \
+      "$selected_profile" "$runtime_dir" "$source_revision"
+  else
+    printf 'ARC %s runtime ready: %s source=git source_ref=%s\n' \
+      "$selected_profile" "$runtime_dir" "$source_ref"
+  fi
   exit 0
 fi
 
