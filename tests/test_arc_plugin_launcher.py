@@ -196,7 +196,6 @@ def test_moved_workflow_scripts_show_help_from_source_checkout_without_pythonpat
         "run-calculate.py",
         "rank-ideas.py",
         "write-domain-manifest.py",
-        "write-cross-domain-pair-manifest.py",
         "resolve-project-dir.py",
         "verify-source-runtime.py",
     ):
