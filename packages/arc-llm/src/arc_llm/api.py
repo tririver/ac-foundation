@@ -10,7 +10,7 @@ from arc_jobs import (
     AtomicStateStore,
     ArtifactSourceRef,
     Awaiting,
-    CancelledError,
+    StoppedError,
     CorruptStateError,
     Failed,
     IdempotencyConflictError as JobsIdempotencyConflictError,
@@ -43,7 +43,7 @@ from .errors import (
     ResumeKeyMismatchError,
 )
 from .outcome import (
-    LLMCancelled,
+    LLMStopped,
     LLMCompleted,
     LLMFailed,
     LLMPaused,
@@ -301,8 +301,8 @@ def _run_outcome(
                 outcome.error.details,
             )
         )
-    if isinstance(outcome, LLMCancelled):
-        raise CancelledError("LLM task cancelled")
+    if isinstance(outcome, LLMStopped):
+        raise StoppedError("LLM task stopped")
     raise RuntimeError("Unknown LLM task outcome.")
 
 

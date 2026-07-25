@@ -138,9 +138,6 @@ def decide_recovery(
     if current.execution == execution and current.native_handle and supports_native_resume:
         if current.native_resumes < native_resume_limit:
             return RecoveryAction.NATIVE_RESUME
-    replacements = sum(item.replacement_of is not None for item in state.generations)
-    if replacements < automatic_replacement_limit:
-        return RecoveryAction.REPLACE
     return RecoveryAction.PAUSE_UNCERTAIN
 
 

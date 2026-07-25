@@ -32,6 +32,7 @@ from arc_llm import (
     LLMInputArtifact,
     LLMPaused,
     LLMRequest,
+    LLMStopped,
     LLMTaskService,
     ModelSelection,
     NativeResumeHandle,
@@ -810,7 +811,7 @@ def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(
     provider_entered = threading.Event()
     release_provider = threading.Event()
 
-    def blocking_start(request, observer, cancel):
+    def blocking_start(request, observer, stop):
         adapter.start_calls += 1
         adapter.requests.append(request)
         observer.before_delivery()
@@ -875,7 +876,7 @@ def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
     provider_entered = threading.Event()
     release_provider = threading.Event()
 
-    def blocking_resume(handle, request, observer, cancel):
+    def blocking_resume(handle, request, observer, stop):
         adapter.resume_calls += 1
         adapter.requests.append(request)
         observer.before_delivery()
@@ -1070,7 +1071,7 @@ def test_interactive_not_delivered_retry_resumes_with_persisted_response_prompt(
     )
     continuation_prompts: list[str] = []
 
-    def resume(handle, request, observer, cancel):
+    def resume(handle, request, observer, stop):
         adapter.resume_calls += 1
         adapter.requests.append(request)
         continuation_prompts.append(request.prompt)
@@ -1174,7 +1175,7 @@ def test_interactive_may_have_run_continuation_reloads_prompt_and_counts_native_
         )
     continuation_prompts: list[str] = []
 
-    def resume(handle, provider_request, observer, cancel):
+    def resume(handle, provider_request, observer, stop):
         adapter.resume_calls += 1
         adapter.requests.append(provider_request)
         continuation_prompts.append(provider_request.prompt)
@@ -1272,7 +1273,7 @@ def test_interactive_not_delivered_continuation_exhaustion_pauses(
         ]
     )
 
-    def resume(handle, request, observer, cancel):
+    def resume(handle, request, observer, stop):
         adapter.resume_calls += 1
         adapter.requests.append(request)
         result = adapter.steps.popleft()
@@ -1348,7 +1349,7 @@ def test_interactive_continuation_missing_response_never_restarts_task_prompt(
         ]
     )
 
-    def resume(handle, request, observer, cancel):
+    def resume(handle, request, observer, stop):
         adapter.resume_calls += 1
         adapter.requests.append(request)
         result = adapter.steps.popleft()
@@ -1429,7 +1430,7 @@ def test_exhausted_safe_retries_pause_without_replacement_and_manual_resume(
         ]
     )
 
-    def start_before_delivery(request, observer, cancel):
+    def start_before_delivery(request, observer, stop):
         adapter.start_calls += 1
         adapter.requests.append(request)
         result = adapter.steps.popleft()
@@ -1484,7 +1485,7 @@ def test_pre_delivery_local_io_failure_stops_without_recovery_or_circuit(
     adapter,
     registry,
 ) -> None:
-    def fail_before_delivery(request, observer, cancel):
+    def fail_before_delivery(request, observer, stop):
         adapter.start_calls += 1
         adapter.requests.append(request)
         raise ProviderFailure(
@@ -1783,7 +1784,7 @@ def test_interaction_limit_pause_carries_request_and_can_resume(
     assert paused.outcome.reason.value == "execution_budget_exhausted"
     assert paused.outcome.input_required
     assert paused.outcome.request_ref is not None
-    assert paused.outcome.response_contract == "arc.llm.resume_input.v1"
+    assert paused.outcome.response_contract == "arc.llm.resume_input.v2"
     assert resolver.requests == [
         f"req-limit-{number}" for number in range(1, max_interaction_turns + 1)
     ]
@@ -1826,7 +1827,7 @@ def test_interactive_output_rejects_zero_automatic_interactions() -> None:
 def test_uncertain_delivery_with_saved_handle_uses_one_native_resume(
     tmp_path: Path, adapter, registry
 ) -> None:
-    def uncertain_start(request, observer, cancel):
+    def uncertain_start(request, observer, stop):
         adapter.start_calls += 1
         observer.before_delivery()
         observer.native_handle(NativeResumeHandle("codex", "recoverable-thread"))
@@ -1838,10 +1839,111 @@ def test_uncertain_delivery_with_saved_handle_uses_one_native_resume(
 
     adapter.start = uncertain_start
     adapter.steps.append(_completed({"answer": 9}, handle="recoverable-thread"))
-    result = LLMClient(registry=registry).generate(_request(), run_root=tmp_path)
+    client = LLMClient(registry=registry)
+    result = client.generate(_request(), run_root=tmp_path)
     assert isinstance(result.outcome, LLMCompleted)
     assert result.outcome.value == {"answer": 9}
     assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
+
+
+def test_uncertain_delivery_without_handle_requires_supervision(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.append(
+        ProviderFailure(
+            "transport disconnected",
+            category=FailureCategory.TRANSPORT,
+            delivery=DeliveryState.MAY_HAVE_RUN,
+        )
+    )
+
+    client = LLMClient(registry=registry)
+    result = client.generate(_request(), run_root=tmp_path)
+
+    assert isinstance(result.outcome, LLMPaused)
+    assert result.outcome.reason is ResumeReason.SUPERVISION_REQUIRED
+    assert result.outcome.input_required
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
+    repository = RunRepository(tmp_path)
+    context = RunContext(
+        repository,
+        repository.inspect(result.snapshot.run_id).snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    state = client.service._executor._task_store(context, "task").read()
+    assert state is not None
+    assert len(state.generations) == 1
+    assert not state.current.possible_duplicate_execution
+
+
+def test_provider_stop_pauses_the_outer_llm_run(
+    tmp_path: Path, adapter, registry
+) -> None:
+    adapter.steps.append(ProviderExecution(ProviderTerminalKind.STOPPED))
+
+    result = LLMClient(registry=registry).generate(_request(), run_root=tmp_path)
+
+    assert result.snapshot.status is RunStatus.PAUSED
+    assert isinstance(result.outcome, LLMStopped)
+    assert result.snapshot.awaiting is not None
+    assert result.snapshot.awaiting.reason is ResumeReason.EXECUTION_STOPPED
+
+
+def test_provider_stop_during_interactive_resume_pauses_the_outer_run(
+    tmp_path: Path, adapter, registry
+) -> None:
+    request = LLMRequest(
+        "interactive-stop",
+        "Resolve the request.",
+        InteractiveJsonOutput(
+            {"type": "object", "required": ["answer"]},
+            {
+                "lookup": OperationContract(
+                    {"type": "object", "required": ["query"]},
+                    {"type": "object", "required": ["value"]},
+                )
+            },
+        ),
+        ModelSelection("codex"),
+    )
+    adapter.steps.extend(
+        [
+            _completed(
+                {
+                    "schema_version": "arc.llm.interactive_turn.v1",
+                    "state": "interact",
+                    "result": None,
+                    "requests": [
+                        {
+                            "request_id": "lookup-stop",
+                            "operation": "lookup",
+                            "arguments": {"query": "x"},
+                        }
+                    ],
+                }
+            ),
+            ProviderExecution(ProviderTerminalKind.STOPPED),
+        ]
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(request, run_root=tmp_path)
+    assert isinstance(paused.outcome, LLMPaused)
+
+    stopped = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(
+            paused.outcome.resume_key,
+            ResumeAction.CONTINUE,
+            (InteractionResponse("lookup-stop", result={"value": "found"}),),
+        ),
+    )
+
+    assert stopped.snapshot.status is RunStatus.PAUSED
+    assert isinstance(stopped.outcome, LLMStopped)
     assert adapter.resume_calls == 1
 
 

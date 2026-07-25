@@ -52,11 +52,11 @@ def _build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--run-id", required=True)
     resume.add_argument("--input", type=Path)
 
-    for name in ("status", "cancel"):
+    for name in ("status", "stop"):
         command = commands.add_parser(name)
         command.add_argument("--run-root", required=True, type=Path)
         command.add_argument("--run-id", required=True)
-    commands.choices["cancel"].add_argument("--reason")
+    commands.choices["stop"].add_argument("--reason")
 
     doctor = commands.add_parser("doctor")
     doctor.add_argument(
@@ -126,8 +126,8 @@ def _dispatch(
     if args.command == "status":
         view = client.inspect(run_root=args.run_root, run_id=args.run_id)
         return command_result_from_snapshot(view.run.snapshot, query=True)
-    if args.command == "cancel":
-        view = RunRepository(args.run_root).request_cancel(
+    if args.command == "stop":
+        view = RunRepository(args.run_root).request_stop(
             args.run_id,
             reason=args.reason,
         )

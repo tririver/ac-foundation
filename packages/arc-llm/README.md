@@ -83,7 +83,7 @@ result = LLMClient().generate(
 arc-llm generate --request REQUEST.json --run-root DIR [--run-id ID]
 arc-llm resume --run-root DIR --run-id ID [--input RESUME.json]
 arc-llm status --run-root DIR --run-id ID
-arc-llm cancel --run-root DIR --run-id ID [--reason TEXT]
+arc-llm stop --run-root DIR --run-id ID [--reason TEXT]
 arc-llm doctor [--provider auto|codex|claude|kimi]
 ```
 
@@ -106,8 +106,8 @@ per-input delivery modes.
 
 Before an adapter submits a prompt, it must durably mark the effect as possibly
 run. A failure while persisting the native handle or that delivery barrier is a
-non-retryable local-I/O failure, never provider transport; cancellation remains
-cancellation and the adapter cleans up its owned process before returning.
+non-retryable local-I/O failure, never provider transport; a stop remains a
+resumable stop and the adapter cleans up its owned process before returning.
 
 `safe_retry_limit` counts additional retries after a proven-not-delivered call.
 The initial call is always admitted; once the limit is exhausted, the task

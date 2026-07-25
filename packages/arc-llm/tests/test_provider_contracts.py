@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from arc_jobs import CancelledError
+from arc_jobs import StoppedError
 
 from arc_llm import (
     DeliveryState,
@@ -70,7 +70,7 @@ class Observer:
         pass
 
 
-class Cancel:
+class Stop:
     def raise_if_requested(self) -> None:
         pass
 
@@ -166,7 +166,7 @@ def test_provider_adapters_share_start_resume_contract(
         {},
         2,
     )
-    started = adapter.start(request, observer, Cancel())
+    started = adapter.start(request, observer, Stop())
     assert started.terminal_kind is ProviderTerminalKind.COMPLETED
     assert started.native_handle is not None
     assert started.native_handle.value == handle
@@ -178,7 +178,7 @@ def test_provider_adapters_share_start_resume_contract(
         NativeResumeHandle(adapter.name, handle),
         ProviderResumeRequest("follow-up", {"type": "object"}, {}, 2),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     assert resumed.terminal_kind is ProviderTerminalKind.COMPLETED
 
@@ -190,7 +190,7 @@ def test_provider_schema_is_transported_by_each_adapter() -> None:
     CodexAdapter(binary="fake", runner=codex_runner, env={}).start(
         ProviderRequest("p", "m", {"type": "object"}, {}, 2),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     assert "--output-schema" in codex_runner.calls[0]["argv"]
     assert "--ignore-user-config" in codex_runner.calls[0]["argv"]
@@ -204,7 +204,7 @@ def test_provider_schema_is_transported_by_each_adapter() -> None:
     ClaudeAdapter(binary="fake", runner=claude_runner, env={}).start(
         ProviderRequest("p", "m", {"type": "object"}, {}, 2),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     assert "--json-schema" in claude_runner.calls[0]["argv"]
 
@@ -212,7 +212,7 @@ def test_provider_schema_is_transported_by_each_adapter() -> None:
     KimiAdapter(binary="fake", acp_runner=kimi_runner, env={}).start(
         ProviderRequest("p", "m", {"type": "object"}, {}, 2),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     assert "JSON Schema" in kimi_runner.calls[0]["prompt"]
 
@@ -248,7 +248,7 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
     started = adapter.start(
         ProviderRequest("large private prompt", "gpt-test", schema, {}, 17),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     start_argv = runner.calls[0]["argv"]
     schema_path = start_argv[start_argv.index("--output-schema") + 1]
@@ -282,7 +282,7 @@ def test_codex_start_and_resume_preserve_native_history_and_schema_contract() ->
         started.native_handle,
         ProviderResumeRequest("delta", schema, {}, 19),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     resume_argv = runner.calls[1]["argv"]
     resume_schema_path = resume_argv[resume_argv.index("--output-schema") + 1]
@@ -328,7 +328,7 @@ def test_codex_uses_last_message_as_its_only_terminal_candidate() -> None:
     result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
         ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
         observer,
-        Cancel(),
+        Stop(),
     )
 
     assert CodexAdapter.compatibility_version == "codex-jsonl.v2"
@@ -365,7 +365,7 @@ def test_codex_missing_or_invalid_last_message_uses_output_invalid_path(
     result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
         ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
         Observer(),
-        Cancel(),
+        Stop(),
     )
 
     assert result.terminal_kind is ProviderTerminalKind.COMPLETED
@@ -395,7 +395,7 @@ def test_codex_nonzero_exit_wins_over_last_message_file() -> None:
     result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
         ProviderRequest("prompt", "model", {"type": "object"}, {}, 2),
         Observer(),
-        Cancel(),
+        Stop(),
     )
 
     assert result.terminal_kind is ProviderTerminalKind.FAILED
@@ -500,13 +500,13 @@ def test_codex_start_and_resume_deliver_native_image_and_read_context(
     adapter.start(
         ProviderRequest("Review.", "model", None, {}, 2, inputs),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     adapter.resume(
         NativeResumeHandle("codex", "thread-1"),
         ProviderResumeRequest("Continue.", None, {}, 2, inputs),
         Observer(),
-        Cancel(),
+        Stop(),
     )
 
     for call in runner.calls:
@@ -531,7 +531,7 @@ def test_claude_start_resume_and_structured_output_preference() -> None:
     started = adapter.start(
         ProviderRequest("prompt", "claude-test", schema, {}, 11),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     encoded_schema = json.dumps(
         schema, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -559,7 +559,7 @@ def test_claude_start_resume_and_structured_output_preference() -> None:
         started.native_handle,
         ProviderResumeRequest("continue", schema, {}, 13),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     assert runner.calls[1]["argv"] == [
         "fake-claude",
@@ -610,13 +610,13 @@ def test_claude_start_and_resume_deliver_inputs_through_read_paths(
     adapter.start(
         ProviderRequest("Review.", "model", None, {}, 2, inputs),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     adapter.resume(
         NativeResumeHandle("claude", "session-1"),
         ProviderResumeRequest("Continue.", None, {}, 2, inputs),
         Observer(),
-        Cancel(),
+        Stop(),
     )
 
     for call in runner.calls:
@@ -637,7 +637,7 @@ def test_kimi_resume_uses_session_without_creation_or_model_and_has_null_usage()
     started = adapter.start(
         ProviderRequest("private prompt", "kimi-test", schema, {}, 7),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     assert runner.calls[0]["binary"] == "fake-kimi"
     assert runner.calls[0]["model"] == "kimi-test"
@@ -659,7 +659,7 @@ def test_kimi_resume_uses_session_without_creation_or_model_and_has_null_usage()
         NativeResumeHandle("kimi", "kimi-1"),
         ProviderResumeRequest("follow-up", schema, {}, 9),
         Observer(),
-        Cancel(),
+        Stop(),
     )
     assert runner.calls[1]["session_id"] == "kimi-1"
     assert runner.calls[1]["model"] is None
@@ -755,7 +755,7 @@ def test_official_acp_runner_negotiates_media_and_resumes_session(
         session_id=None,
         idle_timeout_seconds=2,
         observer=observer,
-        cancel=Cancel(),
+        stop=Stop(),
         env={},
     )
     prompt_blocks = next(item[1]["prompt"] for item in calls if item[0] == "prompt")
@@ -777,7 +777,7 @@ def test_official_acp_runner_negotiates_media_and_resumes_session(
         session_id="kimi-existing",
         idle_timeout_seconds=2,
         observer=Observer(),
-        cancel=Cancel(),
+        stop=Stop(),
         env={},
     )
     assert any(
@@ -811,7 +811,7 @@ def test_official_acp_runner_classifies_initialize_failure_as_not_delivered(
             session_id=None,
             idle_timeout_seconds=2,
             observer=observer,
-            cancel=Cancel(),
+            stop=Stop(),
             env={},
         )
 
@@ -853,7 +853,7 @@ def test_official_acp_runner_classifies_prompt_failure_as_may_have_run(
             session_id=None,
             idle_timeout_seconds=2,
             observer=observer,
-            cancel=Cancel(),
+            stop=Stop(),
             env={},
         )
 
@@ -910,7 +910,7 @@ def test_official_acp_runner_classifies_durable_observer_failures_as_local(
             session_id=None,
             idle_timeout_seconds=2,
             observer=FailingObserver(),
-            cancel=Cancel(),
+            stop=Stop(),
             env={},
         )
 
@@ -923,7 +923,7 @@ def test_official_acp_runner_classifies_durable_observer_failures_as_local(
 
 
 @pytest.mark.parametrize("callback", ("native_handle", "before_delivery"))
-def test_official_acp_runner_preserves_cancellation_from_durable_observer(
+def test_official_acp_runner_preserves_stop_from_durable_observer(
     monkeypatch,
     callback: str,
 ) -> None:
@@ -935,21 +935,21 @@ def test_official_acp_runner_preserves_cancellation_from_durable_observer(
             return SimpleNamespace(agent_capabilities=SimpleNamespace())
 
         async def new_session(self, **kwargs: Any) -> Any:
-            return SimpleNamespace(session_id="cancel-observer")
+            return SimpleNamespace(session_id="stop-observer")
 
         async def prompt(self, **kwargs: Any) -> Any:
             prompt_calls.append(kwargs)
-            raise AssertionError("observer cancellation reached ACP prompt")
+            raise AssertionError("observer stop reached ACP prompt")
 
-    class CancellingObserver(Observer):
+    class StoppingObserver(Observer):
         def native_handle(self, handle: NativeResumeHandle) -> None:
             if callback == "native_handle":
-                raise CancelledError("cancelled while saving handle")
+                raise StoppedError("stopped while saving handle")
             super().native_handle(handle)
 
         def before_delivery(self) -> None:
             if callback == "before_delivery":
-                raise CancelledError("cancelled while marking delivery")
+                raise StoppedError("stopped while marking delivery")
             super().before_delivery()
 
     @asynccontextmanager
@@ -968,16 +968,16 @@ def test_official_acp_runner_preserves_cancellation_from_durable_observer(
         inputs=(),
         session_id=None,
         idle_timeout_seconds=2,
-        observer=CancellingObserver(),
-        cancel=Cancel(),
+        observer=StoppingObserver(),
+        stop=Stop(),
         env={},
     )
 
-    assert result.terminal_kind is ProviderTerminalKind.CANCELLED
+    assert result.terminal_kind is ProviderTerminalKind.STOPPED
     assert result.native_handle == (
         None
         if callback == "native_handle"
-        else NativeResumeHandle("kimi", "cancel-observer")
+        else NativeResumeHandle("kimi", "stop-observer")
     )
     assert prompt_calls == []
     assert cleanup == [True]
@@ -1034,7 +1034,7 @@ def test_official_acp_runner_rejects_missing_embedded_context_capability(
             session_id=None,
             idle_timeout_seconds=2,
             observer=observer,
-            cancel=Cancel(),
+            stop=Stop(),
             env={},
         )
 
@@ -1086,7 +1086,7 @@ def test_official_acp_runner_session_activity_resets_idle_timeout(
         session_id=None,
         idle_timeout_seconds=0.03,
         observer=Observer(),
-        cancel=Cancel(),
+        stop=Stop(),
         env={},
     )
 
@@ -1128,7 +1128,7 @@ def test_official_acp_runner_true_idle_timeout_cancels_prompt(
             session_id=None,
             idle_timeout_seconds=0.02,
             observer=Observer(),
-            cancel=Cancel(),
+            stop=Stop(),
             env={},
         )
 
@@ -1142,14 +1142,14 @@ def test_official_acp_runner_cooperatively_cancels_active_prompt(
 ) -> None:
     cancellations: list[str] = []
 
-    class CancelDuringPrompt:
+    class StopDuringPrompt:
         def __init__(self) -> None:
             self.checks = 0
 
         def raise_if_requested(self) -> None:
             self.checks += 1
             if self.checks >= 3:
-                raise CancelledError("requested")
+                raise StoppedError("requested")
 
     class Connection:
         async def initialize(self, **kwargs: Any) -> Any:
@@ -1180,11 +1180,11 @@ def test_official_acp_runner_cooperatively_cancels_active_prompt(
         session_id=None,
         idle_timeout_seconds=1,
         observer=observer,
-        cancel=CancelDuringPrompt(),
+        stop=StopDuringPrompt(),
         env={},
     )
 
-    assert result.terminal_kind is ProviderTerminalKind.CANCELLED
+    assert result.terminal_kind is ProviderTerminalKind.STOPPED
     assert result.native_handle == NativeResumeHandle("kimi", "cancel-session")
     assert cancellations == ["cancel-session"]
     assert observer.deliveries == 1
@@ -1254,7 +1254,7 @@ def test_provider_diagnostic_redacts_credentials() -> None:
         (FailureCategory.SCHEMA, ErrorCode.INVALID_SCHEMA),
         (FailureCategory.TRANSPORT, ErrorCode.PROVIDER_TRANSPORT),
         (FailureCategory.TIMEOUT, ErrorCode.PROVIDER_TIMEOUT),
-        (FailureCategory.CANCELLED, ErrorCode.CANCELLED),
+        (FailureCategory.STOPPED, ErrorCode.STOPPED),
         (FailureCategory.LOCAL_IO, ErrorCode.LOCAL_IO),
     ],
 )
@@ -1307,7 +1307,7 @@ def test_provider_nonzero_exit_wins_over_structured_terminal_material() -> None:
         argv=("fake",),
         prompt="p",
         observer=Observer(),
-        cancel=Cancel(),
+        stop=Stop(),
         timeout=1,
         parse_event=parse_codex_event,
         runner=NonzeroRunner(),

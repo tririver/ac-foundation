@@ -9,7 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
-from arc_jobs import CancelledError
+from arc_jobs import StoppedError
 
 from ..errors import DeliveryState, FailureCategory, ProviderFailure
 from ..output import CandidateMaterial
@@ -34,7 +34,7 @@ class ACPRunner(Protocol):
         session_id: str | None,
         idle_timeout_seconds: float,
         observer: Any,
-        cancel: Any,
+        stop: Any,
         env: Mapping[str, str] | None,
     ) -> ProviderExecution: ...
 
@@ -132,7 +132,7 @@ class _DeliveryTracker:
 class OfficialACPRunner:
     """Synchronous package boundary backed by the official async ACP SDK."""
 
-    _CANCEL_POLL_SECONDS = 0.05
+    _STOP_POLL_SECONDS = 0.05
 
     def run(
         self,
@@ -145,7 +145,7 @@ class OfficialACPRunner:
         session_id: str | None,
         idle_timeout_seconds: float,
         observer: Any,
-        cancel: Any,
+        stop: Any,
         env: Mapping[str, str] | None,
     ) -> ProviderExecution:
         delivery = _DeliveryTracker()
@@ -160,7 +160,7 @@ class OfficialACPRunner:
                     session_id=session_id,
                     idle_timeout_seconds=idle_timeout_seconds,
                     observer=observer,
-                    cancel=cancel,
+                    stop=stop,
                     env=env,
                     delivery=delivery,
                 )
@@ -201,7 +201,7 @@ class OfficialACPRunner:
         session_id: str | None,
         idle_timeout_seconds: float,
         observer: Any,
-        cancel: Any,
+        stop: Any,
         env: Mapping[str, str] | None,
         delivery: _DeliveryTracker,
     ) -> ProviderExecution:
@@ -211,8 +211,8 @@ class OfficialACPRunner:
         chunks: list[str] = []
         activity: asyncio.Queue[None] = asyncio.Queue(maxsize=1)
         client = _ACPClient(provider, chunks, observer, activity)
-        if self._cancel_requested(cancel):
-            return ProviderExecution(ProviderTerminalKind.CANCELLED)
+        if self._stop_requested(stop):
+            return ProviderExecution(ProviderTerminalKind.STOPPED)
         async with spawn_agent_process(
             client,
             binary,
@@ -260,8 +260,8 @@ class OfficialACPRunner:
             handle = NativeResumeHandle(provider, active_session_id)
             try:
                 observer.native_handle(handle)
-            except CancelledError:
-                return ProviderExecution(ProviderTerminalKind.CANCELLED)
+            except StoppedError:
+                return ProviderExecution(ProviderTerminalKind.STOPPED)
             except Exception as exc:
                 raise ProviderFailure(
                     "Unable to durably record the ACP native handle.",
@@ -269,16 +269,16 @@ class OfficialACPRunner:
                     delivery=DeliveryState.NOT_DELIVERED,
                 ) from exc
             blocks = self._content_blocks(prompt, inputs)
-            if self._cancel_requested(cancel):
+            if self._stop_requested(stop):
                 return ProviderExecution(
-                    ProviderTerminalKind.CANCELLED,
+                    ProviderTerminalKind.STOPPED,
                     native_handle=handle,
                 )
             try:
                 observer.before_delivery()
-            except CancelledError:
+            except StoppedError:
                 return ProviderExecution(
-                    ProviderTerminalKind.CANCELLED,
+                    ProviderTerminalKind.STOPPED,
                     native_handle=handle,
                 )
             except Exception as exc:
@@ -294,17 +294,17 @@ class OfficialACPRunner:
                 blocks=blocks,
                 idle_timeout_seconds=idle_timeout_seconds,
                 activity=activity,
-                cancel=cancel,
+                stop=stop,
             )
             if response is None:
                 return ProviderExecution(
-                    ProviderTerminalKind.CANCELLED,
+                    ProviderTerminalKind.STOPPED,
                     native_handle=handle,
                 )
             usage = _usage(response)
             if response.stop_reason == "cancelled":
                 return ProviderExecution(
-                    ProviderTerminalKind.CANCELLED,
+                    ProviderTerminalKind.STOPPED,
                     native_handle=handle,
                     usage=usage,
                 )
@@ -354,7 +354,7 @@ class OfficialACPRunner:
         blocks: list[Any],
         idle_timeout_seconds: float,
         activity: asyncio.Queue[None],
-        cancel: Any,
+        stop: Any,
     ) -> Any | None:
         loop = asyncio.get_running_loop()
         last_activity = loop.time()
@@ -366,11 +366,11 @@ class OfficialACPRunner:
             while True:
                 remaining = idle_timeout_seconds - (loop.time() - last_activity)
                 if remaining <= 0:
-                    await self._cancel_prompt(connection, session_id, prompt_task)
+                    await self._stop_prompt(connection, session_id, prompt_task)
                     raise TimeoutError
                 done, _ = await asyncio.wait(
                     {prompt_task, activity_task},
-                    timeout=min(self._CANCEL_POLL_SECONDS, remaining),
+                    timeout=min(self._STOP_POLL_SECONDS, remaining),
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if prompt_task in done:
@@ -378,8 +378,8 @@ class OfficialACPRunner:
                 if activity_task in done:
                     last_activity = loop.time()
                     activity_task = asyncio.create_task(activity.get())
-                if self._cancel_requested(cancel):
-                    await self._cancel_prompt(connection, session_id, prompt_task)
+                if self._stop_requested(stop):
+                    await self._stop_prompt(connection, session_id, prompt_task)
                     return None
         finally:
             if not activity_task.done():
@@ -388,7 +388,7 @@ class OfficialACPRunner:
                 await activity_task
 
     @staticmethod
-    async def _cancel_prompt(
+    async def _stop_prompt(
         connection: Any,
         session_id: str,
         prompt_task: asyncio.Task[Any],
@@ -401,10 +401,10 @@ class OfficialACPRunner:
             await prompt_task
 
     @staticmethod
-    def _cancel_requested(cancel: Any) -> bool:
+    def _stop_requested(stop: Any) -> bool:
         try:
-            cancel.raise_if_requested()
-        except CancelledError:
+            stop.raise_if_requested()
+        except StoppedError:
             return True
         return False
 

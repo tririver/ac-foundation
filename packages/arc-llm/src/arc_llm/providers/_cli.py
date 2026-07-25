@@ -114,7 +114,7 @@ def run_cli(
     argv: Sequence[str],
     prompt: str,
     observer: ProviderObserver,
-    cancel: Any,
+    stop: Any,
     timeout: float,
     parse_event: Callable[[Mapping[str, Any]], tuple[CandidateMaterial | None, str | None, ProviderUsage | None]],
     runner: ProcessRunner,
@@ -129,7 +129,7 @@ def run_cli(
         env=os.environ if env is None else env,
         idle_timeout_seconds=timeout,
         before_stdin=observer.before_delivery,
-        cancel_check=cancel.raise_if_requested,
+        stop_check=stop.raise_if_requested,
         on_stdout=accumulator.feed,
     )
     # A process exit failure is authoritative. Still consume a final

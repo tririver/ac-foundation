@@ -44,7 +44,7 @@ class ClaudeAdapter:
             usage=UsageAvailability.COMPLETE,
             config_isolation=IsolationMode.EXPLICIT,
             tool_isolation=IsolationMode.EXPLICIT,
-            cooperative_cancel=True,
+            cooperative_stop=True,
             provider_persistence=True,
             input_delivery={
                 "image/png": InputDeliveryMode.READ_TOOL,
@@ -58,7 +58,7 @@ class ClaudeAdapter:
         available, path = executable_diagnostic(self.name, self.binary)
         return ProviderDiagnostic(self.name, available, path)
 
-    def start(self, request: ProviderRequest, observer: Any, cancel: Any) -> ProviderExecution:
+    def start(self, request: ProviderRequest, observer: Any, stop: Any) -> ProviderExecution:
         argv = [
             self.binary,
             "--print",
@@ -85,7 +85,7 @@ class ClaudeAdapter:
             _prompt_with_inputs(request.prompt, request.inputs),
             request.idle_timeout_seconds,
             observer,
-            cancel,
+            stop,
         )
 
     def resume(
@@ -93,7 +93,7 @@ class ClaudeAdapter:
         handle: Any,
         request: ProviderResumeRequest,
         observer: Any,
-        cancel: Any,
+        stop: Any,
     ) -> ProviderExecution:
         argv = [
             self.binary,
@@ -121,18 +121,18 @@ class ClaudeAdapter:
             _prompt_with_inputs(request.prompt, request.inputs),
             request.idle_timeout_seconds,
             observer,
-            cancel,
+            stop,
         )
 
     def _run(
-        self, argv: list[str], prompt: str, timeout: float, observer: Any, cancel: Any
+        self, argv: list[str], prompt: str, timeout: float, observer: Any, stop: Any
     ) -> ProviderExecution:
         return run_cli(
             provider=self.name,
             argv=argv,
             prompt=prompt,
             observer=observer,
-            cancel=cancel,
+            stop=stop,
             timeout=timeout,
             parse_event=_parse_event,
             runner=self.runner,

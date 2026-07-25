@@ -189,8 +189,8 @@ def test_interaction_effect_id_extends_the_initial_effect_id() -> None:
         (EffectStage.PREPARED, None, 0, 0, 0, RecoveryAction.START),
         (EffectStage.PREPARED, None, 2, 0, 0, RecoveryAction.PAUSE_UNCERTAIN),
         (EffectStage.MAY_HAVE_RUN, "thread", 0, 0, 0, RecoveryAction.NATIVE_RESUME),
-        (EffectStage.MAY_HAVE_RUN, "thread", 0, 1, 0, RecoveryAction.REPLACE),
-        (EffectStage.MAY_HAVE_RUN, None, 0, 0, 0, RecoveryAction.REPLACE),
+        (EffectStage.MAY_HAVE_RUN, "thread", 0, 1, 0, RecoveryAction.PAUSE_UNCERTAIN),
+        (EffectStage.MAY_HAVE_RUN, None, 0, 0, 0, RecoveryAction.PAUSE_UNCERTAIN),
         (EffectStage.MAY_HAVE_RUN, None, 0, 0, 1, RecoveryAction.PAUSE_UNCERTAIN),
     ],
 )

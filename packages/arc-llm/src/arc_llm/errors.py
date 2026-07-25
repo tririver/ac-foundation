@@ -26,7 +26,7 @@ class ErrorCode(StrEnum):
     LOCAL_IO = "local_io"
     ADOPTION_CONFLICT = "adoption_conflict"
     ADOPTION_NOT_AUTHORIZED = "adoption_not_authorized"
-    CANCELLED = "cancelled"
+    STOPPED = "stopped"
 
 
 class FailureCategory(StrEnum):
@@ -38,7 +38,7 @@ class FailureCategory(StrEnum):
     SCHEMA = "schema"
     TRANSPORT = "transport"
     TIMEOUT = "timeout"
-    CANCELLED = "cancelled"
+    STOPPED = "stopped"
     LOCAL_IO = "local_io"
     INTERNAL = "internal"
 
@@ -134,7 +134,7 @@ class ProviderFailure(ArcLLMError):
             FailureCategory.SCHEMA: ErrorCode.INVALID_SCHEMA,
             FailureCategory.TRANSPORT: ErrorCode.PROVIDER_TRANSPORT,
             FailureCategory.TIMEOUT: ErrorCode.PROVIDER_TIMEOUT,
-            FailureCategory.CANCELLED: ErrorCode.CANCELLED,
+            FailureCategory.STOPPED: ErrorCode.STOPPED,
             FailureCategory.LOCAL_IO: ErrorCode.LOCAL_IO,
             FailureCategory.INTERNAL: ErrorCode.PROVIDER_TRANSPORT,
         }[category]

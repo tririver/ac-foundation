@@ -11,6 +11,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+from arc_jobs import StopToken
+
 from ..errors import ProviderFailure
 from ..output import CandidateMaterial
 
@@ -36,7 +38,7 @@ class IsolationMode(StrEnum):
 class ProviderTerminalKind(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
-    CANCELLED = "cancelled"
+    STOPPED = "stopped"
 
 
 class InputDeliveryMode(StrEnum):
@@ -53,7 +55,7 @@ class ProviderCapabilities:
     usage: UsageAvailability
     config_isolation: IsolationMode
     tool_isolation: IsolationMode
-    cooperative_cancel: bool
+    cooperative_stop: bool
     provider_persistence: bool
     input_delivery: Mapping[str, InputDeliveryMode] = field(default_factory=dict)
 
@@ -136,10 +138,6 @@ class ProviderObserver(Protocol):
     def response_saved(self, ref: Any) -> None: ...
 
 
-class CancelToken(Protocol):
-    def raise_if_requested(self) -> None: ...
-
-
 class ProviderAdapter(Protocol):
     name: str
     compatibility_version: str
@@ -152,7 +150,7 @@ class ProviderAdapter(Protocol):
         self,
         request: ProviderRequest,
         observer: ProviderObserver,
-        cancel: CancelToken,
+        stop: StopToken,
     ) -> ProviderExecution: ...
 
     def resume(
@@ -160,5 +158,5 @@ class ProviderAdapter(Protocol):
         handle: NativeResumeHandle,
         request: ProviderResumeRequest,
         observer: ProviderObserver,
-        cancel: CancelToken,
+        stop: StopToken,
     ) -> ProviderExecution: ...

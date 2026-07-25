@@ -15,11 +15,12 @@ from arc_jobs import (
     ArtifactSourceRef,
     BoundedLeasePool,
     EffectRequestDigest,
-    EffectStage,
+        EffectStage,
     ResumeReason,
     RevisionConflictError,
     SemanticKeyDigest,
     StateConflictError,
+    StoppedError,
 )
 
 from .config import resolve_model_selection
@@ -56,7 +57,7 @@ from .interaction import (
     validate_responses,
 )
 from .outcome import (
-    LLMCancelled,
+    LLMStopped,
     LLMCompleted,
     LLMFailed,
     LLMPaused,
@@ -146,6 +147,8 @@ class LLMTaskExecutor:
             lease = self._session_lineage_pool(context, session_key).acquire(
                 checkpoint=context.checkpoint
             )
+        except StoppedError:
+            return LLMStopped()
         except Exception as exc:
             return LLMFailed(
                 ProviderFailure(
@@ -242,6 +245,8 @@ class LLMTaskExecutor:
             )
         except ArcLLMError as exc:
             return LLMFailed(exc)
+        except StoppedError:
+            return LLMStopped()
         except Exception as exc:
             return LLMFailed(
                 ProviderFailure(
@@ -270,6 +275,8 @@ class LLMTaskExecutor:
             lease = self._session_lineage_pool(context, session_key).acquire(
                 checkpoint=context.checkpoint
             )
+        except StoppedError:
+            return LLMStopped()
         except Exception as exc:
             return LLMFailed(
                 ProviderFailure(
@@ -309,10 +316,10 @@ class LLMTaskExecutor:
         try:
             request = self._load_request(context, state)
             self._validate_session_lineage(context, request, state)
+        except StoppedError:
+            return LLMStopped()
         except ArcLLMError as exc:
             return LLMFailed(exc)
-        if input is not None and input.action is ResumeAction.CANCEL:
-            return LLMCancelled()
         if input is not None and input.action is ResumeAction.ACCEPT_CANDIDATE:
             return self._accept_candidate(context, request, state, store, input)
         if input is not None and input.action is ResumeAction.REPLACE:
@@ -557,8 +564,8 @@ class LLMTaskExecutor:
                     if outcome is None:
                         continue
                     return outcome
-                if execution_result.terminal_kind is ProviderTerminalKind.CANCELLED:
-                    return LLMCancelled()
+                if execution_result.terminal_kind is ProviderTerminalKind.STOPPED:
+                    return LLMStopped()
                 outcome = self._consume_execution(
                     context,
                     request,
@@ -577,6 +584,8 @@ class LLMTaskExecutor:
                 if outcome is None:
                     continue
                 return outcome
+            except StoppedError:
+                return LLMStopped()
             except ArcLLMError as exc:
                 return LLMFailed(exc)
             except Exception as exc:
@@ -605,7 +614,7 @@ class LLMTaskExecutor:
                         self._materialize_inputs(context, request, adapter),
                     ),
                     observer,
-                    context.cancel,
+                    context.stop,
                 )
             except ProviderFailure as exc:
                 permit.record_failure(exc)
@@ -648,7 +657,7 @@ class LLMTaskExecutor:
                         self._materialize_inputs(context, request, adapter),
                     ),
                     observer,
-                    context.cancel,
+                    context.stop,
                 )
             except ProviderFailure as exc:
                 permit.record_failure(exc)
@@ -1005,6 +1014,8 @@ class LLMTaskExecutor:
             return outcome or self._drive(
                 context, request, store.read() or next_state, store, options
             )
+        if execution.terminal_kind is ProviderTerminalKind.STOPPED:
+            return LLMStopped()
         outcome = self._consume_execution(
             context,
             request,
@@ -1032,6 +1043,10 @@ class LLMTaskExecutor:
             FailureCategory.RATE_LIMIT,
             FailureCategory.UNAVAILABLE,
         }:
+            if failure.delivery is DeliveryState.NOT_DELIVERED:
+                state = self._replace_verified_not_delivered(
+                    context, request, state, store, options
+                )
             return self._pause(
                 store,
                 state,
@@ -1039,8 +1054,8 @@ class LLMTaskExecutor:
                 failure.category.value,
                 input_required=False,
             )
-        if failure.category is FailureCategory.CANCELLED:
-            return LLMCancelled()
+        if failure.category is FailureCategory.STOPPED:
+            return LLMStopped()
         if failure.category in {
             FailureCategory.INVALID_REQUEST,
             FailureCategory.SCHEMA,
@@ -1050,10 +1065,14 @@ class LLMTaskExecutor:
             return LLMFailed(failure)
         if failure.delivery is DeliveryState.NOT_DELIVERED:
             if state.current.safe_retries < options.limits.safe_retry_limit:
-                next_state = self._update_current(
-                    state, safe_retries=state.current.safe_retries + 1
+                self._replace_verified_not_delivered(
+                    context,
+                    request,
+                    state,
+                    store,
+                    options,
+                    safe_retries=state.current.safe_retries + 1,
                 )
-                store.compare_and_swap(state.revision, next_state)
                 return None
             return self._pause(
                 store,
@@ -1068,6 +1087,59 @@ class LLMTaskExecutor:
         if failure.delivery is DeliveryState.MAY_HAVE_RUN:
             return None
         return LLMFailed(failure)
+
+    def _replace_verified_not_delivered(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        options: LLMExecutionOptions,
+        *,
+        safe_retries: int | None = None,
+    ) -> LLMTaskState:
+        """Start a new generation only after the provider proved non-delivery.
+
+        Effect journals are monotonic, so a conservative delivery barrier may
+        already have recorded ``MAY_HAVE_RUN`` even when a typed provider
+        failure subsequently proves that the request was not delivered.  A new
+        PREPARED generation preserves that proof without downgrading the old
+        effect or treating an uncertain delivery as retryable.
+        """
+
+        effect = context.effects.read(state.current.effect_id)
+        if effect is None or effect.stage is EffectStage.PREPARED:
+            if safe_retries is not None:
+                next_state = self._update_current(state, safe_retries=safe_retries)
+                store.compare_and_swap(state.revision, next_state)
+                return next_state
+            return state
+        if effect.stage is not EffectStage.MAY_HAVE_RUN:
+            return state
+        adapter = self.registry.create(state.resolved_provider or "")
+        execution_doc = self._execution_document(
+            adapter, state.resolved_model or "", request
+        )
+        next_state = replace_current(
+            state,
+            execution=execution_fingerprint(execution_doc),
+            reason="verified_not_delivered",
+            possible_duplicate=False,
+        )
+        if safe_retries is not None:
+            next_state = replace(
+                next_state,
+                generations=next_state.generations[:-1]
+                + (replace(next_state.current, safe_retries=safe_retries),),
+            )
+        store.compare_and_swap(state.revision, next_state)
+        scoped = self._artifacts(context, next_state.semantic_key)
+        scoped.publish_json(
+            f"execution/{next_state.current_generation}/recipe.json", execution_doc
+        )
+        self._publish_policy(scoped, next_state.current_generation, options)
+        self._prepare_effect(context, request, next_state)
+        return next_state
 
     def _accept(
         self,

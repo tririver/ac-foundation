@@ -23,7 +23,7 @@ class _Observer:
         pass
 
 
-class _Cancel:
+class _Stop:
     def raise_if_requested(self) -> None:
         pass
 
@@ -138,7 +138,7 @@ def test_nonzero_exit_precedes_missing_or_multiple_terminal_validation(
         argv=("fake",),
         prompt="prompt",
         observer=_Observer(),
-        cancel=_Cancel(),
+        stop=_Stop(),
         timeout=1,
         parse_event=parse_codex_event,
         runner=_NonzeroRunner(),

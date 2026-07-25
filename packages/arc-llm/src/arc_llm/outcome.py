@@ -37,8 +37,8 @@ class LLMFailed:
 
 
 @dataclass(frozen=True)
-class LLMCancelled:
+class LLMStopped:
     pass
 
 
-LLMTaskOutcome: TypeAlias = LLMCompleted | LLMPaused | LLMFailed | LLMCancelled
+LLMTaskOutcome: TypeAlias = LLMCompleted | LLMPaused | LLMFailed | LLMStopped

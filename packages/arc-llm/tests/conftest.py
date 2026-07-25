@@ -45,7 +45,7 @@ class ScriptedAdapter:
             usage=UsageAvailability.COMPLETE,
             config_isolation=IsolationMode.ISOLATED,
             tool_isolation=IsolationMode.ISOLATED,
-            cooperative_cancel=True,
+            cooperative_stop=True,
             provider_persistence=True,
             input_delivery={
                 "image/png": InputDeliveryMode.NATIVE_ATTACHMENT,
@@ -58,14 +58,14 @@ class ScriptedAdapter:
     def doctor(self) -> ProviderDiagnostic:
         return ProviderDiagnostic(self.name, True, "fake-codex")
 
-    def start(self, request: Any, observer: Any, cancel: Any) -> ProviderExecution:
+    def start(self, request: Any, observer: Any, stop: Any) -> ProviderExecution:
         self.start_calls += 1
         self.requests.append(request)
         observer.before_delivery()
         return self._next(observer)
 
     def resume(
-        self, handle: NativeResumeHandle, request: Any, observer: Any, cancel: Any
+        self, handle: NativeResumeHandle, request: Any, observer: Any, stop: Any
     ) -> ProviderExecution:
         self.resume_calls += 1
         self.requests.append(request)

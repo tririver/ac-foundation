@@ -25,7 +25,7 @@ JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dic
 ModelTier: TypeAlias = Literal["low", "medium", "high", "xhigh"]
 
 REQUEST_SCHEMA_VERSION = "arc.llm.request.v2"
-RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v1"
+RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v2"
 
 
 def _frozen_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -331,7 +331,6 @@ class ResumeAction(StrEnum):
     CONTINUE = "continue"
     REPLACE = "replace"
     ACCEPT_CANDIDATE = "accept_candidate"
-    CANCEL = "cancel"
 
 
 @dataclass(frozen=True)
@@ -386,9 +385,6 @@ class ResumeInput:
                 self.candidate_digest,
                 field_name="candidate_digest",
             )
-        elif self.action is ResumeAction.CANCEL:
-            if self.responses or self.candidate_digest is not None or self.reason is not None:
-                raise InvalidRequestError("cancel accepts no action payload.")
 
 
 def _check_schema(schema: Mapping[str, Any]) -> None:

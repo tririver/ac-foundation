@@ -42,7 +42,7 @@ class KimiAdapter:
             usage=UsageAvailability.PARTIAL,
             config_isolation=IsolationMode.INHERITED,
             tool_isolation=IsolationMode.EXPLICIT,
-            cooperative_cancel=True,
+            cooperative_stop=True,
             provider_persistence=True,
             input_delivery={
                 "image/png": InputDeliveryMode.ACP_CONTENT,
@@ -69,7 +69,7 @@ class KimiAdapter:
         self,
         request: ProviderRequest,
         observer: Any,
-        cancel: Any,
+        stop: Any,
     ) -> ProviderExecution:
         return self.runner.run(
             provider=self.name,
@@ -80,7 +80,7 @@ class KimiAdapter:
             session_id=None,
             idle_timeout_seconds=request.idle_timeout_seconds,
             observer=observer,
-            cancel=cancel,
+            stop=stop,
             env=self.env,
         )
 
@@ -89,7 +89,7 @@ class KimiAdapter:
         handle: Any,
         request: ProviderResumeRequest,
         observer: Any,
-        cancel: Any,
+        stop: Any,
     ) -> ProviderExecution:
         return self.runner.run(
             provider=self.name,
@@ -100,7 +100,7 @@ class KimiAdapter:
             session_id=handle.value,
             idle_timeout_seconds=request.idle_timeout_seconds,
             observer=observer,
-            cancel=cancel,
+            stop=stop,
             env=self.env,
         )
 

@@ -61,7 +61,7 @@ def test_cli_emits_one_shared_envelope_and_query_status(
     )
     generated = json.loads(capsys.readouterr().out)
     assert code == 0
-    assert generated["schema_version"] == "arc.command_result.v1"
+    assert generated["schema_version"] == "arc.command_result.v2"
     assert generated["status"] == "completed"
     run_id = generated["run"]["id"]
 
@@ -80,9 +80,9 @@ def test_cli_stderr_progress_and_stdout_final_result(
 ) -> None:
     original = adapter.start
 
-    def start_with_progress(request, observer, cancel):
+    def start_with_progress(request, observer, stop):
         observer.progress("provider_phase", {"phase": "requesting"})
-        return original(request, observer, cancel)
+        return original(request, observer, stop)
 
     monkeypatch.setattr(adapter, "start", start_with_progress)
     adapter.steps.append(
@@ -121,7 +121,7 @@ def test_cli_stderr_progress_and_stdout_final_result(
     captured = capsys.readouterr()
     final_lines = captured.out.splitlines()
     assert len(final_lines) == 1
-    assert json.loads(final_lines[0])["schema_version"] == "arc.command_result.v1"
+    assert json.loads(final_lines[0])["schema_version"] == "arc.command_result.v2"
     progress = [json.loads(line) for line in captured.err.splitlines()]
     assert progress
     assert all(item["schema_version"] == "arc.progress_event.v1" for item in progress)
@@ -131,7 +131,7 @@ def test_cli_stderr_progress_and_stdout_final_result(
 def test_cli_usage_error_is_same_envelope_with_exit_two(capsys) -> None:
     assert main(["generate"]) == 2
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == "arc.command_result.v1"
+    assert result["schema_version"] == "arc.command_result.v2"
     assert result["status"] == "failed"
     assert result["error"]["code"] == "invalid_request"
 
@@ -198,7 +198,7 @@ def test_process_runner_drains_both_streams_and_calls_delivery_barrier() -> None
         env=None,
         idle_timeout_seconds=5,
         before_stdin=lambda: barrier.append("before"),
-        cancel_check=lambda: None,
+        stop_check=lambda: None,
     )
     assert result.returncode == 0
     assert result.stdout == b"payload"
@@ -220,7 +220,7 @@ def test_process_creation_failure_is_not_delivered_and_unavailable(
             env={},
             idle_timeout_seconds=1,
             before_stdin=lambda: None,
-            cancel_check=lambda: None,
+            stop_check=lambda: None,
         )
     except ProviderFailure as failure:
         assert failure.category is FailureCategory.UNAVAILABLE
@@ -237,7 +237,7 @@ def test_process_idle_timeout_terminates_and_reaps_provider() -> None:
             env=None,
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
-            cancel_check=lambda: None,
+            stop_check=lambda: None,
         )
     except ProviderFailure as failure:
         assert failure.category is FailureCategory.TIMEOUT
@@ -263,7 +263,7 @@ def test_process_allows_long_runtime_when_small_chunks_stay_active() -> None:
         env=None,
         idle_timeout_seconds=0.08,
         before_stdin=lambda: None,
-        cancel_check=lambda: None,
+        stop_check=lambda: None,
         on_stdout=stdout_chunks.append,
         on_stderr=stderr_chunks.append,
     )
@@ -283,22 +283,22 @@ def test_process_idle_timeout_covers_blocked_stdin_delivery() -> None:
             env=None,
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
-            cancel_check=lambda: None,
+            stop_check=lambda: None,
         )
     assert caught.value.category is FailureCategory.TIMEOUT
     assert time.monotonic() - started < 3
 
 
-def test_process_cancellation_remains_active_after_delivery() -> None:
+def test_process_stop_remains_active_after_delivery() -> None:
     checks = 0
 
-    def cancel() -> None:
+    def stop() -> None:
         nonlocal checks
         checks += 1
         if checks >= 2:
             raise ProviderFailure(
-                "cancelled",
-                category=FailureCategory.CANCELLED,
+                "stopped",
+                category=FailureCategory.STOPPED,
                 delivery=DeliveryState.MAY_HAVE_RUN,
             )
 
@@ -309,9 +309,9 @@ def test_process_cancellation_remains_active_after_delivery() -> None:
             env=None,
             idle_timeout_seconds=5,
             before_stdin=lambda: None,
-            cancel_check=cancel,
+            stop_check=stop,
         )
-    assert caught.value.category is FailureCategory.CANCELLED
+    assert caught.value.category is FailureCategory.STOPPED
     assert caught.value.delivery is DeliveryState.MAY_HAVE_RUN
     assert checks >= 2
 
@@ -351,7 +351,7 @@ def test_timeout_terminates_descendant_after_group_leader_exits(
             env=None,
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
-            cancel_check=lambda: None,
+            stop_check=lambda: None,
         )
     assert caught.value.category is FailureCategory.TIMEOUT
     assert marker.with_suffix(".terminated").read_text() == "term"
@@ -390,7 +390,7 @@ def test_timeout_force_kills_term_ignoring_descendant_after_leader_exit(
             env=None,
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
-            cancel_check=lambda: None,
+            stop_check=lambda: None,
         )
     assert caught.value.category is FailureCategory.TIMEOUT
     assert time.monotonic() - started < 1.5

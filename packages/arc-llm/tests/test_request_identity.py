@@ -48,6 +48,10 @@ def test_request_and_resume_codecs_are_closed_round_trips() -> None:
 
     resume = ResumeInput("resume-3", ResumeAction.REPLACE, reason="new evidence")
     assert decode_resume_input(resume_input_to_document(resume)) == resume
+    legacy = resume_input_to_document(resume)
+    legacy["schema_version"] = "arc.llm.resume_input.v1"
+    with pytest.raises(InvalidRequestError, match="Unsupported resume input schema_version"):
+        decode_resume_input(legacy)
 
 
 def _input(

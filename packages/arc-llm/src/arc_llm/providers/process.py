@@ -1,4 +1,4 @@
-"""Blocking child-process execution with idle cancellation and full cleanup."""
+"""Blocking child-process execution with idle stopping and full cleanup."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class ProcessRunner:
         env: Mapping[str, str] | None,
         idle_timeout_seconds: float,
         before_stdin: Callable[[], None],
-        cancel_check: Callable[[], None],
+        stop_check: Callable[[], None],
         on_stdout: Callable[[bytes], None] | None = None,
         on_stderr: Callable[[bytes], None] | None = None,
     ) -> ProcessResult:
@@ -107,7 +107,7 @@ class ProcessRunner:
                     failure = errors[0]
                     break
                 try:
-                    cancel_check()
+                    stop_check()
                 except BaseException as exc:
                     failure = exc
                     break

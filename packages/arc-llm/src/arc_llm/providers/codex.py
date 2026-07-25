@@ -48,7 +48,7 @@ class CodexAdapter:
             usage=UsageAvailability.COMPLETE,
             config_isolation=IsolationMode.ISOLATED,
             tool_isolation=IsolationMode.EXPLICIT,
-            cooperative_cancel=True,
+            cooperative_stop=True,
             provider_persistence=True,
             input_delivery={
                 "image/png": InputDeliveryMode.NATIVE_ATTACHMENT,
@@ -62,7 +62,7 @@ class CodexAdapter:
         available, path = executable_diagnostic(self.name, self.binary)
         return ProviderDiagnostic(self.name, available, path)
 
-    def start(self, request: ProviderRequest, observer: Any, cancel: Any) -> ProviderExecution:
+    def start(self, request: ProviderRequest, observer: Any, stop: Any) -> ProviderExecution:
         argv = [self.binary, "exec", "--json"]
         if not request.capabilities.get("inherit_host_config", False):
             argv.extend(["--ignore-user-config", "--ignore-rules"])
@@ -76,7 +76,7 @@ class CodexAdapter:
             request.output_schema,
             request.idle_timeout_seconds,
             observer,
-            cancel,
+            stop,
         )
 
     def _run(
@@ -86,7 +86,7 @@ class CodexAdapter:
         output_schema: Mapping[str, Any] | None,
         timeout: float,
         observer: Any,
-        cancel: Any,
+        stop: Any,
     ) -> ProviderExecution:
         schema_path: Path | None = None
         output_path: Path | None = None
@@ -115,7 +115,7 @@ class CodexAdapter:
                 argv=argv,
                 prompt=prompt,
                 observer=observer,
-                cancel=cancel,
+                stop=stop,
                 timeout=timeout,
                 parse_event=_parse_event,
                 runner=self.runner,
@@ -152,7 +152,7 @@ class CodexAdapter:
         handle: Any,
         request: ProviderResumeRequest,
         observer: Any,
-        cancel: Any,
+        stop: Any,
     ) -> ProviderExecution:
         argv = [self.binary, "exec", "resume", "--json"]
         if not request.capabilities.get("inherit_host_config", False):
@@ -167,7 +167,7 @@ class CodexAdapter:
             request.output_schema,
             request.idle_timeout_seconds,
             observer,
-            cancel,
+            stop,
         )
 
 

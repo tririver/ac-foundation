@@ -28,7 +28,7 @@ from .errors import (
 )
 from .identity import AdoptionAuthorization, resume_input_matches
 from .outcome import (
-    LLMCancelled,
+    LLMStopped,
     LLMCompleted,
     LLMFailed,
     LLMPaused,
@@ -102,7 +102,7 @@ __all__ = [
     "InvalidRequestError",
     "InvalidSchemaError",
     "JsonOutput",
-    "LLMCancelled",
+    "LLMStopped",
     "LLMClient",
     "LLMCompleted",
     "LLMExecutionOptions",
