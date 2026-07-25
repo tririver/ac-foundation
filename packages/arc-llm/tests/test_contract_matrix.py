@@ -1,3 +1,5 @@
+"""Cross-cutting tests for the current public and durable LLM contracts."""
+
 from __future__ import annotations
 
 from dataclasses import replace

@@ -30,7 +30,7 @@ from arc_jobs import storage as jobs_storage
 
 
 class _Success:
-    name = "legacy-success.v1"
+    name = "test-success.v1"
 
     def execute(self, context):
         result = context.artifacts.publish_json("result", {"ok": True})
@@ -38,7 +38,7 @@ class _Success:
 
 
 class _Failure:
-    name = "legacy-failure.v1"
+    name = "test-failure.v1"
 
     def execute(self, context):
         return Failed(RunError("expected_failure", "expected"))
@@ -51,7 +51,7 @@ class _AtomicValue:
 
 
 class _AtomicContract:
-    schema_version = "legacy.atomic.v1"
+    schema_version = "test.atomic.v1"
 
     def encode(self, value):
         return {"revision": value.revision, "payload": value.payload}
@@ -116,7 +116,7 @@ def test_concurrent_create_is_idempotent_and_changed_semantics_conflict(tmp_path
     def create() -> None:
         barrier.wait()
         results.append(
-            repository.create(RunSpec("run-1", "legacy-success.v1", {"x": 1}))
+            repository.create(RunSpec("run-1", "test-success.v1", {"x": 1}))
         )
 
     threads = [threading.Thread(target=create) for _ in range(2)]
@@ -129,7 +129,7 @@ def test_concurrent_create_is_idempotent_and_changed_semantics_conflict(tmp_path
     assert len(results) == 2
     assert results[0] == results[1]
     with pytest.raises(IdempotencyConflictError):
-        repository.create(RunSpec("run-1", "legacy-success.v1", {"x": 2}))
+        repository.create(RunSpec("run-1", "test-success.v1", {"x": 2}))
 
 
 @pytest.mark.parametrize(
@@ -351,7 +351,7 @@ def test_group_stop_stops_submissions_and_joins_started_workers(tmp_path):
     release = threading.Event()
 
     class GroupHandler:
-        name = "legacy-stop-group.v1"
+        name = "test-stop-group.v1"
 
         def execute(self, context):
             def worker(unit):
@@ -401,7 +401,7 @@ def test_group_stop_stops_submissions_and_joins_started_workers(tmp_path):
 
 def test_context_events_persist_safe_protocol_neutral_progress(tmp_path):
     class EventHandler:
-        name = "legacy-event.v1"
+        name = "test-event.v1"
 
         def execute(self, context):
             context.events.emit(
