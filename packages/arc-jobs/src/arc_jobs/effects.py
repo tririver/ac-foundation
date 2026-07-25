@@ -189,8 +189,16 @@ class EffectJournal:
                 return current
             raise
 
-    def _advance(self, effect_id: str, stage: EffectStage, **changes: object) -> EffectRecord:
-        self.stop.raise_if_requested()
+    def _advance(
+        self,
+        effect_id: str,
+        stage: EffectStage,
+        *,
+        check_stop: bool = True,
+        **changes: object,
+    ) -> EffectRecord:
+        if check_stop:
+            self.stop.raise_if_requested()
         store = self._store(effect_id)
         current = store.read()
         if current is None:
@@ -214,7 +222,12 @@ class EffectJournal:
 
     def save_output(self, effect_id: str, output_ref: ArtifactRef) -> EffectRecord:
         self.artifacts.verify(output_ref)
-        return self._advance(effect_id, EffectStage.OUTPUT_SAVED, output_ref=output_ref)
+        return self._advance(
+            effect_id,
+            EffectStage.OUTPUT_SAVED,
+            check_stop=False,
+            output_ref=output_ref,
+        )
 
     def commit(self, effect_id: str) -> EffectRecord:
         return self._advance(effect_id, EffectStage.COMMITTED)
