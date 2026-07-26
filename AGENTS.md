@@ -111,10 +111,15 @@ service commands it names.
   partially implement it, rename artifacts, update mirrors, or make compromise
   edits unless the user explicitly approves a revised instruction. Explain the
   disagreement and leave files unchanged.
-- Never change any version declaration without the user's explicit approval.
-  This gate includes the root `VERSION` file, package and plugin manifests or
-  metadata, dependency version ranges, and in-code declarations such as
-  `__version__`.
+- Agents must obtain the user's explicit approval before changing release or
+  distribution version declarations. This includes the root `VERSION`, package
+  or plugin manifest version fields, dependency version ranges, and in-code
+  package versions such as `__version__`.
+- Internal schema versions are not release or distribution versions. Agents may
+  update schema identifiers for internal data contracts, persisted artifacts,
+  or protocol payloads without separate approval when implementation requires
+  it; update producers, consumers, validation, tests, and documentation
+  together.
 
 ## Complexity Review Gate
 
