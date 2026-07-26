@@ -132,7 +132,6 @@ class ProposerReviewerService:
             loop = loop_by_id[unit.unit_id]
             _emit_progress(
                 context,
-                options,
                 _ExecutionProgress("loop_started", loop.loop_id),
             )
             try:
@@ -146,7 +145,6 @@ class ProposerReviewerService:
             except StoppedError:
                 _emit_progress(
                     context,
-                    options,
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="stopped"
                     ),
@@ -155,7 +153,6 @@ class ProposerReviewerService:
             except Exception:
                 _emit_progress(
                     context,
-                    options,
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="failed"
                     ),
@@ -164,7 +161,6 @@ class ProposerReviewerService:
             if isinstance(outcome, Paused):
                 _emit_progress(
                     context,
-                    options,
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="paused"
                     ),
@@ -175,7 +171,6 @@ class ProposerReviewerService:
             if outcome.termination is LoopTermination.FAILED:
                 _emit_progress(
                     context,
-                    options,
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="failed"
                     ),
@@ -189,7 +184,6 @@ class ProposerReviewerService:
                 )
             _emit_progress(
                 context,
-                options,
                 _ExecutionProgress(
                     "loop_finished", loop.loop_id, status="succeeded"
                 ),
@@ -287,7 +281,6 @@ class ProposerReviewerService:
             round_number = state.rounds_completed + 1
             _emit_progress(
                 context,
-                options,
                 _ExecutionProgress(
                     "round_started",
                     loop.loop_id,
@@ -720,7 +713,6 @@ class ProposerReviewerService:
             )
             _emit_progress(
                 context,
-                options,
                 _ExecutionProgress(
                     "round_finished",
                     loop.loop_id,
@@ -755,7 +747,6 @@ class ProposerReviewerService:
     ):
         _emit_progress(
             context,
-            options,
             _ExecutionProgress(
                 "worker_started",
                 loop_id,
@@ -782,7 +773,6 @@ class ProposerReviewerService:
         finally:
             _emit_progress(
                 context,
-                options,
                 _ExecutionProgress(
                     "worker_finished",
                     loop_id,
@@ -908,7 +898,6 @@ def _failed_loop(
 
 def _emit_progress(
     context: RunContext,
-    options: ExecutionOptions,
     progress: _ExecutionProgress,
 ) -> None:
     data: dict[str, JsonValue] = {
@@ -930,11 +919,6 @@ def _emit_progress(
         context.events.emit(event, data)
     except Exception:
         pass
-    if options.progress_callback is not None:
-        try:
-            options.progress_callback({"event": event, "data": data})
-        except Exception:
-            pass
 
 
 def _outer_pause(

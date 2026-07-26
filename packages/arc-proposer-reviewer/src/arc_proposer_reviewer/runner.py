@@ -10,6 +10,7 @@ from pathlib import Path
 from arc_jobs import (
     ArtifactDigest,
     ArtifactSourceRef,
+    EventSink,
     ImmutableArtifactStore,
     JsonValue,
     RunEngine,
@@ -73,6 +74,7 @@ class BatchRunner:
         options: ExecutionOptions = ExecutionOptions(),
         *,
         input_payloads: Sequence[BatchInputPayload] = (),
+        event_sink: EventSink | None = None,
     ) -> RunSnapshot:
         validate_execution_options(options)
         repository = _repository(run_root)
@@ -83,7 +85,11 @@ class BatchRunner:
             input_payloads=input_payloads,
         )
         spec = repository.read_spec(snapshot.run_id)
-        return RunEngine(repository).execute(spec, self._handler(options))
+        return RunEngine(repository).execute(
+            spec,
+            self._handler(options),
+            event_sink=event_sink,
+        )
 
     def resume(
         self,
@@ -91,6 +97,8 @@ class BatchRunner:
         run_id: str,
         input: Mapping[str, JsonValue] | None = None,
         options: ExecutionOptions = ExecutionOptions(),
+        *,
+        event_sink: EventSink | None = None,
     ) -> RunSnapshot:
         validate_execution_options(options)
         repository = _repository(run_root)
@@ -99,6 +107,7 @@ class BatchRunner:
             run_id,
             self._handler(options),
             input=input,
+            event_sink=event_sink,
         )
 
     def stop(

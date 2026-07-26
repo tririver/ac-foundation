@@ -371,7 +371,6 @@ def test_failed_group_unit_controls_loop_lifecycle(tmp_path: Path) -> None:
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     context.run_group(
         batch_group_id(),
@@ -444,7 +443,6 @@ def test_fail_fast_skipped_loop_projects_as_failed_not_integrity_error(
         repository,
         running,
         resume_input=None,
-        execution_slice=None,
     )
     context.run_group(
         batch_group_id(),

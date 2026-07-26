@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, Mapping
@@ -63,11 +62,6 @@ class ExecutionOptions:
     max_concurrent_loops: int = 1
     max_concurrent_workers: int = 1
     llm: LLMExecutionOptions = field(default_factory=LLMExecutionOptions)
-    progress_callback: Callable[[Mapping[str, JsonValue]], None] | None = field(
-        default=None,
-        compare=False,
-        repr=False,
-    )
 
 
 @dataclass(frozen=True)

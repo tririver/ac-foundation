@@ -34,8 +34,9 @@ inspection = runner.projection(
 ).inspect()
 ```
 
-`ExecutionOptions.progress_callback` accepts body-free
-`{"event": ..., "data": ...}` documents for foreground status rendering.
+`BatchRunner.run(..., event_sink=...)` and `resume(..., event_sink=...)`
+forward newly persisted `arc.jobs.event.v1` documents for foreground status
+rendering. Sink failures do not change the durable batch outcome.
 
 ## Tests
 

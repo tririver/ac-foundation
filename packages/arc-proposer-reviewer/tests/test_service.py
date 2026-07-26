@@ -162,6 +162,7 @@ def _run(
     fake: FakeLLM,
     *,
     options: ExecutionOptions = ExecutionOptions(),
+    event_sink=None,
 ):
     repository = RunRepository(root)
     handler = ProposerReviewerHandler(
@@ -171,6 +172,7 @@ def _run(
     snapshot = RunEngine(repository).execute(
         RunSpec("run-a", handler.name, encode_batch_request(request)),
         handler,
+        event_sink=event_sink,
     )
     return repository, handler, snapshot
 
@@ -215,7 +217,7 @@ def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
     assert len(fake.calls) == 2
 
 
-def test_progress_callback_and_durable_events_include_task_correlation(
+def test_event_sink_and_durable_events_include_task_correlation(
     tmp_path: Path,
 ) -> None:
     observed: list[Mapping[str, object]] = []
@@ -224,11 +226,15 @@ def test_progress_callback_and_durable_events_include_task_correlation(
         tmp_path,
         _request(_loop()),
         fake,
-        options=ExecutionOptions(progress_callback=observed.append),
+        event_sink=observed.append,
     )
 
     assert snapshot.status is RunStatus.SUCCEEDED
-    callback_events = [item["event"] for item in observed]
+    callback_events = [
+        item["event"]
+        for item in observed
+        if str(item["event"]).startswith("proposer_reviewer_")
+    ]
     assert callback_events == [
         "proposer_reviewer_loop_started",
         "proposer_reviewer_round_started",
@@ -251,15 +257,15 @@ def test_progress_callback_and_durable_events_include_task_correlation(
     assert durable == callback_events
 
 
-def test_progress_callback_failure_does_not_fail_execution(tmp_path: Path) -> None:
-    def fail_callback(_event) -> None:
+def test_event_sink_failure_does_not_fail_execution(tmp_path: Path) -> None:
+    def fail_sink(_event) -> None:
         raise RuntimeError("terminal closed")
 
     _repository, _handler, snapshot = _run(
         tmp_path,
         _request(_loop()),
         FakeLLM(),
-        options=ExecutionOptions(progress_callback=fail_callback),
+        event_sink=fail_sink,
     )
 
     assert snapshot.status is RunStatus.SUCCEEDED
@@ -635,7 +641,6 @@ def test_committed_round_replays_after_outer_unit_interruption(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     service = ProposerReviewerService(fake)  # type: ignore[arg-type]
     loop = _loop()

@@ -69,13 +69,6 @@ def validate_execution_options(options: ExecutionOptions) -> None:
     )
     if not isinstance(options.llm, LLMExecutionOptions):
         raise RequestValidationError("must be LLMExecutionOptions", ("llm",))
-    if options.progress_callback is not None and not callable(
-        options.progress_callback
-    ):
-        raise RequestValidationError(
-            "must be callable or null",
-            ("progress_callback",),
-        )
 
 
 def decode_review(

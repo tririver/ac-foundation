@@ -170,11 +170,11 @@ def test_run_and_resume_keep_operational_options_out_of_semantic_input(
     )
     calls: list[tuple[str, object, object]] = []
 
-    def execute(engine, spec, handler):
+    def execute(engine, spec, handler, *, event_sink=None):
         calls.append(("run", spec, handler))
         return engine.repository.inspect(spec.run_id).snapshot
 
-    def resume(engine, run_id, handler, *, input=None):
+    def resume(engine, run_id, handler, *, input=None, event_sink=None):
         calls.append(("resume", input, handler))
         return engine.repository.inspect(run_id).snapshot
 
