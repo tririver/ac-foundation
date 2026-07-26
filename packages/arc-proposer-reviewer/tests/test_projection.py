@@ -496,6 +496,15 @@ def test_inspection_projects_active_worker_without_private_ids(
             "round": 1,
             "role": "proposer",
             "worker_id": "proposer-a",
+            "task_id": "task-proposer-a",
+        },
+    )
+    events.emit(
+        "llm_message",
+        {
+            "task_id": "task-proposer-a",
+            "direction": "response",
+            "preview": "Checking the first derivation.",
         },
     )
     inspection = inspect_batch(repository, "run-a")
@@ -512,6 +521,9 @@ def test_inspection_projects_active_worker_without_private_ids(
     }
     assert len(active) == 1
     assert active[0].worker_id == "proposer-a"
+    assert active[0].task_id == "task-proposer-a"
+    assert active[0].last_message_direction == "response"
+    assert active[0].last_message_preview == "Checking the first derivation."
     assert inspection.loops[0].last_activity_at is not None
 
     events.emit(
@@ -521,6 +533,7 @@ def test_inspection_projects_active_worker_without_private_ids(
             "round": 1,
             "role": "proposer",
             "worker_id": "proposer-a",
+            "task_id": "task-proposer-a",
             "status": "succeeded",
         },
     )

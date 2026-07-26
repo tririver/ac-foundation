@@ -6,10 +6,11 @@ from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
 from arc_llm import LLMInputArtifact
 
 from .models import LoopSpec, WorkerSpec
+from .prompts import PROMPT_CONTRACT
 
 
-WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v6"
-LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v6"
+WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v7"
+LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v7"
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
@@ -49,6 +50,7 @@ def loop_semantic_projection(
 ) -> dict[str, JsonValue]:
     return {
         "semantic_key_schema": LOOP_SEMANTIC_KEY_SCHEMA,
+        "prompt_contract": PROMPT_CONTRACT,
         "loop_id": loop.loop_id,
         "context": dict(loop.context),
         "inputs": input_artifact_documents(inputs),
@@ -73,6 +75,7 @@ def worker_semantic_projection(
 ) -> dict[str, JsonValue]:
     return {
         "semantic_key_schema": WORKER_SEMANTIC_KEY_SCHEMA,
+        "prompt_contract": PROMPT_CONTRACT,
         "role": role,
         "loop_id": loop.loop_id,
         "round": round_number,

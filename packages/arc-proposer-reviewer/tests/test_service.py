@@ -215,7 +215,7 @@ def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
     assert len(fake.calls) == 2
 
 
-def test_progress_callback_and_durable_events_are_body_free(
+def test_progress_callback_and_durable_events_include_task_correlation(
     tmp_path: Path,
 ) -> None:
     observed: list[Mapping[str, object]] = []
@@ -240,7 +240,7 @@ def test_progress_callback_and_durable_events_are_body_free(
         "proposer_reviewer_loop_finished",
     ]
     rendered = json.dumps(observed)
-    assert "task_id" not in rendered
+    assert "task_id" in rendered
     assert "session" not in rendered
     assert str(tmp_path) not in rendered
     durable = [

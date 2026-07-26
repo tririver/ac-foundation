@@ -99,6 +99,7 @@ class _ExecutionProgress:
     round_number: int | None = None
     role: Literal["proposer", "reviewer"] | None = None
     worker_id: str | None = None
+    task_id: str | None = None
     status: str | None = None
 
 
@@ -761,6 +762,7 @@ class ProposerReviewerService:
                 round_number=round_number,
                 role=role,
                 worker_id=worker_id,
+                task_id=task_id,
             ),
         )
         status = "failed"
@@ -787,6 +789,7 @@ class ProposerReviewerService:
                     round_number=round_number,
                     role=role,
                     worker_id=worker_id,
+                    task_id=task_id,
                     status=status,
                 ),
             )
@@ -915,6 +918,7 @@ def _emit_progress(
         ("round", progress.round_number),
         ("role", progress.role),
         ("worker_id", progress.worker_id),
+        ("task_id", progress.task_id),
         ("status", progress.status),
     ):
         if value is not None:

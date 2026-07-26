@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Mapping, cast
 
 from arc_jobs import (
@@ -111,7 +111,10 @@ class ActiveWorkerSummary:
     worker_id: str
     role: Literal["proposer", "reviewer"]
     round_number: int
+    task_id: str
     last_activity_at: str
+    last_message_direction: str | None = None
+    last_message_preview: str | None = None
 
 
 @dataclass(frozen=True)
@@ -329,6 +332,7 @@ class BatchProjection:
             else None
         )
         active: dict[str, dict[tuple[str, str], ActiveWorkerSummary]] = {}
+        task_locations: dict[str, tuple[str, tuple[str, str]]] = {}
         last_activity: dict[str, str] = {}
         for document in events:
             event = document.get("event")
@@ -336,10 +340,42 @@ class BatchProjection:
             emitted_at = document.get("emitted_at")
             if (
                 not isinstance(event, str)
-                or not event.startswith("proposer_reviewer_")
                 or not isinstance(data, Mapping)
                 or not isinstance(emitted_at, str)
             ):
+                continue
+            if event.startswith("llm_"):
+                task_id = data.get("task_id")
+                if not isinstance(task_id, str):
+                    continue
+                location = task_locations.get(task_id)
+                if location is None:
+                    continue
+                loop_id, key = location
+                workers = active.get(loop_id)
+                if workers is None or key not in workers:
+                    continue
+                current = workers[key]
+                direction = (
+                    data.get("direction")
+                    if isinstance(data.get("direction"), str)
+                    else current.last_message_direction
+                )
+                preview = (
+                    data.get("preview")
+                    if event == "llm_message"
+                    and isinstance(data.get("preview"), str)
+                    else current.last_message_preview
+                )
+                workers[key] = replace(
+                    current,
+                    last_activity_at=emitted_at,
+                    last_message_direction=direction,
+                    last_message_preview=preview,
+                )
+                last_activity[loop_id] = emitted_at
+                continue
+            if not event.startswith("proposer_reviewer_"):
                 continue
             loop_id = data.get("loop_id")
             if not isinstance(loop_id, str):
@@ -350,20 +386,26 @@ class BatchProjection:
                 "proposer_reviewer_loop_started",
                 "proposer_reviewer_loop_finished",
             }:
+                for current in workers.values():
+                    task_locations.pop(current.task_id, None)
                 workers.clear()
                 continue
             worker_id = data.get("worker_id")
             role = data.get("role")
             round_number = data.get("round")
+            task_id = data.get("task_id")
             if (
                 not isinstance(worker_id, str)
                 or role not in {"proposer", "reviewer"}
                 or type(round_number) is not int
+                or not isinstance(task_id, str)
             ):
                 continue
             key = (role, worker_id)
             if event == "proposer_reviewer_worker_finished":
-                workers.pop(key, None)
+                removed = workers.pop(key, None)
+                if removed is not None:
+                    task_locations.pop(removed.task_id, None)
                 continue
             if event != "proposer_reviewer_worker_started":
                 continue
@@ -371,8 +413,10 @@ class BatchProjection:
                 worker_id=worker_id,
                 role=role,
                 round_number=round_number,
+                task_id=task_id,
                 last_activity_at=emitted_at,
             )
+            task_locations[task_id] = (loop_id, key)
         return (
             {
                 loop_id: _RuntimeActivity(

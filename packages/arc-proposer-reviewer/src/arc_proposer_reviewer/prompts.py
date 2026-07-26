@@ -8,6 +8,8 @@ from arc_jobs import JsonValue
 from .models import LoopSpec, WorkerSpec
 
 
+PROMPT_CONTRACT = "arc.proposer_reviewer.prompt.v2"
+
 _PROPOSER_PROTOCOL = """You are one proposer in a typed proposer-reviewer round.
 Return one complete JSON value that satisfies the output contract. Do not return
 diagnostics, provider metadata, a patch, or a wrapper around the requested value."""
@@ -15,7 +17,12 @@ diagnostics, provider metadata, a patch, or a wrapper around the requested value
 _REVIEWER_PROTOCOL = """You are the sole reviewer in a typed proposer-reviewer round.
 Independently review all current proposals. Return only the closed review envelope:
 schema_version, action, reason, feedback, and payload. Feedback must contain exactly
-one non-empty entry for each active proposer."""
+one non-empty entry for each active proposer.
+
+Choose continue only when another round has a concrete expected scientific
+contribution and the feedback gives each proposer an actionable way to obtain
+it. Choose stop when the objective is satisfied or no concrete improvement path
+remains. Do not continue merely because additional rounds are available."""
 
 _WORKSPACE_INPUT_PROTOCOL = (
     "When host/control.json declares workspace inputs, read the complete verified "

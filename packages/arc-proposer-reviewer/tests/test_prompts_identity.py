@@ -7,6 +7,7 @@ from arc_proposer_reviewer.identity import (
     WORKER_SEMANTIC_KEY_SCHEMA,
     loop_semantic_projection,
     worker_contract_document,
+    worker_semantic_projection,
     worker_semantic_key,
     worker_task_id,
 )
@@ -14,6 +15,7 @@ from arc_jobs import ArtifactDigest, ArtifactSourceRef
 from arc_llm import LLMInputArtifact
 from arc_proposer_reviewer.models import LoopSpec, WorkerSpec
 from arc_proposer_reviewer.prompts import (
+    PROMPT_CONTRACT,
     render_delta_proposer_prompt,
     render_initial_proposer_prompt,
     render_reviewer_prompt,
@@ -78,11 +80,14 @@ def test_delta_and_reviewer_prompts_keep_only_business_context() -> None:
     assert '"answer":"candidate"' in reviewer
     assert "provider" not in reviewer.lower()
     assert "Independently review all current proposals" in reviewer
+    assert "concrete expected scientific" in reviewer
+    assert "contribution and the feedback" in reviewer
+    assert "Do not continue merely because additional rounds are available" in reviewer
 
 
 def test_worker_identity_covers_only_current_worker_contract() -> None:
-    assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v6")
-    assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v6")
+    assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v7")
+    assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v7")
     value = loop()
     worker = value.proposers[0]
     base = worker_semantic_key(
@@ -160,3 +165,11 @@ def test_worker_identity_covers_only_current_worker_contract() -> None:
     assert set(worker_contract_document(worker)) == {
         "worker_id", "instructions", "output_schema", "model"
     }
+    assert loop_semantic_projection(value)["prompt_contract"] == PROMPT_CONTRACT
+    assert worker_semantic_projection(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=worker,
+        upstream_digests={},
+    )["prompt_contract"] == PROMPT_CONTRACT
