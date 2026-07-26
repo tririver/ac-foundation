@@ -7,8 +7,10 @@ from typing import Any
 import pytest
 
 from arc_llm import (
+    FailureCategory,
     NativeResumeHandle,
     OutputInvalidError,
+    ProviderFailure,
     ProviderRequest,
     ProviderResumeRequest,
     ProviderTerminalKind,
@@ -164,6 +166,143 @@ def test_codex_structured_invalid_request_is_not_delivered(tmp_path: Path) -> No
     assert execution.terminal_kind is ProviderTerminalKind.FAILED
     assert execution.failure is not None
     assert execution.failure.details["provider_code"] == "invalid_json_schema"
+
+
+def test_codex_accepts_fresh_completed_output_after_nonzero_exit(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n'
+        b'{"type":"turn.completed"}\n',
+        last_message=b'{"ok":true}',
+        returncode=1,
+        stderr=b"provider transport closed late",
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest(
+            "Read host/control.json",
+            "model",
+            {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+            {},
+            3,
+            workspace,
+        ),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.COMPLETED
+    assert execution.failure is None
+    assert execution.candidates[0].text == '{"ok":true}'
+    assert execution.diagnostics["warnings"] == [
+        {
+            "code": "provider_nonzero_exit_with_valid_output",
+            "message": (
+                "Codex returned a nonzero exit after writing a completed final "
+                "response."
+            ),
+            "provider": "codex",
+            "returncode": 1,
+        }
+    ]
+
+
+def test_codex_nonzero_completed_turn_does_not_accept_stale_output(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    output = workspace / "host" / "codex-last-message.txt"
+    output.write_text('{"stale":true}', encoding="utf-8")
+    runner = FakeRunner(
+        b'{"type":"turn.completed"}\n',
+        returncode=1,
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.diagnostics["last_message"] == "unavailable"
+    assert not output.exists()
+
+
+def test_codex_terminal_failure_overrides_completed_final_file(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"turn.completed"}\n'
+        b'{"type":"turn.failed","error":{"message":"late failure"}}\n',
+        last_message=b'{"ok":true}',
+        returncode=1,
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.diagnostics["terminal_event_types"] == [
+        "turn.completed",
+        "turn.failed",
+    ]
+
+
+def test_codex_accepts_completion_after_an_earlier_error(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"error","message":"transient stream error"}\n'
+        b'{"type":"turn.completed"}\n',
+        last_message=b'{"ok":true}',
+        returncode=1,
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.COMPLETED
+    assert execution.failure is None
+
+
+def test_codex_does_not_override_runner_failure_with_completed_file(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+
+    class FailingRunner(FakeRunner):
+        def run(self, argv: Any, **kwargs: Any) -> ProcessResult:
+            super().run(argv, **kwargs)
+            raise ProviderFailure(
+                "idle timeout",
+                category=FailureCategory.TIMEOUT,
+            )
+
+    runner = FailingRunner(
+        b'{"type":"turn.completed"}\n',
+        last_message=b'{"ok":true}',
+    )
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.TIMEOUT
+    assert execution.diagnostics["runner_failure"] is True
+    assert execution.diagnostics["terminal_event_types"] == ["turn.completed"]
 
 
 def test_claude_uses_workspace_cwd_and_keeps_prompt_free_of_artifact_paths(

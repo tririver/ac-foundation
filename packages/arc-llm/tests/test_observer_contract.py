@@ -35,6 +35,29 @@ def test_observer_projects_handles_bounded_raw_diagnostics_and_progress() -> Non
         observer.progress("unsafe", {"nested": {"content": "paid output"}})
 
 
+def test_provider_stream_emits_body_free_activity_every_ten_events() -> None:
+    from arc_llm.providers._cli import EventAccumulator
+
+    calls: list[tuple[str, object]] = []
+    observer = DurableProviderObserver(
+        context=_context(calls),
+        on_handle=lambda _handle: None,
+    )
+    accumulator = EventAccumulator(
+        "codex",
+        observer,
+        lambda _event: (None, None, None),
+    )
+
+    for index in range(20):
+        accumulator.feed(f'{{"type":"progress","index":{index}}}\n'.encode())
+
+    assert calls == [
+        ("llm_provider_activity", {"event_count": 10}),
+        ("llm_provider_activity", {"event_count": 20}),
+    ]
+
+
 @pytest.mark.parametrize(
     "key",
     ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),

@@ -531,6 +531,13 @@ class LLMTaskExecutor:
                     assert execution_result.failure is not None
                     failure = execution_result.failure
                     active_state = store.read() or state
+                    provider_failure = self._publish_provider_failure_diagnostic(
+                        context,
+                        active_state,
+                        failure,
+                        execution=execution_result,
+                        fresh_retry_available=crash_retry_available,
+                    )
                     if self._is_crash_failure(failure):
                         if not crash_retry_available:
                             return self._pause(
@@ -539,13 +546,19 @@ class LLMTaskExecutor:
                                 ResumeReason.EXECUTION_INTERRUPTED,
                                 "provider_crash_retry_exhausted",
                                 input_required=False,
+                                provider_failure=provider_failure,
                             )
                         state = self._fresh_after_crash(
                             context, request, active_state, store, options
                         )
                         crash_retry_available = False
                         continue
-                    return self._provider_failure(store, active_state, failure)
+                    return self._provider_failure(
+                        store,
+                        active_state,
+                        failure,
+                        provider_failure=provider_failure,
+                    )
                 if execution_result.terminal_kind is ProviderTerminalKind.STOPPED:
                     self._clear_attempt_started(store.read() or state, store)
                     return LLMStopped()
@@ -560,8 +573,19 @@ class LLMTaskExecutor:
                 if outcome is not None:
                     return outcome
             except ProviderFailure as failure:
+                active_state = store.read() or state
+                provider_failure = (
+                    self._publish_provider_failure_diagnostic(
+                        context,
+                        active_state,
+                        failure,
+                        execution=None,
+                        fresh_retry_available=crash_retry_available,
+                    )
+                    if active_state.current.attempt_started
+                    else None
+                )
                 if self._is_crash_failure(failure):
-                    active_state = store.read() or state
                     if not crash_retry_available:
                         return self._pause(
                             store,
@@ -569,13 +593,19 @@ class LLMTaskExecutor:
                             ResumeReason.EXECUTION_INTERRUPTED,
                             "provider_crash_retry_exhausted",
                             input_required=False,
+                            provider_failure=provider_failure,
                         )
                     state = self._fresh_after_crash(
                         context, request, active_state, store, options
                     )
                     crash_retry_available = False
                     continue
-                return self._provider_failure(store, store.read() or state, failure)
+                return self._provider_failure(
+                    store,
+                    active_state,
+                    failure,
+                    provider_failure=provider_failure,
+                )
             except StoppedError:
                 return LLMStopped()
             except ArcLLMError as exc:
@@ -1295,6 +1325,8 @@ class LLMTaskExecutor:
         store: Any,
         state: LLMTaskState,
         failure: ProviderFailure,
+        *,
+        provider_failure: Mapping[str, Any] | None = None,
     ) -> LLMTaskOutcome:
         state = self._clear_attempt_started(store.read() or state, store)
         if failure.category in {
@@ -1309,10 +1341,96 @@ class LLMTaskExecutor:
                 ResumeReason.EXTERNAL_CONDITION,
                 failure.category.value,
                 input_required=False,
+                provider_failure=provider_failure,
             )
         if failure.category is FailureCategory.STOPPED:
             return LLMStopped()
         return LLMFailed(failure)
+
+    def _publish_provider_failure_diagnostic(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        failure: ProviderFailure,
+        *,
+        execution: ProviderExecution | None,
+        fresh_retry_available: bool,
+    ) -> Mapping[str, Any]:
+        diagnostics = {} if execution is None else execution.diagnostics
+        returncode = diagnostics.get("returncode")
+        if type(returncode) is not int:
+            returncode = None
+        terminal_types = diagnostics.get("terminal_event_types")
+        safe_terminal_types = (
+            [
+                value
+                for value in terminal_types
+                if isinstance(value, str)
+                and value in {"error", "turn.completed", "turn.failed"}
+            ][:16]
+            if isinstance(terminal_types, (list, tuple))
+            else []
+        )
+        detail_code = failure.details.get("code")
+        provider_code = failure.details.get("provider_code")
+
+        def safe_code(value: Any) -> str | None:
+            if (
+                not isinstance(value, str)
+                or not value
+                or len(value) > 256
+                or any(
+                    not (character.isalnum() or character in "._:-")
+                    for character in value
+                )
+            ):
+                return None
+            return value
+
+        document: dict[str, Any] = {
+            "schema_version": "arc.llm.provider_failure.v1",
+            "provider": state.resolved_provider,
+            "generation": state.current.generation,
+            "host_turn_round": state.host_turn_round,
+            "category": failure.category.value,
+            "arc_error_code": failure.code.value,
+            "provider_code": safe_code(provider_code),
+            "detail_code": safe_code(detail_code),
+            "returncode": returncode,
+            "retryable": failure.retryable,
+            "retry_after_seconds": failure.retry_after_seconds,
+            "fresh_retry_available": fresh_retry_available,
+            "terminal_event_types": safe_terminal_types,
+        }
+        digest = document_sha256(document)
+        artifact_id = (
+            f"generations/{state.current.generation}/provider-failures/"
+            f"{state.host_turn_round}-{digest}.json"
+        )
+        summary = {
+            key: value
+            for key, value in document.items()
+            if key
+            in {
+                "category",
+                "arc_error_code",
+                "provider_code",
+                "detail_code",
+                "returncode",
+                "retryable",
+                "retry_after_seconds",
+                "fresh_retry_available",
+                "terminal_event_types",
+            }
+        }
+        try:
+            ref = self._artifacts(context, state.semantic_key).publish_json(
+                artifact_id,
+                document,
+            )
+        except Exception:
+            return summary
+        return {**summary, "diagnostic_artifact_id": ref.artifact_id}
 
     def _fresh_after_crash(
         self,
@@ -1386,7 +1504,7 @@ class LLMTaskExecutor:
             next_state.resolved_model,
             session,
             execution.usage,
-            self._runtime_warnings(options),
+            self._runtime_warnings(options) + self._provider_warnings(execution),
         )
 
     def _accept_candidate(
@@ -1457,6 +1575,40 @@ class LLMTaskExecutor:
             },
         )
 
+    @staticmethod
+    def _provider_warnings(
+        execution: ProviderExecution,
+    ) -> tuple[Mapping[str, Any], ...]:
+        raw_warnings = execution.diagnostics.get("warnings")
+        if not isinstance(raw_warnings, (list, tuple)):
+            return ()
+        warnings: list[Mapping[str, Any]] = []
+        for raw_warning in raw_warnings:
+            if (
+                not isinstance(raw_warning, Mapping)
+                or raw_warning.get("code")
+                != "provider_nonzero_exit_with_valid_output"
+            ):
+                continue
+            message = raw_warning.get("message")
+            provider = raw_warning.get("provider")
+            returncode = raw_warning.get("returncode")
+            if (
+                not isinstance(message, str)
+                or not isinstance(provider, str)
+                or type(returncode) is not int
+            ):
+                continue
+            warnings.append(
+                {
+                    "code": "provider_nonzero_exit_with_valid_output",
+                    "message": message[:512],
+                    "provider": provider[:64],
+                    "returncode": returncode,
+                }
+            )
+        return tuple(warnings)
+
     def _replay(
         self,
         context: Any,
@@ -1477,13 +1629,28 @@ class LLMTaskExecutor:
                     state,
                     state.accepted.artifact_ref,
                 )
+            provider_warnings: tuple[Mapping[str, Any], ...] = ()
+            if (
+                state.accepted.origin is AcceptedOrigin.PROVIDER
+                and state.current.raw_response is not None
+            ):
+                try:
+                    execution = self._execution_from_raw(
+                        context,
+                        state.current.raw_response,
+                        state.resolved_provider or "",
+                    )
+                except ArcLLMError:
+                    pass
+                else:
+                    provider_warnings = self._provider_warnings(execution)
             return LLMCompleted(
                 value,
                 state.accepted.provider,
                 state.accepted.model,
                 session,
                 None,
-                self._runtime_warnings(options),
+                self._runtime_warnings(options) + provider_warnings,
             )
         except StoppedError:
             return LLMStopped()
@@ -1501,16 +1668,20 @@ class LLMTaskExecutor:
         *,
         input_required: bool,
         request_ref: ArtifactRef | None = None,
+        provider_failure: Mapping[str, Any] | None = None,
     ) -> LLMPaused:
         response_contract = RESUME_SCHEMA_VERSION if input_required else None
         resume_key = _make_resume_key(state.semantic_key, state.revision + 1)
+        details: dict[str, Any] = {"code": code}
+        if provider_failure is not None:
+            details["provider_failure"] = dict(provider_failure)
         pause = TaskPause(
             reason,
             resume_key,
             input_required,
             request_ref,
             response_contract,
-            {"code": code},
+            details,
         )
         next_state = replace(
             state,

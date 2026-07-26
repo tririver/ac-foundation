@@ -7,6 +7,7 @@ groups.  It neither creates state nor discovers artifacts by directory scan.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Literal, Mapping, cast
 
@@ -71,6 +72,20 @@ class SafeArtifactRef:
 
 
 @dataclass(frozen=True)
+class ProviderFailureSummary:
+    category: str | None
+    arc_error_code: str | None
+    provider_code: str | None
+    detail_code: str | None
+    returncode: int | None
+    retryable: bool | None
+    retry_after_seconds: float | int | None
+    fresh_retry_available: bool | None
+    terminal_event_types: tuple[str, ...]
+    diagnostic_artifact_id: str | None
+
+
+@dataclass(frozen=True)
 class PauseEntry:
     worker_id: str
     role: Literal["proposer", "reviewer"]
@@ -82,6 +97,7 @@ class PauseEntry:
     response_contract: str | None
     request_ref: SafeArtifactRef | None
     resume_action: Literal["resume", "provide_input"]
+    provider_failure: ProviderFailureSummary | None
 
 
 @dataclass(frozen=True)
@@ -836,6 +852,7 @@ def _pause_summary(state: _LoopState | None) -> PauseSummary | None:
                     if record.awaiting.input_required
                     else "resume"
                 ),
+                provider_failure=_provider_failure_summary(record),
             )
             for record in records
         ),
@@ -850,6 +867,87 @@ def _pause_code(record: _PauseRecord) -> str | None:
         if isinstance(code, str) and code:
             return code
     return None
+
+
+def _provider_failure_summary(
+    record: _PauseRecord,
+) -> ProviderFailureSummary | None:
+    raw = record.awaiting.details.get("provider_failure")
+    if not isinstance(raw, Mapping):
+        return None
+
+    def optional_string(key: str, limit: int) -> str | None:
+        value = raw.get(key)
+        return (
+            value[:limit]
+            if isinstance(value, str) and value
+            else None
+        )
+
+    def optional_code(key: str) -> str | None:
+        value = optional_string(key, 256)
+        if value is None or any(
+            not (character.isalnum() or character in "._:-")
+            for character in value
+        ):
+            return None
+        return value
+
+    returncode = raw.get("returncode")
+    if type(returncode) is not int:
+        returncode = None
+    retryable = raw.get("retryable")
+    if type(retryable) is not bool:
+        retryable = None
+    fresh_retry = raw.get("fresh_retry_available")
+    if type(fresh_retry) is not bool:
+        fresh_retry = None
+    retry_after = raw.get("retry_after_seconds")
+    if (
+        isinstance(retry_after, bool)
+        or not isinstance(retry_after, (int, float))
+        or retry_after < 0
+    ):
+        retry_after = None
+    raw_terminal_types = raw.get("terminal_event_types")
+    terminal_types = (
+        tuple(
+            value
+            for value in raw_terminal_types
+            if isinstance(value, str)
+            and value in {"error", "turn.completed", "turn.failed"}
+        )[:16]
+        if isinstance(raw_terminal_types, (list, tuple))
+        else ()
+    )
+    diagnostic_artifact_id = optional_string(
+        "diagnostic_artifact_id",
+        512,
+    )
+    if (
+        diagnostic_artifact_id is not None
+        and re.fullmatch(
+            (
+                r"llm/tasks/[0-9a-f]{64}/generations/[1-9][0-9]*/"
+                r"provider-failures/[0-9]+-[0-9a-f]{64}\.json"
+            ),
+            diagnostic_artifact_id,
+        )
+        is None
+    ):
+        diagnostic_artifact_id = None
+    return ProviderFailureSummary(
+        category=optional_code("category"),
+        arc_error_code=optional_code("arc_error_code"),
+        provider_code=optional_code("provider_code"),
+        detail_code=optional_code("detail_code"),
+        returncode=returncode,
+        retryable=retryable,
+        retry_after_seconds=retry_after,
+        fresh_retry_available=fresh_retry,
+        terminal_event_types=terminal_types,
+        diagnostic_artifact_id=diagnostic_artifact_id,
+    )
 
 
 def _failure_summary(batch_unit: GroupUnitView | None) -> FailureSummary | None:

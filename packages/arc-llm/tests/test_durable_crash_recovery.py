@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -88,8 +89,53 @@ def test_second_crash_pauses_then_explicit_resume_gets_fresh_allowance(
     assert isinstance(first.outcome, LLMPaused)
     assert first.outcome.reason is ResumeReason.EXECUTION_INTERRUPTED
     assert first.outcome.details["code"] == "provider_crash_retry_exhausted"
+    provider_failure = first.outcome.details["provider_failure"]
+    assert provider_failure["category"] == "timeout"
+    assert provider_failure["arc_error_code"] == "provider_timeout"
+    assert provider_failure["fresh_retry_available"] is False
+    assert "diagnostic_artifact_id" in provider_failure
     assert not first.outcome.input_required
     assert adapter.start_calls == 2
+
+    repository = RunRepository(tmp_path)
+    paused_snapshot = repository.inspect(first.snapshot.run_id).snapshot
+    paused_context = RunContext(
+        repository,
+        paused_snapshot,
+        resume_input=None,
+        execution_slice=None,
+    )
+    paused_state = client.service._executor._task_store(
+        paused_context,
+        "retry-budget",
+    ).read()
+    assert paused_state is not None
+    assert paused_state.pause is not None
+    assert paused_state.pause.details["provider_failure"] == provider_failure
+    diagnostic_ref = paused_context.artifacts.find(
+        provider_failure["diagnostic_artifact_id"]
+    )
+    assert diagnostic_ref is not None
+    diagnostic = json.loads(
+        paused_context.artifacts.read_bytes(diagnostic_ref).decode("utf-8")
+    )
+    assert diagnostic["schema_version"] == "arc.llm.provider_failure.v1"
+    assert diagnostic["category"] == "timeout"
+    assert set(diagnostic) == {
+        "schema_version",
+        "provider",
+        "generation",
+        "host_turn_round",
+        "category",
+        "arc_error_code",
+        "provider_code",
+        "detail_code",
+        "returncode",
+        "retryable",
+        "retry_after_seconds",
+        "fresh_retry_available",
+        "terminal_event_types",
+    }
 
     resumed = client.resume(
         run_root=tmp_path, run_id=first.snapshot.run_id, options=_direct()
@@ -97,6 +143,48 @@ def test_second_crash_pauses_then_explicit_resume_gets_fresh_allowance(
     assert isinstance(resumed.outcome, LLMCompleted)
     assert adapter.start_calls == 3
     assert adapter.resume_calls == 0
+
+
+def test_provider_warning_survives_completed_result_replay(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    warning = {
+        "code": "provider_nonzero_exit_with_valid_output",
+        "message": "Codex returned a nonzero exit after writing a completed response.",
+        "provider": "codex",
+        "returncode": 1,
+    }
+    adapter.steps.append(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (CandidateMaterial(value={"answer": 9}, terminal=True),),
+            diagnostics={"warnings": [warning]},
+        )
+    )
+    client = LLMClient(registry=registry)
+    options = LLMExecutionOptions(
+        host_authority=HostAuthority.UNRESTRICTED,
+        internet=False,
+    )
+    generated = client.generate(
+        _request("warning-replay"),
+        run_root=tmp_path,
+        options=options,
+    )
+
+    assert isinstance(generated.outcome, LLMCompleted)
+    assert generated.outcome.warnings == (warning,)
+
+    replayed = client.resume(
+        run_root=tmp_path,
+        run_id=generated.snapshot.run_id,
+        options=options,
+    )
+    assert isinstance(replayed.outcome, LLMCompleted)
+    assert replayed.outcome.warnings == (warning,)
+    assert adapter.start_calls == 1
 
 
 def test_published_raw_response_is_recovered_after_pre_cas_crash(

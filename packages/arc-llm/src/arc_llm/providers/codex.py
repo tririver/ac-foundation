@@ -108,6 +108,14 @@ class CodexAdapter:
             argv[-1],
         ]
         try:
+            output_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise ProviderFailure(
+                "Unable to clear the prior Codex final-message file.",
+                category=FailureCategory.LOCAL_IO,
+                details={"code": "codex_last_message_clear_failed"},
+            ) from exc
+        try:
             execution = run_cli(
                 provider=self.name,
                 argv=argv,
@@ -127,8 +135,6 @@ class CodexAdapter:
             # final response.  `--output-last-message` is the CLI's stable
             # final-response contract, so only its content participates in
             # output selection.
-            if execution.terminal_kind is not ProviderTerminalKind.COMPLETED:
-                return execution
             final_message = _read_last_message(output_path)
             diagnostics = {
                 **execution.diagnostics,
@@ -139,6 +145,34 @@ class CodexAdapter:
                 if final_message[0] is None
                 else (CandidateMaterial(text=final_message[0], terminal=True),)
             )
+            if execution.terminal_kind is not ProviderTerminalKind.COMPLETED:
+                terminal_types = execution.diagnostics.get("terminal_event_types", ())
+                returncode = execution.diagnostics.get("returncode")
+                if (
+                    type(returncode) is not int
+                    or returncode == 0
+                    or execution.diagnostics.get("runner_failure") is True
+                    or not _completed_without_late_failure(terminal_types)
+                    or final_message[0] is None
+                ):
+                    return replace(execution, diagnostics=diagnostics)
+                warning = {
+                    "code": "provider_nonzero_exit_with_valid_output",
+                    "message": (
+                        "Codex returned a nonzero exit after writing a completed "
+                        "final response."
+                    ),
+                    "provider": self.name,
+                    "returncode": returncode,
+                }
+                diagnostics["warnings"] = [warning]
+                return replace(
+                    execution,
+                    terminal_kind=ProviderTerminalKind.COMPLETED,
+                    candidates=candidates,
+                    failure=None,
+                    diagnostics=diagnostics,
+                )
             return replace(execution, candidates=candidates, diagnostics=diagnostics)
         finally:
             # These files are generation evidence in the controlled workspace.
@@ -187,6 +221,22 @@ def _parse_event(
     # can emit several completed items in one turn; the final-message file is
     # the sole terminal response used for output selection.
     return None, handle if isinstance(handle, str) else None, usage
+
+
+def _completed_without_late_failure(value: Any) -> bool:
+    if not isinstance(value, (list, tuple)):
+        return False
+    completed_indexes = [
+        index for index, event_type in enumerate(value)
+        if event_type == "turn.completed"
+    ]
+    if not completed_indexes:
+        return False
+    last_completed = completed_indexes[-1]
+    return not any(
+        event_type in {"error", "turn.failed"}
+        for event_type in value[last_completed + 1 :]
+    )
 
 
 def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:

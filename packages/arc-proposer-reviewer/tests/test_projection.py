@@ -36,6 +36,7 @@ from arc_proposer_reviewer.models import (
 )
 from arc_proposer_reviewer.projection import (
     BatchProjectionIntegrityError,
+    _provider_failure_summary,
     inspect_batch,
     read_batch_round,
     read_batch_trace,
@@ -241,7 +242,33 @@ def test_paused_loop_uses_safe_pause_summary(tmp_path: Path) -> None:
             True,
             request_ref=pause_request,
             response_contract="projection-test-input.v1",
-            details={"private": "detail"},
+            details={
+                "private": "private-detail-secret",
+                "provider_failure": {
+                    "category": "transport",
+                    "arc_error_code": "provider_transport",
+                    "provider_code": "stream_closed",
+                    "detail_code": "pipe_failed",
+                    "returncode": 1,
+                    "retryable": True,
+                    "retry_after_seconds": 2.5,
+                    "fresh_retry_available": False,
+                    "terminal_event_types": [
+                        "turn.completed",
+                        "turn.failed",
+                        "private.event",
+                    ],
+                    "diagnostic_artifact_id": (
+                        "llm/tasks/"
+                        + "a" * 64
+                        + "/generations/2/provider-failures/0-"
+                        + "b" * 64
+                        + ".json"
+                    ),
+                    "stderr": "/private/provider/path",
+                    "prompt": "private prompt",
+                },
+            },
         ),
     )
     store.compare_and_swap(
@@ -279,8 +306,63 @@ def test_paused_loop_uses_safe_pause_summary(tmp_path: Path) -> None:
     assert pause_entry.request_ref is not None
     assert not hasattr(pause_entry.request_ref, "relative_path")
     assert pause_entry.resume_action == "provide_input"
+    assert pause_entry.provider_failure is not None
+    assert pause_entry.provider_failure.category == "transport"
+    assert pause_entry.provider_failure.arc_error_code == "provider_transport"
+    assert pause_entry.provider_failure.returncode == 1
+    assert pause_entry.provider_failure.retry_after_seconds == 2.5
+    assert pause_entry.provider_failure.terminal_event_types == (
+        "turn.completed",
+        "turn.failed",
+    )
+    assert (
+        pause_entry.provider_failure.diagnostic_artifact_id
+        == (
+            "llm/tasks/"
+            + "a" * 64
+            + "/generations/2/provider-failures/0-"
+            + "b" * 64
+            + ".json"
+        )
+    )
     assert "private-task-id" not in repr(loop_inspection)
-    assert "detail" not in repr(loop_inspection)
+    assert "private-detail-secret" not in repr(loop_inspection)
+    assert "/private/provider/path" not in repr(loop_inspection)
+    assert "private prompt" not in repr(loop_inspection)
+
+
+@pytest.mark.parametrize(
+    "artifact_id",
+    (
+        "/private/provider-failure.json",
+        "llm/tasks/../private/provider-failure.json",
+        "llm/tasks/secret/generations/2/provider-failures/failure.json",
+    ),
+)
+def test_provider_failure_summary_rejects_non_arc_diagnostic_ids(
+    artifact_id: str,
+) -> None:
+    record = _PauseRecord(
+        "proposer",
+        "proposer-a",
+        1,
+        "private-task-id",
+        Awaiting(
+            ResumeReason.EXECUTION_INTERRUPTED,
+            "private-resume-key",
+            False,
+            details={
+                "provider_failure": {
+                    "diagnostic_artifact_id": artifact_id,
+                },
+            },
+        ),
+    )
+
+    summary = _provider_failure_summary(record)
+
+    assert summary is not None
+    assert summary.diagnostic_artifact_id is None
 
 
 def test_failed_group_unit_controls_loop_lifecycle(tmp_path: Path) -> None:

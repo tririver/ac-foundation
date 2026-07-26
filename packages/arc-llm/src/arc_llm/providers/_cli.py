@@ -41,6 +41,8 @@ class EventAccumulator:
         self.raw_events: list[Mapping[str, Any] | str] = []
         self.raw_bytes = 0
         self.raw_truncated = False
+        self.event_count = 0
+        self.terminal_event_types: list[str] = []
 
     def feed(self, chunk: bytes) -> None:
         self.buffer += chunk
@@ -102,6 +104,19 @@ class EventAccumulator:
     def _record_raw(self, event: Mapping[str, Any] | str) -> None:
         safe_event = _redact_value(event)
         self.observer.raw_event(safe_event)
+        self.event_count += 1
+        if isinstance(event, Mapping):
+            event_type = event.get("type")
+            if (
+                isinstance(event_type, str)
+                and event_type in {"error", "turn.completed", "turn.failed"}
+            ):
+                self.terminal_event_types.append(event_type)
+        if self.event_count % 10 == 0:
+            self.observer.progress(
+                "llm_provider_activity",
+                {"event_count": self.event_count},
+            )
         size = len(repr(safe_event).encode("utf-8", "replace"))
         if self.raw_bytes + size > 256 * 1024:
             self.raw_truncated = True
@@ -113,6 +128,7 @@ class EventAccumulator:
         return {
             "raw_events": list(self.raw_events),
             "raw_events_truncated": self.raw_truncated,
+            "terminal_event_types": list(self.terminal_event_types),
         }
 
 
@@ -142,15 +158,35 @@ def run_cli(
         parse_event,
         extract_failure=extract_failure,
     )
-    result = runner.run(
-        argv,
-        stdin=prompt.encode("utf-8"),
-        env=os.environ if env is None else env,
-        cwd=cwd,
-        idle_timeout_seconds=timeout,
-        stop_check=stop.raise_if_requested,
-        on_stdout=accumulator.feed,
-    )
+    try:
+        result = runner.run(
+            argv,
+            stdin=prompt.encode("utf-8"),
+            env=os.environ if env is None else env,
+            cwd=cwd,
+            idle_timeout_seconds=timeout,
+            stop_check=stop.raise_if_requested,
+            on_stdout=accumulator.feed,
+        )
+    except ProviderFailure as runner_failure:
+        accumulator.finish(validate_terminal=False)
+        failure = _prefer_definitive_failure(
+            runner_failure,
+            accumulator.failure,
+        )
+        assert failure is not None
+        return ProviderExecution(
+            ProviderTerminalKind.FAILED,
+            candidates=tuple(accumulator.candidates),
+            native_handle=accumulator.handle,
+            usage=accumulator.usage,
+            failure=failure,
+            diagnostics={
+                "returncode": None,
+                "runner_failure": True,
+                **accumulator.diagnostics(),
+            },
+        )
     # Still consume a final non-newline event for diagnostics, but terminal
     # shape validation must not replace a typed provider failure.
     accumulator.finish(
