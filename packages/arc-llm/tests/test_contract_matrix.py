@@ -15,9 +15,9 @@ from typing import Any
 import pytest
 
 from arc_llm import (
-    CapabilityPolicy,
     CorruptTaskStateError,
     ExecutionLimits,
+    HostAuthority,
     InvalidRequestError,
     JsonOutput,
     LLMClient,
@@ -477,7 +477,8 @@ def test_candidate_conflict_pause_selects_saved_value_without_provider_replay(
         ),
         ModelSelection("codex"),
     )
-    paused = client.generate(request, run_root=tmp_path)
+    direct = LLMExecutionOptions(host_authority=HostAuthority.UNRESTRICTED)
+    paused = client.generate(request, run_root=tmp_path, options=direct)
     assert isinstance(paused.outcome, LLMPaused)
     assert paused.outcome.input_required
     assert paused.outcome.details["code"] == "candidate_selection_required"
@@ -493,13 +494,14 @@ def test_candidate_conflict_pause_selects_saved_value_without_provider_replay(
             ResumeAction.ACCEPT_CANDIDATE,
             candidate_digest=chosen_digest,
         ),
+        options=direct,
     )
     assert isinstance(accepted.outcome, LLMCompleted)
     assert accepted.outcome.value == second_value
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 0
 
-    replayed = client.generate(request, run_root=tmp_path)
+    replayed = client.generate(request, run_root=tmp_path, options=direct)
     assert isinstance(replayed.outcome, LLMCompleted)
     assert replayed.outcome.value == second_value
     assert adapter.start_calls == 1
@@ -542,7 +544,8 @@ def test_text_candidate_artifact_maps_each_value_digest_for_resume(
         ModelSelection("codex"),
     )
 
-    paused = client.generate(request, run_root=tmp_path)
+    direct = LLMExecutionOptions(host_authority=HostAuthority.UNRESTRICTED)
+    paused = client.generate(request, run_root=tmp_path, options=direct)
 
     assert isinstance(paused.outcome, LLMPaused)
     assert paused.outcome.request_ref is not None
@@ -574,6 +577,7 @@ def test_text_candidate_artifact_maps_each_value_digest_for_resume(
             ResumeAction.ACCEPT_CANDIDATE,
             candidate_digest=selected_entry["digest"],
         ),
+        options=direct,
     )
 
     assert isinstance(accepted.outcome, LLMCompleted)
@@ -656,7 +660,6 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
         "Return one answer.",
         output,
         ModelSelection(),
-        capabilities=CapabilityPolicy(allowed_tools=("read", "search")),
     )
     semantic_mutants = (
         replace(base, task_id="other-task"),
@@ -664,16 +667,9 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
         replace(base, output=JsonOutput({"type": "array"})),
         replace(base, model=ModelSelection(tier="high")),
         replace(base, model=ModelSelection("codex")),
-        replace(base, capabilities=CapabilityPolicy(internet=True)),
-        replace(base, capabilities=CapabilityPolicy(allowed_tools=("read",))),
     )
     base_key = semantic_key(base)
     assert all(semantic_key(mutant) != base_key for mutant in semantic_mutants)
-    equivalent = replace(
-        base,
-        capabilities=CapabilityPolicy(allowed_tools=("search", "read", "read")),
-    )
-    assert semantic_key(equivalent) == base_key
     semantic = semantic_document(base)
     assert semantic["model_requirement"] == {
         "provider": "auto",
@@ -692,7 +688,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
     recipe = execution_document(
         provider="codex",
         model="gpt",
-        capabilities={"internet": False, "allowed_tools": ["read"]},
+        capabilities={"internet": False, "effective_host_mode": "brokered"},
         adapter_compatibility_version="codex-jsonl.v3",
         session_compatibility={"native": True},
     )
@@ -700,7 +696,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
     execution_mutants = (
         {**recipe, "provider": "claude"},
         {**recipe, "model": "other"},
-        {**recipe, "capabilities": {"internet": True, "allowed_tools": ["read"]}},
+        {**recipe, "capabilities": {"internet": True, "effective_host_mode": "brokered"}},
         {**recipe, "adapter_compatibility_version": "codex-jsonl.v2"},
         {**recipe, "session_compatibility": {"native": False}},
     )
@@ -711,7 +707,7 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
     reordered = {
         "session_compatibility": {"native": True},
         "adapter_compatibility_version": "codex-jsonl.v3",
-        "capabilities": {"allowed_tools": ["read"], "internet": False},
+        "capabilities": {"effective_host_mode": "brokered", "internet": False},
         "model": "gpt",
         "provider": "codex",
         "schema_version": recipe["schema_version"],

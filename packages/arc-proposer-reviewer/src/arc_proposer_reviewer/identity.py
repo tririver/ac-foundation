@@ -21,11 +21,6 @@ def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
             "model": worker.model.model,
             "tier": worker.model.tier,
         },
-        "capabilities": {
-            "internet": worker.capabilities.internet,
-            "inherit_host_config": worker.capabilities.inherit_host_config,
-            "allowed_tools": list(worker.capabilities.allowed_tools),
-        },
         "interaction_operations": {
             name: {
                 "arguments_schema": cast(

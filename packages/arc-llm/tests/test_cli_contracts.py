@@ -2,10 +2,40 @@ from __future__ import annotations
 
 import json
 
-from arc_jobs import RunRepository, RunSpec, RunStatus
+from arc_jobs import CommandResult, CommandStatus, RunRepository, RunSpec, RunStatus, command_result_json
 
-from arc_llm import ProviderRegistry
-from arc_llm.cli import main
+from arc_llm import LLMCompleted, ProviderRegistry
+from arc_llm.cli import _command_with_runtime_warnings, main
+
+
+def test_cli_places_runtime_warnings_in_the_command_warning_channel() -> None:
+    command = CommandResult(CommandStatus.COMPLETED, data={"kept": True})
+    result = _command_with_runtime_warnings(
+        command,
+        LLMCompleted(
+            {"answer": 1},
+            "codex",
+            "model",
+            None,
+            None,
+            (
+                {
+                    "code": "internet_best_effort",
+                    "message": "Internet access is best effort.",
+                },
+            ),
+        ),
+    )
+
+    document = json.loads(command_result_json(result))
+    assert document["data"] == {"kept": True}
+    assert document["warnings"] == [
+        {
+            "code": "internet_best_effort",
+            "message": "Internet access is best effort.",
+            "details": {},
+        }
+    ]
 
 
 def test_cli_unexpected_dispatch_error_is_one_failed_envelope(

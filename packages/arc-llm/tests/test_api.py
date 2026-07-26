@@ -25,6 +25,7 @@ from arc_jobs.lease import FileLease
 from arc_llm import (
     AdoptionAuthorization,
     ExecutionLimits,
+    HostAuthority,
     InteractiveJsonOutput,
     InvalidRequestError,
     InteractionProgress,
@@ -276,11 +277,10 @@ def test_content_rich_invalid_output_uses_formatter_without_worker_replacement(
     assert adapter.start_calls == 2
     formatter_request = adapter.requests[1]
     assert formatter_request.model == adapter.requests[0].model
-    assert formatter_request.capabilities == {
-        "internet": False,
-        "inherit_host_config": False,
-        "allowed_tools": [],
-    }
+    assert formatter_request.capabilities["internet"] is True
+    assert formatter_request.capabilities["effective_host_mode"] == "brokered"
+    assert "inherit_host_config" not in formatter_request.capabilities
+    assert "allowed_tools" not in formatter_request.capabilities
     records = []
     for path in tmp_path.rglob("*"):
         if not path.is_file() or path.name.endswith(".lock"):
@@ -1706,6 +1706,7 @@ def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(
     )
     service = LLMTaskService(registry=registry)
     request = _request("shared-task")
+    direct = LLMExecutionOptions(host_authority=HostAuthority.UNRESTRICTED)
     provider_entered = threading.Event()
     release_provider = threading.Event()
 
@@ -1733,7 +1734,7 @@ def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(
 
     def execute(label: str):
         worker_label.value = label
-        return service.execute(context, request)
+        return service.execute(context, request, options=direct)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         provider_call = pool.submit(execute, "provider")
@@ -1767,7 +1768,8 @@ def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
         execution_slice=None,
     )
     service = LLMTaskService(registry=registry)
-    root = service.execute(context, _request("root"))
+    direct = LLMExecutionOptions(host_authority=HostAuthority.UNRESTRICTED)
+    root = service.execute(context, _request("root"), options=direct)
     assert isinstance(root, LLMCompleted)
     assert root.session is not None
 
@@ -1813,7 +1815,7 @@ def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
 
     def execute_sibling(label: str, request: LLMRequest):
         worker_label.value = label
-        return service.execute(context, request)
+        return service.execute(context, request, options=direct)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(execute_sibling, "a", sibling_a)
@@ -2356,6 +2358,7 @@ def test_exhausted_safe_retries_pause_without_replacement_and_manual_resume(
     options = LLMExecutionOptions(
         limits=ExecutionLimits(safe_retry_limit=safe_retry_limit),
         gate=ProviderGateOptions(enabled=False),
+        host_authority=HostAuthority.UNRESTRICTED,
     )
 
     paused = client.generate(request, run_root=tmp_path, options=options)

@@ -15,7 +15,7 @@ from arc_proposer_reviewer.models import (
 )
 from arc_proposer_reviewer.protocol import decode_batch_request, encode_batch_request
 from arc_proposer_reviewer.validation import RequestValidationError
-from arc_llm import CapabilityPolicy, ModelSelection, OperationContract
+from arc_llm import ModelSelection, OperationContract
 
 
 SCHEMA = {
@@ -55,9 +55,6 @@ def request() -> BatchRequest:
                         instructions="Propose.",
                         output_schema=SCHEMA,
                         model=ModelSelection(provider="codex", model="gpt-test"),
-                        capabilities=CapabilityPolicy(
-                            internet=True, allowed_tools=("search",)
-                        ),
                     ),
                 ),
                 reviewer=WorkerSpec(
@@ -81,8 +78,6 @@ def test_batch_request_round_trips_without_losing_typed_llm_options() -> None:
     proposer = decoded.loops[0].proposers[0]
     assert proposer.model.provider == "codex"
     assert proposer.model.model == "gpt-test"
-    assert proposer.capabilities.internet is True
-    assert proposer.capabilities.allowed_tools == ("search",)
 
 
 def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
@@ -120,7 +115,6 @@ def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
         "instructions",
         "output_schema",
         "model",
-        "capabilities",
         "interaction_operations",
     }
     assert proposer_document["interaction_operations"] == {  # type: ignore[index]
@@ -144,7 +138,6 @@ def test_default_worker_protocol_uses_the_complete_current_shape() -> None:
         "instructions",
         "output_schema",
         "model",
-        "capabilities",
         "interaction_operations",
     }
     assert proposer_document["interaction_operations"] == {}

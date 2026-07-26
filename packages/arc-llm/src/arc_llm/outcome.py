@@ -19,6 +19,7 @@ class LLMCompleted:
     model: str | None
     session: SessionRef | None
     usage: ProviderUsage | None
+    warnings: tuple[Mapping[str, JsonValue], ...] = ()
 
 
 @dataclass(frozen=True)

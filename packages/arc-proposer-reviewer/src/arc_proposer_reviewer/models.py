@@ -7,7 +7,6 @@ from typing import Literal, Mapping
 
 from arc_jobs import JsonValue, RunError
 from arc_llm import (
-    CapabilityPolicy,
     ExecutionLimits,
     InteractionResolver,
     ModelSelection,
@@ -42,7 +41,6 @@ class WorkerSpec:
     instructions: str
     output_schema: Mapping[str, JsonValue]
     model: ModelSelection = field(default_factory=ModelSelection)
-    capabilities: CapabilityPolicy = field(default_factory=CapabilityPolicy)
     interaction_operations: Mapping[str, OperationContract] = field(
         default_factory=dict
     )

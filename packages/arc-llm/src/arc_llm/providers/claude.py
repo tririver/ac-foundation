@@ -62,6 +62,8 @@ class ClaudeAdapter:
             "--model",
             request.model,
         ]
+        if request.capabilities.get("effective_host_mode") == "direct":
+            argv.append("--dangerously-skip-permissions")
         if request.output_schema is not None:
             argv.extend(
                 [
@@ -79,6 +81,7 @@ class ClaudeAdapter:
             request.prompt,
             request.idle_timeout_seconds,
             request.workspace,
+            request.environment,
             observer,
             stop,
         )
@@ -99,6 +102,8 @@ class ClaudeAdapter:
             "--resume",
             handle.value,
         ]
+        if request.capabilities.get("effective_host_mode") == "direct":
+            argv.append("--dangerously-skip-permissions")
         if request.output_schema is not None:
             argv.extend(
                 [
@@ -116,6 +121,7 @@ class ClaudeAdapter:
             request.prompt,
             request.idle_timeout_seconds,
             request.workspace,
+            request.environment,
             observer,
             stop,
         )
@@ -126,6 +132,7 @@ class ClaudeAdapter:
         prompt: str,
         timeout: float,
         workspace: Path,
+        environment: Mapping[str, str] | None,
         observer: Any,
         stop: Any,
     ) -> ProviderExecution:
@@ -138,7 +145,7 @@ class ClaudeAdapter:
             timeout=timeout,
             parse_event=_parse_event,
             runner=self.runner,
-            env=self.env,
+            env=environment if environment is not None else self.env,
             cwd=workspace,
         )
 

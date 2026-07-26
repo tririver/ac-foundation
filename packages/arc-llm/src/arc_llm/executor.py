@@ -51,6 +51,17 @@ from .identity import (
     semantic_key,
 )
 from .gate import ProviderCallGate
+from .host import (
+    HostRequest,
+    HostResponse,
+    broker_execution_document,
+    decode_host_response,
+    decode_host_turn,
+    effective_host_mode,
+    encode_host_turn,
+    host_response_document,
+    host_turn_schema,
+)
 from .interaction import (
     decode_interactive_turn,
     encode_interactive_turn,
@@ -153,7 +164,7 @@ class LLMTaskExecutor:
             if state.semantic_key.sha256 != key.sha256:
                 return LLMFailed(IdempotencyConflictError())
             if state.accepted is not None:
-                return self._replay(context, request, state)
+                return self._replay(context, request, state, options)
             if state.pause is not None:
                 return self._paused_outcome(state.pause)
         session_key = (
@@ -196,12 +207,14 @@ class LLMTaskExecutor:
             if state.semantic_key.sha256 != key.sha256:
                 return LLMFailed(IdempotencyConflictError())
             if state.accepted is not None:
-                return self._replay(context, request, state)
+                return self._replay(context, request, state, options)
             if state.pause is not None:
                 return self._paused_outcome(state.pause)
             try:
                 durable_request = self._load_request(context, state)
-                self._validate_session_lineage(context, durable_request, state)
+                self._validate_session_lineage(
+                    context, durable_request, state, options
+                )
             except ArcLLMError as exc:
                 return LLMFailed(exc)
             if state.pending_interaction is not None:
@@ -239,6 +252,7 @@ class LLMTaskExecutor:
                 adapter,
                 resolved.model,
                 durable_request,
+                options,
             )
             execution = execution_fingerprint(execution_doc)
             request_ref = scoped.publish_json(
@@ -276,7 +290,7 @@ class LLMTaskExecutor:
                 ),
             )
             store.create(state)
-            self._prepare_effect(context, durable_request, state)
+            self._prepare_effect(context, durable_request, state, options=options)
             return self._drive(
                 context,
                 durable_request,
@@ -358,16 +372,20 @@ class LLMTaskExecutor:
             return LLMFailed(ResumeKeyMismatchError())
         try:
             request = self._load_request(context, state)
-            self._validate_session_lineage(context, request, state)
+            self._validate_session_lineage(context, request, state, options)
         except StoppedError:
             return LLMStopped()
         except ArcLLMError as exc:
             return LLMFailed(exc)
         if input is not None and input.action is ResumeAction.ACCEPT_CANDIDATE:
-            return self._accept_candidate(context, request, state, store, input)
+            return self._accept_candidate(
+                context, request, state, store, input, options
+            )
         if input is not None and input.action is ResumeAction.REPLACE:
             adapter = self.registry.create(state.resolved_provider or "")
-            execution_doc = self._execution_document(adapter, state.resolved_model or "", request)
+            execution_doc = self._execution_document(
+                adapter, state.resolved_model or "", request, options
+            )
             state = replace_current(
                 state,
                 execution=execution_fingerprint(execution_doc),
@@ -385,7 +403,7 @@ class LLMTaskExecutor:
                 state.current_generation,
                 options,
             )
-            self._prepare_effect(context, request, state)
+            self._prepare_effect(context, request, state, options=options)
             return self._drive(context, request, state, store, options)
         if state.pending_interaction is not None:
             if input is None or input.action is not ResumeAction.CONTINUE:
@@ -404,6 +422,7 @@ class LLMTaskExecutor:
         source: ArtifactSourceRef,
         *,
         authorization: AdoptionAuthorization | None,
+        options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
         key = semantic_key(request)
         store = self._task_store(context, request.task_id)
@@ -412,7 +431,7 @@ class LLMTaskExecutor:
             if existing.semantic_key.sha256 != key.sha256:
                 return LLMFailed(IdempotencyConflictError())
             if existing.accepted is not None:
-                return self._replay(context, request, existing)
+                return self._replay(context, request, existing, options)
             return LLMFailed(
                 AdoptionConflictError("Adoption requires a task with no provider generation.")
             )
@@ -460,7 +479,9 @@ class LLMTaskExecutor:
                 ),
             )
             store.create(state)
-            return LLMCompleted(value, None, None, None, None)
+            return LLMCompleted(
+                value, None, None, None, None, self._runtime_warnings(options)
+            )
         except ArcLLMError as exc:
             return LLMFailed(exc)
         except Exception as exc:
@@ -481,10 +502,10 @@ class LLMTaskExecutor:
                     raise InvalidRequestError("LLM task state disappeared.")
                 state = current
                 if state.accepted is not None:
-                    return self._replay(context, request, state)
+                    return self._replay(context, request, state, options)
                 adapter = self.registry.create(state.resolved_provider or "")
                 execution_doc = self._execution_document(
-                    adapter, state.resolved_model or "", request
+                    adapter, state.resolved_model or "", request, options
                 )
                 execution = execution_fingerprint(execution_doc)
                 effect = context.effects.read(state.current.effect_id)
@@ -497,6 +518,7 @@ class LLMTaskExecutor:
                         context,
                         request,
                         state,
+                        options=options,
                         prompt=continuation_prompt,
                     )
                     effect = context.effects.read(state.current.effect_id)
@@ -513,6 +535,7 @@ class LLMTaskExecutor:
                             context,
                             request,
                             state,
+                            options=options,
                             prompt=continuation_prompt,
                         )
                 action = decide_recovery(
@@ -525,7 +548,7 @@ class LLMTaskExecutor:
                     automatic_replacement_limit=options.limits.automatic_replacement_limit,
                 )
                 if action is RecoveryAction.REPLAY_ACCEPTED:
-                    return self._replay(context, request, state)
+                    return self._replay(context, request, state, options)
                 if action is RecoveryAction.RECOVER_SAVED_OUTPUT:
                     return self._recover_saved(context, request, state, store, effect.output_ref, options)
                 if action is RecoveryAction.PAUSE_UNCERTAIN:
@@ -553,7 +576,7 @@ class LLMTaskExecutor:
                         execution_doc,
                     )
                     self._publish_policy(scoped, state.current_generation, options)
-                    self._prepare_effect(context, request, state)
+                    self._prepare_effect(context, request, state, options=options)
                     continue
                 diagnostic = adapter.doctor()
                 if not diagnostic.available:
@@ -644,7 +667,7 @@ class LLMTaskExecutor:
         self, context: Any, request: LLMRequest, state: LLMTaskState, store: Any, adapter: Any, options: LLMExecutionOptions
     ) -> ProviderExecution:
         observer = self._observer(context, state, store)
-        workspace = self._prepare_workspace(context, request, state)
+        workspace = self._prepare_workspace(context, request, state, options=options)
         gate = self._provider_gate(context, options)
         with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
             try:
@@ -652,10 +675,11 @@ class LLMTaskExecutor:
                     ProviderRequest(
                         self._workspace_prompt(),
                         state.resolved_model or "",
-                        provider_schema(request.output),
-                        self._capability_document(request),
+                        self._provider_output_schema(request, options),
+                        self._capability_document(options),
                         options.limits.idle_timeout_seconds,
                         workspace,
+                        options.runtime_environment.apply_to(),
                     ),
                     observer,
                     context.stop,
@@ -687,6 +711,7 @@ class LLMTaskExecutor:
             context,
             request,
             state,
+            options=options,
             continuation_prompt=prompt,
         )
         if count_recovery:
@@ -701,10 +726,11 @@ class LLMTaskExecutor:
                     NativeResumeHandle(adapter.name, handle),
                     ProviderResumeRequest(
                         self._workspace_prompt(),
-                        provider_schema(request.output),
-                        self._capability_document(request),
+                        self._provider_output_schema(request, options),
+                        self._capability_document(options),
                         options.limits.idle_timeout_seconds,
                         workspace,
+                        options.runtime_environment.apply_to(),
                     ),
                     observer,
                     context.stop,
@@ -809,12 +835,15 @@ class LLMTaskExecutor:
     ) -> LLMTaskOutcome | None:
         current = store.read() or state
         try:
-            value = select_output(execution.candidates, request.output)
+            value = select_output(
+                execution.candidates,
+                self._provider_output_contract(request, options),
+            )
         except CandidateConflictError as exc:
             assert not isinstance(request.output, TextOutput)
             candidates = enumerate_valid_candidates(
                 execution.candidates,
-                request.output,
+                self._provider_output_contract(request, options),
             )
             candidate_digests = [item.digest for item in candidates]
             assert tuple(candidate_digests) == exc.candidate_digests
@@ -825,7 +854,9 @@ class LLMTaskExecutor:
                     "candidates": [
                         {
                             "digest": item.digest,
-                            "value": item.value,
+                            "value": self._candidate_display_value(
+                                item.value, request, options
+                            ),
                             "terminal": item.terminal,
                         }
                         for item in candidates
@@ -859,6 +890,7 @@ class LLMTaskExecutor:
                             store,
                             formatted.value,
                             execution,
+                            options,
                         )
                     # The formatter found that required content is absent. This
                     # is a substantive output failure, so the ordinary
@@ -882,7 +914,7 @@ class LLMTaskExecutor:
             if replacements < options.limits.automatic_replacement_limit:
                 adapter = self.registry.create(current.resolved_provider or "")
                 execution_doc = self._execution_document(
-                    adapter, current.resolved_model or "", request
+                    adapter, current.resolved_model or "", request, options
                 )
                 next_state = replace_current(
                     store.read() or current,
@@ -891,7 +923,7 @@ class LLMTaskExecutor:
                     possible_duplicate=False,
                 )
                 store.compare_and_swap(next_state.revision - 1, next_state)
-                self._prepare_effect(context, request, next_state)
+                self._prepare_effect(context, request, next_state, options=options)
                 return None
             return self._pause(
                 store,
@@ -901,7 +933,17 @@ class LLMTaskExecutor:
                 input_required=True,
                 request_ref=self._supervision_artifact(context, current, "output_invalid"),
             )
-        if isinstance(request.output, InteractiveJsonOutput):
+        if self._uses_host_turn(request, options):
+            turn = decode_host_turn(
+                value,
+                seen_request_ids=set(current.seen_request_ids),
+            )
+            if turn.state == "request_host":
+                return self._handle_host_turn(
+                    context, request, current, store, turn, execution, options
+                )
+            value = turn.result
+        elif isinstance(request.output, InteractiveJsonOutput):
             turn = decode_interactive_turn(
                 value,
                 request.output,
@@ -913,7 +955,7 @@ class LLMTaskExecutor:
                 )
             value = turn.result
         return self._accept(
-            context, request, store.read() or current, store, value, execution
+            context, request, store.read() or current, store, value, execution, options
         )
 
     def _format_invalid_output(
@@ -1244,6 +1286,10 @@ class LLMTaskExecutor:
         store: Any,
         options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
+        if self._uses_host_turn(request, options):
+            return self._resolve_pending_host_turn(
+                context, request, state, store, options
+            )
         assert isinstance(request.output, InteractiveJsonOutput)
         assert state.pending_interaction is not None
         resolver = options.interaction_resolver
@@ -1365,9 +1411,214 @@ class LLMTaskExecutor:
         input: ResumeInput,
         options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
+        if self._uses_host_turn(request, options):
+            return self._resume_host_turn(context, request, state, store, input, options)
         state = replace(state, revision=state.revision + 1, pause=None)
         store.compare_and_swap(state.revision - 1, state)
         return self._continue_interaction(context, request, state, store, input, options)
+
+    def _handle_host_turn(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        turn: Any,
+        execution: ProviderExecution,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        del execution
+        assert turn.request is not None
+        scoped = self._artifacts(context, state.semantic_key)
+        next_round = state.interaction_round + 1
+        turn_ref = scoped.publish_json(
+            f"interactions/{next_round}/request.json",
+            encode_host_turn(turn),
+        )
+        current = store.read() or state
+        context.effects.commit(current.current.effect_id)
+        generation = replace(
+            current.current,
+            effect_id=effect_id_for(
+                current.task_id,
+                current.current_generation,
+                next_round,
+            ),
+        )
+        next_state = replace(
+            current,
+            revision=current.revision + 1,
+            generations=current.generations[:-1] + (generation,),
+            interaction_round=next_round,
+            pending_interaction=turn_ref,
+            seen_request_ids=current.seen_request_ids + (turn.request.request_id,),
+        )
+        store.compare_and_swap(next_state.revision - 1, next_state)
+        if options.host_broker is None:
+            return self._pause(
+                store,
+                next_state,
+                ResumeReason.INTERACTION_REQUIRED,
+                "host_broker_required",
+                input_required=True,
+                request_ref=turn_ref,
+            )
+        return self._resolve_pending_host_turn(
+            context, request, next_state, store, options
+        )
+
+    def _resolve_pending_host_turn(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        assert state.pending_interaction is not None
+        if options.host_broker is None:
+            return self._pause(
+                store,
+                state,
+                ResumeReason.INTERACTION_REQUIRED,
+                "host_broker_required",
+                input_required=True,
+                request_ref=state.pending_interaction,
+        )
+        raw = context.artifacts.read_bytes(state.pending_interaction)
+        turn = decode_host_turn(json.loads(raw.decode("utf-8")))
+        assert turn.request is not None
+        workspace = self._prepare_workspace(context, request, state, options=options)
+        response = options.host_broker.execute(turn.request, workspace=workspace)
+        if not isinstance(response, HostResponse):
+            raise InvalidRequestError("host broker must return a HostResponse.")
+        self._validate_host_files(workspace, response)
+        return self._continue_host_turn(
+            context, request, state, store, turn.request, response, options
+        )
+
+    @staticmethod
+    def _validate_host_files(workspace: Path, response: HostResponse) -> None:
+        for relative in response.files:
+            path = workspace / relative
+            if not path.is_file():
+                raise InvalidRequestError(
+                    f"host broker did not deliver declared workspace file: {relative}"
+                )
+
+    def _resume_host_turn(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        input: ResumeInput,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        assert state.pending_interaction is not None
+        raw = context.artifacts.read_bytes(state.pending_interaction)
+        turn = decode_host_turn(json.loads(raw.decode("utf-8")))
+        assert turn.request is not None
+        if len(input.responses) != 1 or input.responses[0].request_id != turn.request.request_id:
+            return LLMFailed(
+                InvalidRequestError("Host-turn resume requires one matching host response.")
+            )
+        supplied = input.responses[0]
+        if supplied.error is not None:
+            return LLMFailed(
+                InvalidRequestError("Host-turn responses must use a host response document.")
+            )
+        try:
+            response = decode_host_response(supplied.result)
+        except InvalidRequestError as exc:
+            return LLMFailed(exc)
+        workspace = self._prepare_workspace(context, request, state, options=options)
+        try:
+            self._validate_host_files(workspace, response)
+        except InvalidRequestError as exc:
+            return LLMFailed(exc)
+        state = replace(state, revision=state.revision + 1, pause=None)
+        store.compare_and_swap(state.revision - 1, state)
+        return self._continue_host_turn(
+            context, request, state, store, turn.request, response, options
+        )
+
+    def _continue_host_turn(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        host_request: HostRequest,
+        host_response: HostResponse,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        response = InteractionResponse(
+            host_request.request_id,
+            result=host_response_document(host_response),
+        )
+        scoped = self._artifacts(context, state.semantic_key)
+        document = response_document((response,))
+        scoped.publish_json(
+            f"interactions/{state.interaction_round}/response.json",
+            document,
+        )
+        next_state = replace(
+            state,
+            revision=state.revision + 1,
+            pending_interaction=None,
+            pause=None,
+        )
+        store.compare_and_swap(state.revision, next_state)
+        adapter = self.registry.create(next_state.resolved_provider or "")
+        prompt = canonical_json_bytes(document).decode("utf-8")
+        self._prepare_effect(
+            context, request, next_state, options=options, prompt=prompt
+        )
+        try:
+            execution = self._call_resume(
+                context,
+                request,
+                next_state,
+                store,
+                adapter,
+                options,
+                prompt=prompt,
+                count_recovery=False,
+            )
+        except ProviderFailure as exc:
+            outcome = self._provider_failure(
+                context, request, store.read() or next_state, store, exc, options
+            )
+            return outcome or self._drive(
+                context, request, store.read() or next_state, store, options
+            )
+        if execution.terminal_kind is ProviderTerminalKind.FAILED:
+            assert execution.failure is not None
+            outcome = self._provider_failure(
+                context,
+                request,
+                store.read() or next_state,
+                store,
+                execution.failure,
+                options,
+            )
+            return outcome or self._drive(
+                context, request, store.read() or next_state, store, options
+            )
+        if execution.terminal_kind is ProviderTerminalKind.STOPPED:
+            return LLMStopped()
+        outcome = self._consume_execution(
+            context,
+            request,
+            store.read() or next_state,
+            store,
+            execution,
+            options,
+        )
+        return outcome or self._drive(
+            context, request, store.read() or next_state, store, options
+        )
 
     def _continue_interaction(
         self,
@@ -1402,7 +1653,9 @@ class LLMTaskExecutor:
         store.compare_and_swap(state.revision, next_state)
         adapter = self.registry.create(next_state.resolved_provider or "")
         prompt = canonical_json_bytes(response_document(responses)).decode("utf-8")
-        self._prepare_effect(context, request, next_state, prompt=prompt)
+        self._prepare_effect(
+            context, request, next_state, options=options, prompt=prompt
+        )
         try:
             execution = self._call_resume(
                 context,
@@ -1538,7 +1791,7 @@ class LLMTaskExecutor:
             return state
         adapter = self.registry.create(state.resolved_provider or "")
         execution_doc = self._execution_document(
-            adapter, state.resolved_model or "", request
+            adapter, state.resolved_model or "", request, options
         )
         next_state = replace_current(
             state,
@@ -1558,7 +1811,7 @@ class LLMTaskExecutor:
             f"execution/{next_state.current_generation}/recipe.json", execution_doc
         )
         self._publish_policy(scoped, next_state.current_generation, options)
-        self._prepare_effect(context, request, next_state)
+        self._prepare_effect(context, request, next_state, options=options)
         return next_state
 
     def _accept(
@@ -1569,6 +1822,7 @@ class LLMTaskExecutor:
         store: Any,
         value: Any,
         execution: ProviderExecution,
+        options: LLMExecutionOptions,
     ) -> LLMCompleted:
         validate_value(value, request.output if not isinstance(request.output, InteractiveJsonOutput) else _result_contract(request.output))
         scoped = self._artifacts(context, state.semantic_key)
@@ -1608,6 +1862,7 @@ class LLMTaskExecutor:
             next_state.resolved_model,
             session,
             execution.usage,
+            self._runtime_warnings(options),
         )
 
     def _accept_candidate(
@@ -1617,6 +1872,7 @@ class LLMTaskExecutor:
         state: LLMTaskState,
         store: Any,
         input: ResumeInput,
+        options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
         assert input.candidate_digest is not None
         raw_ref = state.current.raw_response
@@ -1628,17 +1884,61 @@ class LLMTaskExecutor:
         try:
             value = select_output(
                 execution.candidates,
-                request.output,
+                self._provider_output_contract(request, options),
                 selected_digest=input.candidate_digest,
             )
         except ArcLLMError as exc:
             return LLMFailed(exc)
+        if self._uses_host_turn(request, options):
+            try:
+                turn = decode_host_turn(
+                    value,
+                    seen_request_ids=set(state.seen_request_ids),
+                )
+            except ArcLLMError as exc:
+                return LLMFailed(exc)
+            if turn.state == "request_host":
+                return self._handle_host_turn(
+                    context, request, state, store, turn, execution, options
+                )
+            value = turn.result
         state = replace(state, revision=state.revision + 1, pause=None)
         store.compare_and_swap(state.revision - 1, state)
-        return self._accept(context, request, state, store, value, execution)
+        return self._accept(context, request, state, store, value, execution, options)
+
+    @staticmethod
+    def _candidate_display_value(
+        value: Any,
+        request: LLMRequest,
+        options: LLMExecutionOptions,
+    ) -> Any:
+        if not LLMTaskExecutor._uses_host_turn(request, options):
+            return value
+        turn = decode_host_turn(value)
+        return turn.result if turn.state == "complete" else value
+
+    @staticmethod
+    def _runtime_warnings(
+        options: LLMExecutionOptions,
+    ) -> tuple[Mapping[str, Any], ...]:
+        if not options.internet:
+            return ()
+        return (
+            {
+                "code": "internet_best_effort",
+                "message": (
+                    "Internet availability is provider/host best effort and cannot "
+                    "be guaranteed by ARC."
+                ),
+            },
+        )
 
     def _replay(
-        self, context: Any, request: LLMRequest, state: LLMTaskState
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
         assert state.accepted is not None
         try:
@@ -1666,6 +1966,7 @@ class LLMTaskExecutor:
                 state.accepted.model,
                 session,
                 None,
+                self._runtime_warnings(options),
             )
         except StoppedError:
             return LLMStopped()
@@ -1719,18 +2020,19 @@ class LLMTaskExecutor:
         request: LLMRequest,
         state: LLMTaskState,
         *,
+        options: LLMExecutionOptions,
         prompt: str | None = None,
     ) -> None:
         exact_request = {
             "provider": state.resolved_provider,
             "model": state.resolved_model,
             "prompt": (
-                self._initial_provider_prompt(request)
+                self._initial_provider_prompt(request, options)
                 if prompt is None
                 else prompt
             ),
-            "output_schema": provider_schema(request.output),
-            "capabilities": self._capability_document(request),
+            "output_schema": self._provider_output_schema(request, options),
+            "runtime": self._capability_document(options),
             "inputs": input_identity_document(request),
             "generation": state.current_generation,
         }
@@ -1740,8 +2042,21 @@ class LLMTaskExecutor:
             details={"task_id": request.task_id, "generation": state.current_generation},
         )
 
-    @staticmethod
-    def _initial_provider_prompt(request: LLMRequest) -> str:
+    def _initial_provider_prompt(
+        self, request: LLMRequest, options: LLMExecutionOptions
+    ) -> str:
+        if self._uses_host_turn(request, options):
+            internet = (
+                "Internet access is requested on a best-effort basis; ask the host "
+                "when it is needed. "
+                if options.internet
+                else "Internet access is not requested for this task. "
+            )
+            return (
+                f"{request.prompt}\n\nUse the arc.llm.host_turn.v1 envelope. "
+                f"{internet}Request the host only when needed. After a refused request, do not "
+                "repeat the same request until its retry_condition has changed."
+            )
         if not isinstance(request.output, InteractiveJsonOutput):
             return request.prompt
         return f"{request.prompt}\n\n{_INTERACTIVE_PROGRESS_GUIDANCE}"
@@ -1811,13 +2126,19 @@ class LLMTaskExecutor:
                 "Interactive continuation response artifact is corrupt."
             ) from exc
 
-    def _execution_document(self, adapter: Any, model: str, request: LLMRequest) -> dict[str, Any]:
+    def _execution_document(
+        self,
+        adapter: Any,
+        model: str,
+        request: LLMRequest,
+        options: LLMExecutionOptions,
+    ) -> dict[str, Any]:
         capabilities = adapter.capabilities()
         return execution_document(
             provider=adapter.name,
             model=model,
             capabilities={
-                "requested": self._capability_document(request),
+                "runtime": self._capability_document(options),
                 "structured_output": capabilities.structured_output.value,
                 "config_isolation": capabilities.config_isolation.value,
                 "tool_isolation": capabilities.tool_isolation.value,
@@ -1828,12 +2149,70 @@ class LLMTaskExecutor:
         )
 
     @staticmethod
-    def _capability_document(request: LLMRequest) -> dict[str, Any]:
+    def _capability_document(options: LLMExecutionOptions) -> dict[str, Any]:
+        mode = effective_host_mode(options.host_authority)
         return {
-            "internet": request.capabilities.internet,
-            "inherit_host_config": request.capabilities.inherit_host_config,
-            "allowed_tools": list(request.capabilities.allowed_tools),
+            "internet": options.internet,
+            "host_authority": options.host_authority.value,
+            "effective_host_mode": mode.value,
+            "arc_environment": options.runtime_environment.execution_document(),
+            "host_broker": broker_execution_document(options.host_broker),
         }
+
+    @staticmethod
+    def _uses_host_turn(
+        request: LLMRequest,
+        options: LLMExecutionOptions,
+    ) -> bool:
+        return (
+            isinstance(request.output, (TextOutput, JsonOutput))
+            and effective_host_mode(options.host_authority).value == "brokered"
+        )
+
+    def _provider_output_contract(
+        self,
+        request: LLMRequest,
+        options: LLMExecutionOptions,
+    ) -> Any:
+        if not self._uses_host_turn(request, options):
+            return request.output
+        result_schema = (
+            {"type": "string"}
+            if isinstance(request.output, TextOutput)
+            else dict(request.output.schema)
+        )
+        return JsonOutput(host_turn_schema(result_schema), repair="strict")
+
+    def _provider_output_schema(
+        self,
+        request: LLMRequest,
+        options: LLMExecutionOptions,
+    ) -> Mapping[str, Any] | None:
+        return provider_schema(self._provider_output_contract(request, options))
+
+    def _provider_instructions(
+        self,
+        request: LLMRequest,
+        options: LLMExecutionOptions,
+    ) -> str | None:
+        if self._uses_host_turn(request, options):
+            internet = (
+                "Internet access is requested on a best-effort basis; ask the host "
+                "when it is needed. "
+                if options.internet
+                else "Internet access is not requested for this task. "
+            )
+            return (
+                "Use arc.llm.host_turn.v1. Request the host only when needed. "
+                f"{internet}"
+                "After a refused host request, do not repeat the same request until "
+                "its retry_condition has changed."
+            )
+        return (
+            _INTERACTIVE_PROGRESS_GUIDANCE
+            if isinstance(request.output, InteractiveJsonOutput)
+            else None
+        )
 
     def _resolve_model(self, request: LLMRequest) -> Any:
         return resolve_model_selection(request.model, available=self.registry.names())
@@ -1909,6 +2288,7 @@ class LLMTaskExecutor:
         request: LLMRequest,
         state: LLMTaskState,
         *,
+        options: LLMExecutionOptions,
         continuation_prompt: str | None = None,
     ) -> Path:
         """Publish one self-contained, relative-path-only provider workspace."""
@@ -1985,16 +2365,14 @@ class LLMTaskExecutor:
             "schema_version": "arc.llm.workspace_control.v1",
             "task_id": request.task_id,
             "prompt": request.prompt,
-            "output_contract": encode_output_contract(request.output),
-            "capabilities": self._capability_document(request),
+            "output_contract": encode_output_contract(
+                self._provider_output_contract(request, options)
+            ),
+            "runtime": self._capability_document(options),
             "inputs": input_documents,
             "work_directory": "work",
             "continuation_response": continuation_path,
-            "provider_instructions": (
-                _INTERACTIVE_PROGRESS_GUIDANCE
-                if isinstance(request.output, InteractiveJsonOutput)
-                else None
-            ),
+            "provider_instructions": self._provider_instructions(request, options),
         }
         self._publish_workspace_file(
             host_root / "control.json",
@@ -2075,6 +2453,7 @@ class LLMTaskExecutor:
         context: Any,
         request: LLMRequest,
         state: LLMTaskState,
+        options: LLMExecutionOptions,
     ) -> None:
         if request.session is None:
             return
@@ -2084,6 +2463,7 @@ class LLMTaskExecutor:
                 adapter,
                 state.resolved_model or "",
                 request,
+                options,
             )
         )
         session = self._session_store(

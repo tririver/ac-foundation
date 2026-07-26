@@ -12,6 +12,7 @@ from arc_jobs import (
     ArcJobsError,
     CommandError,
     CommandResult,
+    CommandWarning,
     CommandRun,
     CommandStatus,
     EventWriter,
@@ -27,7 +28,7 @@ from arc_jobs import (
 from .api import LLMClient
 from .config import resolve_model_selection
 from .errors import ArcLLMError, ErrorCode
-from .outcome import LLMFailed
+from .outcome import LLMCompleted, LLMFailed
 from .providers import ProviderRegistry, default_registry
 from .request import ModelSelection, decode_request, decode_resume_input
 
@@ -146,7 +147,9 @@ def _dispatch(
                     result.outcome.error.details,
                 ),
             )
-        return command_result_from_snapshot(result.snapshot)
+        return _command_with_runtime_warnings(
+            command_result_from_snapshot(result.snapshot), result.outcome
+        )
     if args.command == "resume":
         resume_input = (
             None
@@ -168,7 +171,9 @@ def _dispatch(
                     result.outcome.error.details,
                 ),
             )
-        return command_result_from_snapshot(result.snapshot)
+        return _command_with_runtime_warnings(
+            command_result_from_snapshot(result.snapshot), result.outcome
+        )
     if args.command == "status":
         view = client.inspect(run_root=args.run_root, run_id=args.run_id)
         return command_result_from_snapshot(view.run.snapshot, query=True)
@@ -200,6 +205,35 @@ def _dispatch(
             "executable": diagnostic.executable,
             "details": dict(diagnostic.details),
         },
+    )
+
+
+def _command_with_runtime_warnings(
+    command: CommandResult,
+    outcome: object,
+) -> CommandResult:
+    if not isinstance(outcome, LLMCompleted) or not outcome.warnings:
+        return command
+    warnings = tuple(
+        CommandWarning(
+            warning["code"],
+            warning["message"],
+            {
+                key: value
+                for key, value in warning.items()
+                if key not in {"code", "message"}
+            },
+        )
+        for warning in outcome.warnings
+    )
+    return CommandResult(
+        command.status,
+        command.run,
+        data=command.data,
+        artifacts=command.artifacts,
+        warnings=command.warnings + warnings,
+        error=command.error,
+        resume=command.resume,
     )
 
 

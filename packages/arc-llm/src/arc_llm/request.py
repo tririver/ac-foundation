@@ -77,29 +77,6 @@ class ModelSelection:
 
 
 @dataclass(frozen=True)
-class CapabilityPolicy:
-    internet: bool = False
-    inherit_host_config: bool = False
-    allowed_tools: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.internet, bool) or not isinstance(self.inherit_host_config, bool):
-            raise InvalidRequestError("Capability booleans must be JSON booleans.")
-        if isinstance(self.allowed_tools, (str, bytes)):
-            raise InvalidRequestError("allowed_tools must be a sequence of tool names.")
-        try:
-            values = tuple(self.allowed_tools)
-        except TypeError as exc:
-            raise InvalidRequestError(
-                "allowed_tools must be a sequence of tool names."
-            ) from exc
-        if any(not isinstance(item, str) or not item for item in values):
-            raise InvalidRequestError("allowed_tools entries must be non-empty strings.")
-        normalized = tuple(sorted(set(values)))
-        object.__setattr__(self, "allowed_tools", normalized)
-
-
-@dataclass(frozen=True)
 class ExecutionLimits:
     idle_timeout_seconds: float = 1800.0
     safe_retry_limit: int = 1
@@ -225,6 +202,28 @@ class LLMExecutionOptions:
     interaction_resolver: InteractionResolver | None = None
     gate: ProviderGateOptions = field(default_factory=ProviderGateOptions)
     interaction_observer: Callable[[InteractionProgress], None] | None = None
+    internet: bool = True
+    host_authority: Any = None
+    runtime_environment: Any = None
+    host_broker: Any = None
+
+    def __post_init__(self) -> None:
+        from .host import ArcRuntimeEnvironment, HostAuthority
+
+        if not isinstance(self.internet, bool):
+            raise InvalidRequestError("internet must be a boolean.")
+        authority = HostAuthority.UNKNOWN if self.host_authority is None else self.host_authority
+        if not isinstance(authority, HostAuthority):
+            raise InvalidRequestError("host_authority must be a HostAuthority.")
+        environment = (
+            ArcRuntimeEnvironment.capture()
+            if self.runtime_environment is None
+            else self.runtime_environment
+        )
+        if not isinstance(environment, ArcRuntimeEnvironment):
+            raise InvalidRequestError("runtime_environment must be ArcRuntimeEnvironment.")
+        object.__setattr__(self, "host_authority", authority)
+        object.__setattr__(self, "runtime_environment", environment)
 
 
 @dataclass(frozen=True)
@@ -346,7 +345,6 @@ class LLMRequest:
     output: OutputContract
     model: ModelSelection = field(default_factory=ModelSelection)
     session: SessionRef | None = None
-    capabilities: CapabilityPolicy = field(default_factory=CapabilityPolicy)
     inputs: tuple[LLMInputArtifact, ...] = ()
 
     def __post_init__(self) -> None:
@@ -478,11 +476,6 @@ def request_to_document(request: LLMRequest) -> dict[str, Any]:
                 "accepted_prefix_sha256": request.session.accepted_prefix_sha256,
             }
         ),
-        "capabilities": {
-            "internet": request.capabilities.internet,
-            "inherit_host_config": request.capabilities.inherit_host_config,
-            "allowed_tools": list(request.capabilities.allowed_tools),
-        },
         "inputs": [
             {
                 "input_id": item.input_id,
@@ -510,7 +503,6 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
             "output",
             "model",
             "session",
-            "capabilities",
             "inputs",
         },
         "request",
@@ -560,14 +552,6 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
             session_obj["session_key"],
             session_obj["accepted_prefix_sha256"],
         )
-    capabilities_doc = _object(document["capabilities"], "capabilities")
-    _require_exact(
-        capabilities_doc,
-        {"internet", "inherit_host_config", "allowed_tools"},
-        "capabilities",
-    )
-    if not isinstance(capabilities_doc["allowed_tools"], list):
-        raise InvalidRequestError("capabilities.allowed_tools must be an array.")
     inputs_doc = document["inputs"]
     if not isinstance(inputs_doc, list):
         raise InvalidRequestError("inputs must be an array.")
@@ -608,11 +592,6 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
         output=output,
         model=model,
         session=session,
-        capabilities=CapabilityPolicy(
-            capabilities_doc["internet"],
-            capabilities_doc["inherit_host_config"],
-            tuple(capabilities_doc["allowed_tools"]),
-        ),
         inputs=tuple(inputs),
     )
 

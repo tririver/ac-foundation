@@ -412,7 +412,6 @@ class ProposerReviewerService:
                     output=_worker_output(worker, worker.output_schema),
                     model=worker.model,
                     session=state.proposer_sessions.get(worker.worker_id),
-                    capabilities=worker.capabilities,
                 )
                 pause_key = _pause_key("proposer", worker.worker_id)
                 outcome = self._observed_worker_call(
@@ -579,7 +578,6 @@ class ProposerReviewerService:
                 ),
                 model=loop.reviewer.model,
                 session=state.reviewer_session,
-                capabilities=loop.reviewer.capabilities,
             )
             reviewer_pause_key = _pause_key("reviewer", loop.reviewer.worker_id)
             latest_state = store.read()

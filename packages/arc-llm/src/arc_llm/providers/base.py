@@ -81,6 +81,7 @@ class ProviderRequest:
     capabilities: Mapping[str, Any]
     idle_timeout_seconds: float
     workspace: Path
+    environment: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,7 @@ class ProviderResumeRequest:
     capabilities: Mapping[str, Any]
     idle_timeout_seconds: float
     workspace: Path
+    environment: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)

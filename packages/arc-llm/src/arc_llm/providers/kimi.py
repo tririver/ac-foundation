@@ -77,10 +77,13 @@ class KimiAdapter:
         ]
         if request.model:
             argv.extend(["--model", request.model])
+        if request.capabilities.get("effective_host_mode") == "direct":
+            argv.append("--auto")
         return self._run(
             argv,
             request.idle_timeout_seconds,
             request.workspace,
+            request.environment,
             observer,
             stop,
         )
@@ -93,8 +96,6 @@ class KimiAdapter:
         stop: Any,
     ) -> ProviderExecution:
         # ``-S`` is intentionally limited to an existing clean CLI session.
-        # ARC does not enable Kimi's direct-mode permission plumbing here, so
-        # this command deliberately omits ``--auto``.
         argv = [
             self.binary,
             "-S",
@@ -105,10 +106,13 @@ class KimiAdapter:
             "stream-json",
             "--final-message-only",
         ]
+        if request.capabilities.get("effective_host_mode") == "direct":
+            argv.append("--auto")
         return self._run(
             argv,
             request.idle_timeout_seconds,
             request.workspace,
+            request.environment,
             observer,
             stop,
         )
@@ -118,6 +122,7 @@ class KimiAdapter:
         argv: list[str],
         timeout: float,
         workspace: Path,
+        environment: Mapping[str, str] | None,
         observer: Any,
         stop: Any,
     ) -> ProviderExecution:
@@ -132,7 +137,7 @@ class KimiAdapter:
             timeout=timeout,
             parse_event=_parse_event,
             runner=self.runner,
-            env=self.env,
+            env=environment if environment is not None else self.env,
             cwd=workspace,
         )
 

@@ -53,11 +53,6 @@ def semantic_document(request: LLMRequest) -> dict[str, Any]:
         "request": {"prompt": request.prompt},
         "output_contract": encode_output_contract(request.output),
         "model_requirement": model,
-        "capability_requirements": {
-            "internet": request.capabilities.internet,
-            "inherit_host_config": request.capabilities.inherit_host_config,
-            "allowed_tools": list(request.capabilities.allowed_tools),
-        },
         "session_accepted_prefix_sha256": (
             None if request.session is None else request.session.accepted_prefix_sha256
         ),

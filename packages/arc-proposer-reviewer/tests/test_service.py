@@ -16,7 +16,6 @@ from arc_jobs import (
     RunStatus,
 )
 from arc_llm import (
-    CapabilityPolicy,
     InteractiveJsonOutput,
     InteractionProgress,
     InteractionRequest,
@@ -826,7 +825,6 @@ def test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage(
         "Produce proposal one.",
         PROPOSAL_SCHEMA,
         ModelSelection(provider="codex", model="model-one"),
-        CapabilityPolicy(internet=True, allowed_tools=("search",)),
     )
     second = WorkerSpec(
         "p-two",
@@ -848,10 +846,6 @@ def test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage(
     assert len(proposer_requests) == 4
     first_round = proposer_requests[:2]
     assert {item.model for item in first_round} == {first.model, second.model}
-    assert {item.capabilities for item in first_round} == {
-        first.capabilities,
-        second.capabilities,
-    }
     assert all(
         isinstance(item.output, JsonOutput)
         and item.output.schema == PROPOSAL_SCHEMA

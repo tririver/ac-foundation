@@ -231,6 +231,46 @@ def test_kimi_print_mode_uses_prompt_stream_json_and_clean_session_resume(
     assert "--auto" not in resume
 
 
+def test_direct_authority_enables_only_documented_provider_permission_flags(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runtime = {"effective_host_mode": "direct"}
+
+    codex_runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"codex-1"}\n',
+        last_message=b'{"ok":true}',
+    )
+    CodexAdapter(binary="fake-codex", runner=codex_runner, env={}).start(
+        ProviderRequest("Read host/control.json", "model", None, runtime, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+    codex_argv = codex_runner.calls[0]["argv"]
+    assert "--dangerously-bypass-approvals-and-sandbox" in codex_argv
+    assert codex_argv[codex_argv.index("-C") + 1] == str(workspace)
+
+    claude_runner = FakeRunner(
+        b'{"type":"result","session_id":"claude-1","structured_output":{"ok":true}}\n'
+    )
+    ClaudeAdapter(binary="fake-claude", runner=claude_runner, env={}).start(
+        ProviderRequest("Read host/control.json", "model", None, runtime, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+    assert "--dangerously-skip-permissions" in claude_runner.calls[0]["argv"]
+
+    kimi_runner = FakeRunner(
+        b'{"role":"assistant","content":"ok","session_id":"kimi-1"}\n'
+    )
+    KimiAdapter(binary="fake-kimi", runner=kimi_runner, env={}).start(
+        ProviderRequest("Read host/control.json", "model", None, runtime, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+    assert "--auto" in kimi_runner.calls[0]["argv"]
+
+
 def test_default_registry_has_no_media_delivery_selection_surface() -> None:
     registry = default_registry()
     assert registry.names() == ("claude", "codex", "kimi")

@@ -339,12 +339,14 @@ class LLMTaskService:
         source: ArtifactSourceRef,
         *,
         authorization: AdoptionAuthorization | None = None,
+        options: LLMExecutionOptions = LLMExecutionOptions(),
     ) -> LLMTaskOutcome:
         return self._executor.adopt_and_revalidate(
             context,
             request,
             source,
             authorization=authorization,
+            options=options,
         )
 
 
@@ -376,6 +378,7 @@ class _StandaloneHandler:
                     request,
                     invocation.adoption.source,
                     authorization=invocation.adoption.authorization,
+                    options=self.options,
                 )
             else:
                 state = self.service._executor._task_store(
@@ -543,6 +546,7 @@ class LLMClient:
                         repository,
                         snapshot,
                         invocation.request,
+                        options=self.options,
                     )
         return LLMRunResult(snapshot, outcome)
 
@@ -630,6 +634,7 @@ class LLMClient:
             repository,
             snapshot,
             invocation.request,
+            options=options,
         )
         return LLMRunResult(snapshot, outcome)
 
@@ -641,6 +646,8 @@ class LLMClient:
         repository: RunRepository,
         snapshot: RunSnapshot,
         request: LLMRequest,
+        *,
+        options: LLMExecutionOptions,
     ) -> LLMTaskOutcome | None:
         if snapshot.result_ref is None:
             return None
@@ -650,7 +657,7 @@ class LLMClient:
             resume_input=None,
             execution_slice=None,
         )
-        return self.service.execute(context, request)
+        return self.service.execute(context, request, options=options)
 
 def _standalone_invocation_store(
     repository: RunRepository,

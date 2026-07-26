@@ -58,8 +58,10 @@ class CodexAdapter:
 
     def start(self, request: ProviderRequest, observer: Any, stop: Any) -> ProviderExecution:
         argv = [self.binary, "exec", "--json"]
-        if not request.capabilities.get("inherit_host_config", False):
-            argv.extend(["--ignore-user-config", "--ignore-rules"])
+        if request.capabilities.get("effective_host_mode") == "direct":
+            argv.extend(
+                ["--dangerously-bypass-approvals-and-sandbox", "-C", str(request.workspace)]
+            )
         argv.extend(["--model", request.model, "-"])
         return self._run(
             argv,
@@ -67,6 +69,7 @@ class CodexAdapter:
             request.output_schema,
             request.idle_timeout_seconds,
             request.workspace,
+            request.environment,
             observer,
             stop,
         )
@@ -78,6 +81,7 @@ class CodexAdapter:
         output_schema: Mapping[str, Any] | None,
         timeout: float,
         workspace: Path,
+        environment: Mapping[str, str] | None,
         observer: Any,
         stop: Any,
     ) -> ProviderExecution:
@@ -113,7 +117,7 @@ class CodexAdapter:
                 timeout=timeout,
                 parse_event=_parse_event,
                 runner=self.runner,
-                env=self.env,
+                env=environment if environment is not None else self.env,
                 cwd=workspace,
                 validate_terminal=False,
                 extract_failure=_extract_failure,
@@ -149,8 +153,10 @@ class CodexAdapter:
         stop: Any,
     ) -> ProviderExecution:
         argv = [self.binary, "exec", "resume", "--json"]
-        if not request.capabilities.get("inherit_host_config", False):
-            argv.extend(["--ignore-user-config", "--ignore-rules"])
+        if request.capabilities.get("effective_host_mode") == "direct":
+            argv.extend(
+                ["--dangerously-bypass-approvals-and-sandbox", "-C", str(request.workspace)]
+            )
         argv.extend([handle.value, "-"])
         return self._run(
             argv,
@@ -158,6 +164,7 @@ class CodexAdapter:
             request.output_schema,
             request.idle_timeout_seconds,
             request.workspace,
+            request.environment,
             observer,
             stop,
         )

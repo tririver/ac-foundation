@@ -28,6 +28,16 @@ from .errors import (
 )
 from .identity import AdoptionAuthorization, resume_input_matches
 from .interactions import ScopedInteractionLedger
+from .host import (
+    ArcRuntimeEnvironment,
+    EffectiveHostMode,
+    HostAuthority,
+    HostBroker,
+    HostRequest,
+    HostResponse,
+    HostResponseStatus,
+    HostTurn,
+)
 from .outcome import (
     LLMStopped,
     LLMCompleted,
@@ -51,7 +61,6 @@ from .providers import (
     UsageAvailability,
 )
 from .request import (
-    CapabilityPolicy,
     ExecutionLimits,
     InteractionProgress,
     InteractionRequest,
@@ -85,7 +94,7 @@ __all__ = [
     "ArcLLMError",
     "ArtifactSourceRef",
     "CandidateConflictError",
-    "CapabilityPolicy",
+    "ArcRuntimeEnvironment",
     "CorruptTaskStateError",
     "DeliveryState",
     "ErrorCode",
@@ -93,6 +102,13 @@ __all__ = [
     "ExecutionLimits",
     "ExecutionMismatchError",
     "FailureCategory",
+    "EffectiveHostMode",
+    "HostAuthority",
+    "HostBroker",
+    "HostRequest",
+    "HostResponse",
+    "HostResponseStatus",
+    "HostTurn",
     "IdempotencyConflictError",
     "InteractionProgress",
     "InteractionRequest",

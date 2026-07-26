@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from arc_jobs import JsonValue
-from arc_llm import ArcLLMError, CapabilityPolicy, ModelSelection, OperationContract
+from arc_llm import ArcLLMError, ModelSelection, OperationContract
 
 from .identity import worker_contract_document
 from .models import (
@@ -140,7 +140,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             "instructions",
             "output_schema",
             "model",
-            "capabilities",
             "interaction_operations",
         },
         path,
@@ -150,22 +149,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
         raise RequestValidationError("must be an object", path + ("output_schema",))
     raw_model = _object(document["model"], path + ("model",))
     _exact(raw_model, {"provider", "model", "tier"}, path + ("model",))
-    raw_capabilities = _object(document["capabilities"], path + ("capabilities",))
-    _exact(
-        raw_capabilities,
-        {"internet", "inherit_host_config", "allowed_tools"},
-        path + ("capabilities",),
-    )
-    internet = _strict_bool(raw_capabilities["internet"], path + ("capabilities", "internet"))
-    inherit_host_config = _strict_bool(
-        raw_capabilities["inherit_host_config"],
-        path + ("capabilities", "inherit_host_config"),
-    )
-    raw_tools = raw_capabilities["allowed_tools"]
-    if not isinstance(raw_tools, list) or not all(isinstance(item, str) for item in raw_tools):
-        raise RequestValidationError(
-            "must be an array of strings", path + ("capabilities", "allowed_tools")
-        )
     raw_exact_model = raw_model["model"]
     if raw_exact_model is not None and not isinstance(raw_exact_model, str):
         raise RequestValidationError("must be a string or null", path + ("model", "model"))
@@ -212,11 +195,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             provider=_required_text(raw_model, "provider", path + ("model",)),
             model=raw_exact_model,
             tier=cast(Any, _required_text(raw_model, "tier", path + ("model",))),
-        ),
-        capabilities=CapabilityPolicy(
-            internet=internet,
-            inherit_host_config=inherit_host_config,
-            allowed_tools=tuple(raw_tools),
         ),
         interaction_operations=interaction_operations,
     )

@@ -8,7 +8,6 @@ import pytest
 
 from arc_jobs import ArtifactDigest, ArtifactSourceRef
 from arc_llm import (
-    CapabilityPolicy,
     ExecutionLimits,
     InvalidRequestError,
     InteractiveJsonOutput,
@@ -40,7 +39,6 @@ def test_request_and_resume_codecs_are_closed_round_trips() -> None:
         "Review this.",
         JsonOutput({"type": "object", "required": ["ok"]}),
         ModelSelection("codex"),
-        capabilities=CapabilityPolicy(allowed_tools=("z", "a", "z")),
     )
     assert decode_request(request_to_document(request)) == request
     document = request_to_document(request)
@@ -196,7 +194,7 @@ def test_model_constraints_and_json_booleans_are_strict() -> None:
     with pytest.raises(InvalidRequestError):
         ModelSelection("codex", "exact", "high")
     with pytest.raises(InvalidRequestError):
-        CapabilityPolicy(internet="false")  # type: ignore[arg-type]
+        LLMExecutionOptions(internet="false")  # type: ignore[arg-type]
 
 
 def test_operational_limits_do_not_change_semantic_key() -> None:
@@ -222,12 +220,10 @@ def test_provider_gate_defaults_and_overrides_are_typed_operational_policy() -> 
         ProviderGateOptions(global_limit=2, provider_limits={"codex": 3})
 
 
-def test_semantic_capability_and_prompt_changes_are_detected() -> None:
+def test_runtime_internet_is_not_semantic_and_prompt_changes_are_detected() -> None:
     request = LLMRequest("task", "prompt", JsonOutput({"type": "object"}))
     assert semantic_key(request) != semantic_key(replace(request, prompt="other"))
-    assert semantic_key(request) != semantic_key(
-        replace(request, capabilities=CapabilityPolicy(internet=True))
-    )
+    assert LLMExecutionOptions(internet=False) != LLMExecutionOptions(internet=True)
 
 
 def test_semantic_identity_uses_explicit_task_vocabulary() -> None:
@@ -271,13 +267,10 @@ def test_semantic_execution_and_operational_identity_matrix() -> None:
         "prompt",
         JsonOutput({"type": "object"}),
         ModelSelection("codex", "model-a"),
-        capabilities=CapabilityPolicy(internet=False),
     )
     base_semantic = semantic_key(request)
     assert semantic_key(replace(request, prompt="changed")) != base_semantic
-    assert semantic_key(
-        replace(request, capabilities=CapabilityPolicy(internet=True))
-    ) != base_semantic
+    assert semantic_key(request) == base_semantic
 
     recipe = execution_document(
         provider="codex",
