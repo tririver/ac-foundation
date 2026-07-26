@@ -64,6 +64,23 @@ Packages:
   one interpretive, creative, or pedagogical form. Treat enumerated forms and
   dimensions as optional, non-exhaustive possibilities, never as a quota,
   required taxonomy, or default template.
+- Treat exploration profiles as optional lenses, not assignments or coverage
+  quotas. The exact user intent remains primary, and a model may leave a profile
+  when a simpler direct route better addresses that intent.
+- In scientific selection and review, separate an idea's nucleus from fixable
+  formulation errors. If an error can be repaired without replacing that
+  nucleus, preserve the direction and return actionable feedback. Prefer the
+  shortest minimally sufficient setup after asking which assumptions, methods,
+  observables, and validations can be removed without making the core result
+  undefined, infeasible, non-novel, or scientifically inconsequential.
+- Do not turn model-correctable scientific weaknesses into hard
+  disqualification. Express them through evidence, marks, uncertainty,
+  targeted revision feedback, and visible warnings. Reserve hard stops for
+  conditions under which reasoning cannot safely or meaningfully continue,
+  such as missing authority, unreadable or invalid contracts, corrupt durable
+  state, or the absence of any complete usable output. A new hard stop must
+  explain why model revision, retry, advisory reporting, or human choice cannot
+  repair the condition.
 - Author names are publication identity managed by ARC, not an interpretive or
   creative constraint. Automatically parsed author candidates require model
   verification against the frozen source; publish an attribution only at high
