@@ -79,6 +79,23 @@ service commands it names.
   provider invocation are still appropriate, but keep them proportional to
   realistic local research use.
 
+## Shared Storage and Deliverables
+
+- Store shared ARC software installations under `~/.arc/runtimes` and the
+  shared `arc-paper` cache under `~/.arc/cache/arc-paper`. These are the only
+  ARC-owned shared locations.
+- A cache may be shared only when it has a documented cross-project identity,
+  validity and invalidation rules, concurrent-access behavior, and explicit
+  lifecycle management such as list, remove, and update. Otherwise it is
+  project state and belongs below `<project-dir>/.arc/`.
+- Durable runs, LLM sessions and transcripts, child workspaces, domain state,
+  diagnostics, temporary files, and unpublished generations are project state,
+  not shared caches. Do not add fallback discovery of legacy shared roots.
+- Every final user deliverable must be published into a non-hidden project
+  directory. Hidden `.arc/` state must never be its only location. Publish
+  deliverables as HTML or PDF; when an internal workflow produces Markdown,
+  render it to PDF before publishing it to the visible project directory.
+
 ## Workflow Design Principles
 
 - Design ARC workflows to support agent reasoning, not to replace it with

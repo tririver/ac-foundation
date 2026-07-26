@@ -77,6 +77,24 @@ def _runtime_dir(runtime_home: Path, launcher: Path = CORE_LAUNCHER) -> Path:
     return Path(values["runtime"])
 
 
+def test_doctor_defaults_to_shared_runtime_and_paper_cache_only(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("ARC_HOME", raising=False)
+    monkeypatch.delenv("ARC_PAPER_CACHE", raising=False)
+    runtime_home = tmp_path / "runtime-home"
+    home = tmp_path / "home"
+    result = _run(runtime_home, "doctor", extra_env={"HOME": str(home)})
+    assert result.returncode == 1, result.stderr
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert values["arc_home"] == str(home / ".arc")
+    assert values["paper_cache"] == str(home / ".arc" / "cache" / "arc-paper")
+    assert "domain_cache" not in values
+    assert "llm_cache" not in values
+    assert "jobs" not in values
+    assert "llm_tmp" not in values
+
+
 def _write_fake_runtime_tool(bin_dir: Path, name: str, prefix: str = "cached") -> None:
     tool = bin_dir / name
     tool.write_text(
