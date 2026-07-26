@@ -28,9 +28,15 @@ from arc_jobs import (
 from .api import LLMClient
 from .config import resolve_model_selection
 from .errors import ArcLLMError, ErrorCode
+from .host import HostAuthority
 from .outcome import LLMCompleted, LLMFailed
 from .providers import ProviderRegistry, default_registry
-from .request import ModelSelection, decode_request, decode_resume_input
+from .request import (
+    LLMExecutionOptions,
+    ModelSelection,
+    decode_request,
+    decode_resume_input,
+)
 
 
 class _UsageError(Exception):
@@ -71,6 +77,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--run-root", required=True, type=Path, help="durable run repository root"
     )
     generate.add_argument("--run-id", help="explicit durable run identifier")
+    generate.add_argument(
+        "--host-authority",
+        choices=tuple(item.value for item in HostAuthority),
+        default=HostAuthority.UNKNOWN.value,
+        help="host authority attestation (default: unknown, so ARC uses host turns)",
+    )
 
     resume = commands.add_parser(
         "resume",
@@ -82,6 +94,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     resume.add_argument("--run-id", required=True, help="durable run identifier")
     resume.add_argument("--input", type=Path, help="ResumeInput JSON path")
+    resume.add_argument(
+        "--host-authority",
+        choices=tuple(item.value for item in HostAuthority),
+        default=HostAuthority.UNKNOWN.value,
+        help="host authority attestation (default: unknown, so ARC uses host turns)",
+    )
 
     status = commands.add_parser(
         "status",
@@ -132,10 +150,14 @@ def _dispatch(
 ) -> CommandResult:
     if args.command == "generate":
         request = decode_request(_read_object(args.request))
+        options = LLMExecutionOptions(
+            host_authority=HostAuthority(args.host_authority)
+        )
         result = client.generate(
             request,
             run_root=args.run_root,
             run_id=args.run_id,
+            options=options,
         )
         if isinstance(result.outcome, LLMFailed):
             return CommandResult(
@@ -160,6 +182,9 @@ def _dispatch(
             run_root=args.run_root,
             run_id=args.run_id,
             input=resume_input,
+            options=LLMExecutionOptions(
+                host_authority=HostAuthority(args.host_authority)
+            ),
         )
         if isinstance(result.outcome, LLMFailed):
             return CommandResult(

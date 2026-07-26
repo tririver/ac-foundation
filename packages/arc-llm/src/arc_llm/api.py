@@ -546,7 +546,7 @@ class LLMClient:
                         repository,
                         snapshot,
                         invocation.request,
-                        options=self.options,
+                        options=options,
                     )
         return LLMRunResult(snapshot, outcome)
 
@@ -558,6 +558,7 @@ class LLMClient:
         run_root: Path,
         run_id: str | None = None,
         authorization: AdoptionAuthorization | None = None,
+        options: LLMExecutionOptions = LLMExecutionOptions(),
     ) -> LLMRunResult:
         resolved_run_id = run_id or derive_run_id(HANDLER_NAME, request.task_id)
         return self._invoke(
@@ -569,7 +570,7 @@ class LLMClient:
                 request,
                 _StandaloneAdoption(source, authorization),
             ),
-            options=LLMExecutionOptions(),
+            options=options,
         )
 
     def _invoke(

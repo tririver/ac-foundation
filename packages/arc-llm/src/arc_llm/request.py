@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Callable, Literal, Mapping, Protocol, TypeAlias
+from typing import Any, Literal, Mapping, TypeAlias
 
 from arc_jobs import (
     ArtifactDigest,
@@ -24,9 +24,8 @@ from .errors import InvalidRequestError, InvalidSchemaError
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 ModelTier: TypeAlias = Literal["low", "medium", "high", "xhigh"]
 
-REQUEST_SCHEMA_VERSION = "arc.llm.request.v3"
-RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v2"
-INTERACTIVE_PROMPT_POLICY = "arc.llm.interactive_prompt.v1"
+REQUEST_SCHEMA_VERSION = "arc.llm.request.v4"
+RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v3"
 
 
 def _frozen_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -100,59 +99,6 @@ class ExecutionLimits:
                 raise InvalidRequestError(f"{name} must be a non-negative integer.")
 
 
-class InteractionResolver(Protocol):
-    def resolve(self, request: "InteractionRequest") -> "InteractionResponse": ...
-
-
-@dataclass(frozen=True)
-class InteractionProgress:
-    """One runtime-only observation of an interactive resolver round."""
-
-    stage: Literal["requested", "resolved"]
-    interaction_round: int
-    operation_names: tuple[str, ...]
-    request_count: int
-    error_count: int
-
-    def __post_init__(self) -> None:
-        if self.stage not in {"requested", "resolved"}:
-            raise InvalidRequestError(
-                "interaction progress stage must be requested or resolved."
-            )
-        if (
-            isinstance(self.interaction_round, bool)
-            or not isinstance(self.interaction_round, int)
-            or self.interaction_round < 1
-        ):
-            raise InvalidRequestError(
-                "interaction progress round must be a positive integer."
-            )
-        if (
-            isinstance(self.operation_names, (str, bytes))
-            or any(
-                not isinstance(name, str) or not name
-                for name in self.operation_names
-            )
-        ):
-            raise InvalidRequestError(
-                "interaction progress operation names must be non-empty strings."
-            )
-        for name in ("request_count", "error_count"):
-            value = getattr(self, name)
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value < 0
-            ):
-                raise InvalidRequestError(
-                    f"interaction progress {name} must be a non-negative integer."
-                )
-        if self.error_count > self.request_count:
-            raise InvalidRequestError(
-                "interaction progress error_count cannot exceed request_count."
-            )
-
-
 @dataclass(frozen=True)
 class ProviderGateOptions:
     enabled: bool = True
@@ -199,9 +145,7 @@ class ProviderGateOptions:
 @dataclass(frozen=True)
 class LLMExecutionOptions:
     limits: ExecutionLimits = field(default_factory=ExecutionLimits)
-    interaction_resolver: InteractionResolver | None = None
     gate: ProviderGateOptions = field(default_factory=ProviderGateOptions)
-    interaction_observer: Callable[[InteractionProgress], None] | None = None
     internet: bool = True
     host_authority: Any = None
     runtime_environment: Any = None
@@ -302,40 +246,7 @@ class JsonOutput:
         object.__setattr__(self, "schema", _frozen_mapping(self.schema))
 
 
-@dataclass(frozen=True)
-class OperationContract:
-    arguments_schema: Mapping[str, Any]
-    response_schema: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        _check_schema(self.arguments_schema)
-        _check_schema(self.response_schema)
-        object.__setattr__(self, "arguments_schema", _frozen_mapping(self.arguments_schema))
-        object.__setattr__(self, "response_schema", _frozen_mapping(self.response_schema))
-
-
-@dataclass(frozen=True)
-class InteractiveJsonOutput:
-    result_schema: Mapping[str, Any]
-    operations: Mapping[str, OperationContract]
-    kind: Literal["interactive_json"] = "interactive_json"
-
-    def __post_init__(self) -> None:
-        _check_schema(self.result_schema)
-        if any(not isinstance(name, str) or not name for name in self.operations):
-            raise InvalidRequestError("Operation names must be non-empty strings.")
-        if any(
-            not isinstance(contract, OperationContract)
-            for contract in self.operations.values()
-        ):
-            raise InvalidRequestError(
-                "Every operation must contain an OperationContract."
-            )
-        object.__setattr__(self, "result_schema", _frozen_mapping(self.result_schema))
-        object.__setattr__(self, "operations", MappingProxyType(dict(self.operations)))
-
-
-OutputContract: TypeAlias = TextOutput | JsonOutput | InteractiveJsonOutput
+OutputContract: TypeAlias = TextOutput | JsonOutput
 
 
 @dataclass(frozen=True)
@@ -351,7 +262,7 @@ class LLMRequest:
         _validate_identifier(self.task_id, field_name="task_id")
         if not isinstance(self.prompt, str) or not self.prompt:
             raise InvalidRequestError("prompt must be a non-empty string.")
-        if not isinstance(self.output, (TextOutput, JsonOutput, InteractiveJsonOutput)):
+        if not isinstance(self.output, (TextOutput, JsonOutput)):
             raise InvalidRequestError("output must be a supported output contract.")
         if isinstance(self.inputs, (str, bytes)):
             raise InvalidRequestError("inputs must be a sequence of LLMInputArtifact values.")
@@ -376,37 +287,10 @@ class ResumeAction(StrEnum):
 
 
 @dataclass(frozen=True)
-class InteractionRequest:
-    request_id: str
-    operation: str
-    arguments: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        _validate_identifier(self.request_id, field_name="request_id")
-        if not self.operation:
-            raise InvalidRequestError("operation is required.")
-        object.__setattr__(self, "arguments", _frozen_mapping(self.arguments))
-
-
-@dataclass(frozen=True)
-class InteractionResponse:
-    request_id: str
-    result: JsonValue | None = None
-    error: Mapping[str, JsonValue] | None = None
-
-    def __post_init__(self) -> None:
-        _validate_identifier(self.request_id, field_name="request_id")
-        if (self.result is None) == (self.error is None):
-            raise InvalidRequestError("An interaction response has exactly one of result or error.")
-        if self.error is not None:
-            object.__setattr__(self, "error", MappingProxyType(dict(self.error)))
-
-
-@dataclass(frozen=True)
 class ResumeInput:
     resume_key: str
     action: ResumeAction
-    responses: tuple[InteractionResponse, ...] = ()
+    host_response: Any = None
     candidate_digest: str | None = None
     reason: str | None = None
 
@@ -414,14 +298,28 @@ class ResumeInput:
         _validate_identifier(self.resume_key, field_name="resume_key")
         if not isinstance(self.action, ResumeAction):
             raise InvalidRequestError("action must be a ResumeAction.")
+        from .host import HostResponse
+
+        if self.host_response is not None and not isinstance(
+            self.host_response, HostResponse
+        ):
+            raise InvalidRequestError("host_response must be a HostResponse or null.")
         if self.action is ResumeAction.CONTINUE:
             if self.candidate_digest is not None or self.reason is not None:
-                raise InvalidRequestError("continue accepts only interaction responses.")
+                raise InvalidRequestError("continue accepts only an optional host response.")
         elif self.action is ResumeAction.REPLACE:
-            if not self.reason or self.responses or self.candidate_digest is not None:
+            if (
+                not self.reason
+                or self.host_response is not None
+                or self.candidate_digest is not None
+            ):
                 raise InvalidRequestError("replace requires only a non-empty reason.")
         elif self.action is ResumeAction.ACCEPT_CANDIDATE:
-            if not self.candidate_digest or self.responses or self.reason is not None:
+            if (
+                not self.candidate_digest
+                or self.host_response is not None
+                or self.reason is not None
+            ):
                 raise InvalidRequestError("accept_candidate requires only candidate_digest.")
             _validate_sha256(
                 self.candidate_digest,
@@ -441,20 +339,7 @@ def _check_schema(schema: Mapping[str, Any]) -> None:
 def encode_output_contract(contract: OutputContract) -> dict[str, Any]:
     if isinstance(contract, TextOutput):
         return {"kind": "text"}
-    if isinstance(contract, JsonOutput):
-        return {"kind": "json", "schema": dict(contract.schema), "repair": contract.repair}
-    return {
-        "kind": "interactive_json",
-        "prompt_policy": INTERACTIVE_PROMPT_POLICY,
-        "result_schema": dict(contract.result_schema),
-        "operations": {
-            name: {
-                "arguments_schema": dict(item.arguments_schema),
-                "response_schema": dict(item.response_schema),
-            }
-            for name, item in sorted(contract.operations.items())
-        },
-    }
+    return {"kind": "json", "schema": dict(contract.schema), "repair": contract.repair}
 
 
 def request_to_document(request: LLMRequest) -> dict[str, Any]:
@@ -517,27 +402,6 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
     elif kind == "json":
         _require_exact(output_doc, {"kind", "schema", "repair"}, "output")
         output = JsonOutput(_object(output_doc["schema"], "output.schema"), output_doc["repair"])
-    elif kind == "interactive_json":
-        _require_exact(
-            output_doc,
-            {"kind", "prompt_policy", "result_schema", "operations"},
-            "output",
-        )
-        if output_doc["prompt_policy"] != INTERACTIVE_PROMPT_POLICY:
-            raise InvalidRequestError("Unsupported interactive prompt policy.")
-        operations_doc = _object(output_doc["operations"], "output.operations")
-        operations: dict[str, OperationContract] = {}
-        for name, raw in operations_doc.items():
-            item = _object(raw, f"output.operations.{name}")
-            _require_exact(item, {"arguments_schema", "response_schema"}, f"operation {name}")
-            operations[name] = OperationContract(
-                _object(item["arguments_schema"], "arguments_schema"),
-                _object(item["response_schema"], "response_schema"),
-            )
-        output = InteractiveJsonOutput(
-            _object(output_doc["result_schema"], "output.result_schema"),
-            operations,
-        )
     else:
         raise InvalidRequestError("Unknown output.kind.")
     model_doc = _object(document["model"], "model")
@@ -597,18 +461,17 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
 
 
 def resume_input_to_document(value: ResumeInput) -> dict[str, Any]:
+    from .host import host_response_document
+
     return {
         "schema_version": RESUME_SCHEMA_VERSION,
         "resume_key": value.resume_key,
         "action": value.action.value,
-        "responses": [
-            {
-                "request_id": response.request_id,
-                "result": response.result,
-                "error": None if response.error is None else dict(response.error),
-            }
-            for response in value.responses
-        ],
+        "host_response": (
+            None
+            if value.host_response is None
+            else host_response_document(value.host_response)
+        ),
         "candidate_digest": value.candidate_digest,
         "reason": value.reason,
     }
@@ -621,7 +484,7 @@ def decode_resume_input(document: Mapping[str, Any]) -> ResumeInput:
             "schema_version",
             "resume_key",
             "action",
-            "responses",
+            "host_response",
             "candidate_digest",
             "reason",
         },
@@ -633,18 +496,18 @@ def decode_resume_input(document: Mapping[str, Any]) -> ResumeInput:
         action = ResumeAction(document["action"])
     except (TypeError, ValueError) as exc:
         raise InvalidRequestError("Unknown resume action.") from exc
-    raw_responses = document["responses"]
-    if not isinstance(raw_responses, list):
-        raise InvalidRequestError("responses must be an array.")
-    responses = []
-    for raw in raw_responses:
-        item = _object(raw, "interaction response")
-        _require_exact(item, {"request_id", "result", "error"}, "interaction response")
-        responses.append(InteractionResponse(item["request_id"], item["result"], item["error"]))
+    from .host import decode_host_response
+
+    raw_host_response = document["host_response"]
+    host_response = (
+        None
+        if raw_host_response is None
+        else decode_host_response(_object(raw_host_response, "host_response"))
+    )
     return ResumeInput(
         resume_key=document["resume_key"],
         action=action,
-        responses=tuple(responses),
+        host_response=host_response,
         candidate_digest=document["candidate_digest"],
         reason=document["reason"],
     )

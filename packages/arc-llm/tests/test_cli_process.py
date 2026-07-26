@@ -75,6 +75,69 @@ def test_cli_emits_one_shared_envelope_and_query_status(
     assert queried["data"]["run"]["status"] == "succeeded"
 
 
+def test_cli_host_authority_defaults_to_brokered_and_accepts_unrestricted(
+    tmp_path: Path, adapter, registry, capsys
+) -> None:
+    request = LLMRequest(
+        "cli-authority",
+        "Do it.",
+        TextOutput(),
+        ModelSelection("codex"),
+    )
+    request_path = tmp_path / "request.json"
+    request_path.write_text(json.dumps(request_to_document(request)))
+
+    adapter.steps.append(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (CandidateMaterial(text="brokered", terminal=True),),
+            NativeResumeHandle("codex", "brokered"),
+        )
+    )
+    assert (
+        main(
+            [
+                "generate",
+                "--request",
+                str(request_path),
+                "--run-root",
+                str(tmp_path / "brokered-runs"),
+            ],
+            registry=registry,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert adapter.requests[-1].capabilities["host_authority"] == "unknown"
+    assert adapter.requests[-1].capabilities["effective_host_mode"] == "brokered"
+
+    adapter.steps.append(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (CandidateMaterial(text="direct", terminal=True),),
+            NativeResumeHandle("codex", "direct"),
+        )
+    )
+    assert (
+        main(
+            [
+                "generate",
+                "--request",
+                str(request_path),
+                "--run-root",
+                str(tmp_path / "direct-runs"),
+                "--host-authority",
+                "unrestricted",
+            ],
+            registry=registry,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert adapter.requests[-1].capabilities["host_authority"] == "unrestricted"
+    assert adapter.requests[-1].capabilities["effective_host_mode"] == "direct"
+
+
 def test_cli_stderr_progress_and_stdout_final_result(
     tmp_path: Path, adapter, registry, capsys, monkeypatch
 ) -> None:

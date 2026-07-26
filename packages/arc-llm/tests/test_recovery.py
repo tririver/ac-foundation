@@ -114,7 +114,7 @@ def test_recovery_decision_is_bounded_and_delivery_aware() -> None:
     assert replacement.current.possible_duplicate_execution
 
 
-def test_replacement_generation_uses_base_effect_after_earlier_interaction() -> None:
+def test_replacement_generation_uses_base_effect_after_earlier_host_turn() -> None:
     original = _state()
     state = replace_current(
         original,
@@ -125,12 +125,12 @@ def test_replacement_generation_uses_base_effect_after_earlier_interaction() -> 
     state = LLMTaskState(
         **{
             **state.__dict__,
-            "interaction_round": 1,
+            "host_turn_round": 1,
         }
     )
 
     assert state.current.effect_id == effect_id_for("task", 2)
-    assert LLMTaskExecutor()._prepared_interaction_prompt(None, state) is None
+    assert LLMTaskExecutor()._prepared_host_turn_prompt(None, state) is None
 
 
 @pytest.mark.parametrize(
@@ -174,11 +174,11 @@ def test_prepared_recovery_includes_initial_call_and_reserved_safe_retry(
     )
 
 
-def test_interaction_effect_id_extends_the_initial_effect_id() -> None:
+def test_host_turn_effect_id_extends_the_initial_effect_id() -> None:
     initial = effect_id_for("task", 1)
 
     assert effect_id_for("task", 1, 0) == initial
-    assert effect_id_for("task", 1, 2) == f"{initial}-i2"
+    assert effect_id_for("task", 1, 2) == f"{initial}-h2"
 
 
 @pytest.mark.parametrize(

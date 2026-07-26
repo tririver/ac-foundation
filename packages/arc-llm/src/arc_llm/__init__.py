@@ -27,7 +27,6 @@ from .errors import (
     ResumeKeyMismatchError,
 )
 from .identity import AdoptionAuthorization, resume_input_matches
-from .interactions import ScopedInteractionLedger
 from .host import (
     ArcRuntimeEnvironment,
     EffectiveHostMode,
@@ -62,17 +61,11 @@ from .providers import (
 )
 from .request import (
     ExecutionLimits,
-    InteractionProgress,
-    InteractionRequest,
-    InteractionResolver,
-    InteractionResponse,
-    InteractiveJsonOutput,
     JsonOutput,
     LLMExecutionOptions,
     LLMInputArtifact,
     LLMRequest,
     ModelSelection,
-    OperationContract,
     OutputContract,
     ProviderGateOptions,
     ResumeAction,
@@ -110,11 +103,6 @@ __all__ = [
     "HostResponseStatus",
     "HostTurn",
     "IdempotencyConflictError",
-    "InteractionProgress",
-    "InteractionRequest",
-    "InteractionResolver",
-    "InteractionResponse",
-    "InteractiveJsonOutput",
     "InvalidRequestError",
     "InvalidSchemaError",
     "JsonOutput",
@@ -132,7 +120,6 @@ __all__ = [
     "LLMTaskService",
     "ModelSelection",
     "NativeResumeHandle",
-    "OperationContract",
     "OutputContract",
     "OutputInvalidError",
     "ProviderAdapter",
@@ -151,7 +138,6 @@ __all__ = [
     "ResumeInputConflictError",
     "ResumeKeyMismatchError",
     "ResumeReason",
-    "ScopedInteractionLedger",
     "SemanticKeyDigest",
     "SessionRef",
     "StructuredOutputMode",

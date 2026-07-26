@@ -4,18 +4,12 @@ import pytest
 
 from arc_llm import (
     CandidateConflictError,
-    InteractionResponse,
-    InteractiveJsonOutput,
-    InvalidRequestError,
     JsonOutput,
-    OperationContract,
 )
-from arc_llm.interaction import decode_interactive_turn, validate_responses
 from arc_llm.output import (
     CandidateMaterial,
     candidate_digest,
     enumerate_valid_candidates,
-    provider_schema,
     select_output,
 )
 
@@ -206,62 +200,4 @@ def test_json_openers_inside_double_quoted_prose_are_ignored() -> None:
                 ),
             ),
             contract,
-        )
-
-
-def _interactive_contract() -> InteractiveJsonOutput:
-    return InteractiveJsonOutput(
-        {"type": "object", "required": ["answer"]},
-        {
-            "lookup": OperationContract(
-                {"type": "object", "required": ["query"]},
-                {"type": "object", "required": ["value"]},
-            )
-        },
-    )
-
-
-def test_interactive_provider_schema_types_every_const_node() -> None:
-    schema = provider_schema(_interactive_contract())
-    assert schema is not None
-    properties = schema["properties"]
-    assert properties["schema_version"]["type"] == "string"
-    assert properties["state"]["type"] == "string"
-    operation = properties["requests"]["items"]["anyOf"][0][
-        "properties"
-    ]["operation"]
-    assert operation["type"] == "string"
-
-
-def test_interactive_provider_schema_has_object_root_without_one_of() -> None:
-    schema = provider_schema(_interactive_contract())
-    assert schema is not None
-    assert schema["type"] == "object"
-    assert "oneOf" not in schema
-    assert schema["properties"]["state"]["enum"] == ["complete", "interact"]
-
-
-def test_interaction_is_operation_opaque_and_binds_exact_response_ids() -> None:
-    turn = decode_interactive_turn(
-        {
-            "schema_version": "arc.llm.interactive_turn.v1",
-            "state": "interact",
-            "result": None,
-            "requests": [
-                {
-                    "request_id": "req-1",
-                    "operation": "lookup",
-                    "arguments": {"query": "q"},
-                }
-            ],
-        },
-        _interactive_contract(),
-    )
-    responses = (InteractionResponse("req-1", result={"value": "v"}),)
-    assert validate_responses(turn, responses, _interactive_contract()) == responses
-    with pytest.raises(InvalidRequestError):
-        validate_responses(
-            turn,
-            (InteractionResponse("wrong", result={"value": "v"}),),
-            _interactive_contract(),
         )

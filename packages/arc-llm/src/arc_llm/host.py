@@ -6,6 +6,8 @@ execution policy, never part of an LLM request's semantic identity.
 
 from __future__ import annotations
 
+import json
+import math
 import os
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -103,6 +105,22 @@ class HostResponse:
     retry_condition: str | None = None
 
     def __post_init__(self) -> None:
+        _validate_json_value(self.result, field_name="host response result")
+        try:
+            normalized_result = json.loads(
+                json.dumps(
+                    self.result,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            raise InvalidRequestError(
+                "host response result must be JSON-compatible."
+            ) from exc
+        object.__setattr__(self, "result", normalized_result)
         files = tuple(self.files)
         if any(
             not isinstance(path, str)
@@ -136,6 +154,25 @@ class HostResponse:
             raise InvalidRequestError("only refused host responses may contain refusal fields.")
 
 
+def _validate_json_value(value: Any, *, field_name: str) -> None:
+    if value is None or isinstance(value, (bool, str, int)):
+        return
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return
+    elif isinstance(value, list):
+        for item in value:
+            _validate_json_value(item, field_name=field_name)
+        return
+    elif isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise InvalidRequestError(f"{field_name} object keys must be strings.")
+            _validate_json_value(item, field_name=field_name)
+        return
+    raise InvalidRequestError(f"{field_name} must be JSON-compatible.")
+
+
 class HostBroker(Protocol):
     """A host-owned executor for one model-requested host turn."""
 
@@ -163,6 +200,7 @@ def broker_execution_document(broker: HostBroker | None) -> Mapping[str, Any] | 
 
 
 HOST_TURN_SCHEMA_VERSION = "arc.llm.host_turn.v1"
+HOST_CONTINUATION_SCHEMA_VERSION = "arc.llm.host_continuation.v1"
 
 
 @dataclass(frozen=True)
@@ -207,7 +245,11 @@ def host_turn_schema(result_schema: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def decode_host_turn(value: Any, *, seen_request_ids: set[str] | None = None) -> HostTurn:
+def decode_host_turn(
+    value: Any,
+    *,
+    seen_host_request_ids: set[str] | None = None,
+) -> HostTurn:
     if not isinstance(value, Mapping) or set(value) != {
         "schema_version",
         "state",
@@ -231,7 +273,10 @@ def decode_host_turn(value: Any, *, seen_request_ids: set[str] | None = None) ->
             raw_request["instruction"],
             raw_request["purpose"],
         )
-        if seen_request_ids is not None and request.request_id in seen_request_ids:
+        if (
+            seen_host_request_ids is not None
+            and request.request_id in seen_host_request_ids
+        ):
             raise OutputInvalidError("Duplicate host request ID.")
     return HostTurn(value["state"], value["result"], request)
 
@@ -264,6 +309,52 @@ def host_response_document(response: HostResponse) -> dict[str, Any]:
         "retryable": response.retryable,
         "retry_condition": response.retry_condition,
     }
+
+
+@dataclass(frozen=True)
+class HostContinuation:
+    """The persisted, provider-visible result of one host turn."""
+
+    request_id: str
+    response: HostResponse
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.request_id, str) or not self.request_id:
+            raise InvalidRequestError("host continuation request_id is required.")
+        if not isinstance(self.response, HostResponse):
+            raise InvalidRequestError("host continuation response is required.")
+
+
+def host_continuation_document(
+    request_id: str,
+    response: HostResponse,
+) -> dict[str, Any]:
+    if not isinstance(request_id, str) or not request_id:
+        raise InvalidRequestError("host continuation request_id is required.")
+    return {
+        "schema_version": HOST_CONTINUATION_SCHEMA_VERSION,
+        "request_id": request_id,
+        "response": host_response_document(response),
+    }
+
+
+def decode_host_continuation(value: Any) -> HostContinuation:
+    if not isinstance(value, Mapping) or set(value) != {
+        "schema_version",
+        "request_id",
+        "response",
+    }:
+        raise InvalidRequestError("host continuation uses an invalid closed shape.")
+    if value["schema_version"] != HOST_CONTINUATION_SCHEMA_VERSION:
+        raise InvalidRequestError("unsupported host continuation schema.")
+    if not isinstance(value["request_id"], str) or not value["request_id"]:
+        raise InvalidRequestError("host continuation request_id is required.")
+    if not isinstance(value["response"], Mapping):
+        raise InvalidRequestError("host continuation response must be an object.")
+    return HostContinuation(
+        request_id=value["request_id"],
+        response=decode_host_response(value["response"]),
+    )
 
 
 def decode_host_response(value: Any) -> HostResponse:

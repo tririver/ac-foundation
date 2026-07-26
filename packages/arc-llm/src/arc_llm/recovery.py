@@ -19,7 +19,7 @@ from arc_jobs import (
     encode_artifact_ref,
 )
 
-TASK_SCHEMA_VERSION = "arc.llm.task.v3"
+TASK_SCHEMA_VERSION = "arc.llm.task.v4"
 SESSION_SCHEMA_VERSION = "arc.llm.session.v2"
 
 
@@ -74,9 +74,9 @@ class LLMTaskState:
     request_ref: ArtifactRef
     accepted: AcceptedRecord | None = None
     session_key: str | None = None
-    interaction_round: int = 0
-    pending_interaction: ArtifactRef | None = None
-    seen_request_ids: tuple[str, ...] = ()
+    host_turn_round: int = 0
+    pending_host_turn: ArtifactRef | None = None
+    seen_host_request_ids: tuple[str, ...] = ()
     pause: TaskPause | None = None
 
     @property
@@ -165,9 +165,9 @@ def replace_current(
     )
 
 
-def effect_id_for(task_id: str, generation: int, interaction_round: int = 0) -> str:
+def effect_id_for(task_id: str, generation: int, host_turn_round: int = 0) -> str:
     task_digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:24]
-    suffix = "" if interaction_round == 0 else f"-i{interaction_round}"
+    suffix = "" if host_turn_round == 0 else f"-h{host_turn_round}"
     return f"llm-{task_digest}-g{generation}{suffix}"
 
 
@@ -187,9 +187,9 @@ class TaskStateContract:
             "request_ref": _ref_doc(value.request_ref),
             "accepted": _accepted_doc(value.accepted),
             "session_key": value.session_key,
-            "interaction_round": value.interaction_round,
-            "pending_interaction": _ref_doc(value.pending_interaction),
-            "seen_request_ids": list(value.seen_request_ids),
+            "host_turn_round": value.host_turn_round,
+            "pending_host_turn": _ref_doc(value.pending_host_turn),
+            "seen_host_request_ids": list(value.seen_host_request_ids),
             "pause": _pause_doc(value.pause),
         }
 
@@ -206,16 +206,16 @@ class TaskStateContract:
             "request_ref",
             "accepted",
             "session_key",
-            "interaction_round",
-            "pending_interaction",
-            "seen_request_ids",
+            "host_turn_round",
+            "pending_host_turn",
+            "seen_host_request_ids",
             "pause",
         }
         _exact(document, required)
         if document["semantic_key_schema"] != "arc.llm.semantic_key.v3":
             raise CorruptStateError("unsupported LLM semantic key schema")
         generations_doc = document["generations"]
-        seen_doc = document["seen_request_ids"]
+        seen_doc = document["seen_host_request_ids"]
         if not isinstance(generations_doc, list) or not isinstance(seen_doc, list):
             raise CorruptStateError("invalid task state arrays")
         state = LLMTaskState(
@@ -229,9 +229,9 @@ class TaskStateContract:
             request_ref=_required_ref(document["request_ref"]),
             accepted=_accepted(document["accepted"]),
             session_key=_nullable_str(document["session_key"], "session key"),
-            interaction_round=_int(document["interaction_round"], "interaction round"),
-            pending_interaction=_ref(document["pending_interaction"]),
-            seen_request_ids=tuple(_str(item, "request id") for item in seen_doc),
+            host_turn_round=_int(document["host_turn_round"], "host turn round"),
+            pending_host_turn=_ref(document["pending_host_turn"]),
+            seen_host_request_ids=tuple(_str(item, "host request id") for item in seen_doc),
             pause=_pause(document["pause"]),
         )
         _validate_task(state)
@@ -402,8 +402,8 @@ def _validate_task(state: LLMTaskState) -> None:
     if state.accepted is not None and state.accepted.generation is not None:
         if state.accepted.generation > state.current_generation:
             raise CorruptStateError("accepted generation does not exist")
-    if len(set(state.seen_request_ids)) != len(state.seen_request_ids):
-        raise CorruptStateError("duplicate seen interaction request IDs")
+    if len(set(state.seen_host_request_ids)) != len(state.seen_host_request_ids):
+        raise CorruptStateError("duplicate seen host request IDs")
 
 
 def _generation_doc(value: GenerationRecord) -> dict[str, JsonValue]:

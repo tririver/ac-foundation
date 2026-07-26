@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator
 
 from .errors import CandidateConflictError, OutputInvalidError
 from .identity import canonical_json_bytes
-from .request import InteractiveJsonOutput, JsonOutput, OutputContract, TextOutput
+from .request import JsonOutput, OutputContract, TextOutput
 
 
 _MISSING = object()
@@ -46,7 +46,7 @@ def candidate_digest(value: Any) -> str:
 
 def enumerate_valid_candidates(
     materials: Iterable[CandidateMaterial],
-    contract: JsonOutput | InteractiveJsonOutput,
+    contract: JsonOutput,
 ) -> tuple[ValidCandidate, ...]:
     """Return the selectable, schema-valid values in canonical digest order."""
 
@@ -109,9 +109,7 @@ def validate_value(value: Any, contract: OutputContract) -> None:
 def provider_schema(contract: OutputContract) -> dict[str, Any] | None:
     if isinstance(contract, TextOutput):
         return None
-    if isinstance(contract, JsonOutput):
-        return dict(contract.schema)
-    return _interactive_provider_schema(contract)
+    return dict(contract.schema)
 
 
 def _select_text(materials: tuple[CandidateMaterial, ...]) -> str:
@@ -234,114 +232,6 @@ def _complete_json_values(text: str) -> tuple[Any, ...]:
     return tuple(values)
 
 
-def _valid_json_value(value: Any, contract: JsonOutput | InteractiveJsonOutput) -> bool:
-    schema = contract.schema if isinstance(contract, JsonOutput) else _interactive_schema(contract)
+def _valid_json_value(value: Any, contract: JsonOutput) -> bool:
+    schema = contract.schema
     return not tuple(Draft202012Validator(schema).iter_errors(value))
-
-
-def _interactive_schema(contract: InteractiveJsonOutput) -> dict[str, Any]:
-    request_variants = []
-    for operation, operation_contract in contract.operations.items():
-        request_variants.append(
-            {
-                "type": "object",
-                "properties": {
-                    "request_id": {"type": "string"},
-                    "operation": {"type": "string", "const": operation},
-                    "arguments": dict(operation_contract.arguments_schema),
-                },
-                "required": ["request_id", "operation", "arguments"],
-                "additionalProperties": False,
-            }
-        )
-    request_schema: dict[str, Any] = {"oneOf": request_variants} if request_variants else False
-    return {
-        "oneOf": [
-            {
-                "type": "object",
-                "properties": {
-                    "schema_version": {
-                        "type": "string",
-                        "const": "arc.llm.interactive_turn.v1",
-                    },
-                    "state": {"type": "string", "const": "complete"},
-                    "result": dict(contract.result_schema),
-                    "requests": {"type": "array", "maxItems": 0},
-                },
-                "required": ["schema_version", "state", "result", "requests"],
-                "additionalProperties": False,
-            },
-            {
-                "type": "object",
-                "properties": {
-                    "schema_version": {
-                        "type": "string",
-                        "const": "arc.llm.interactive_turn.v1",
-                    },
-                    "state": {"type": "string", "const": "interact"},
-                    "result": {"type": "null"},
-                    "requests": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": request_schema,
-                    },
-                },
-                "required": ["schema_version", "state", "result", "requests"],
-                "additionalProperties": False,
-            },
-        ]
-    }
-
-
-def _interactive_provider_schema(
-    contract: InteractiveJsonOutput,
-) -> dict[str, Any]:
-    """Return the provider-compatible superset of an interactive turn.
-
-    Provider structured-output dialects require an object at the schema root.
-    Cross-field state/result/request invariants remain enforced locally by the
-    strict interactive schema and ``decode_interactive_turn``.
-    """
-
-    request_variants = []
-    for operation, operation_contract in contract.operations.items():
-        request_variants.append(
-            {
-                "type": "object",
-                "properties": {
-                    "request_id": {"type": "string"},
-                    "operation": {"type": "string", "const": operation},
-                    "arguments": dict(operation_contract.arguments_schema),
-                },
-                "required": ["request_id", "operation", "arguments"],
-                "additionalProperties": False,
-            }
-        )
-    request_schema: dict[str, Any] = (
-        {"anyOf": request_variants} if request_variants else False
-    )
-    return {
-        "type": "object",
-        "properties": {
-            "schema_version": {
-                "type": "string",
-                "const": "arc.llm.interactive_turn.v1",
-            },
-            "state": {
-                "type": "string",
-                "enum": ["complete", "interact"],
-            },
-            "result": {
-                "anyOf": [
-                    dict(contract.result_schema),
-                    {"type": "null"},
-                ]
-            },
-            "requests": {
-                "type": "array",
-                "items": request_schema,
-            },
-        },
-        "required": ["schema_version", "state", "result", "requests"],
-        "additionalProperties": False,
-    }

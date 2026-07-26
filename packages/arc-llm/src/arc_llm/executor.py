@@ -55,18 +55,12 @@ from .host import (
     HostRequest,
     HostResponse,
     broker_execution_document,
-    decode_host_response,
+    decode_host_continuation,
     decode_host_turn,
     effective_host_mode,
     encode_host_turn,
-    host_response_document,
+    host_continuation_document,
     host_turn_schema,
-)
-from .interaction import (
-    decode_interactive_turn,
-    encode_interactive_turn,
-    response_document,
-    validate_responses,
 )
 from .outcome import (
     LLMStopped,
@@ -111,9 +105,6 @@ from .recovery import (
 )
 from .request import (
     RESUME_SCHEMA_VERSION,
-    InteractionProgress,
-    InteractiveJsonOutput,
-    InteractionResponse,
     LLMExecutionOptions,
     LLMRequest,
     JsonOutput,
@@ -136,16 +127,7 @@ from .schema_formatter import (
     select_formatting_source,
 )
 
-HANDLER_NAME = "arc.llm.task.v3"
-_INTERACTIVE_PROGRESS_GUIDANCE = (
-    "Interactive operation policy (arc.llm.interactive_prompt.v1): Request an "
-    "operation only when its expected result would reasonably advance the task. "
-    "Gaining information, verifying a claim, reducing uncertainty, negative "
-    "results, ruling out hypotheses, and retries that recover from failed or "
-    "ambiguous operations all count as progress. Do not repeat a request without "
-    "a concrete reason. Return a complete result when no further operation has "
-    "a concrete expected contribution to the task."
-)
+HANDLER_NAME = "arc.llm.task.v4"
 class LLMTaskExecutor:
     def __init__(self, registry: ProviderRegistry | None = None) -> None:
         self.registry = registry or default_registry()
@@ -217,9 +199,9 @@ class LLMTaskExecutor:
                 )
             except ArcLLMError as exc:
                 return LLMFailed(exc)
-            if state.pending_interaction is not None:
+            if state.pending_host_turn is not None:
                 try:
-                    return self._resolve_pending_interaction(
+                    return self._resolve_pending_host_turn(
                         context,
                         durable_request,
                         state,
@@ -233,7 +215,7 @@ class LLMTaskExecutor:
                 except Exception as exc:
                     return LLMFailed(
                         ProviderFailure(
-                            f"Interactive resolution failed locally: {exc}",
+                            f"Host-turn resolution failed locally: {exc}",
                             category=FailureCategory.LOCAL_IO,
                             delivery=DeliveryState.NOT_DELIVERED,
                         )
@@ -405,12 +387,12 @@ class LLMTaskExecutor:
             )
             self._prepare_effect(context, request, state, options=options)
             return self._drive(context, request, state, store, options)
-        if state.pending_interaction is not None:
+        if state.pending_host_turn is not None:
             if input is None or input.action is not ResumeAction.CONTINUE:
                 return LLMFailed(
-                    InvalidRequestError("Pending interaction requires continue responses.")
+                    InvalidRequestError("Pending host turn requires a continue input.")
                 )
-            return self._resume_interaction(context, request, state, store, input, options)
+            return self._resume_host_turn(context, request, state, store, input, options)
         state = replace(state, revision=state.revision + 1, pause=None)
         store.compare_and_swap(state.revision - 1, state)
         return self._drive(context, request, state, store, options)
@@ -511,7 +493,7 @@ class LLMTaskExecutor:
                 effect = context.effects.read(state.current.effect_id)
                 continuation_prompt: str | None = None
                 if effect is None:
-                    continuation_prompt = self._prepared_interaction_prompt(
+                    continuation_prompt = self._prepared_host_turn_prompt(
                         context, state
                     )
                     self._prepare_effect(
@@ -524,7 +506,7 @@ class LLMTaskExecutor:
                     effect = context.effects.read(state.current.effect_id)
                 assert effect is not None
                 if effect.stage in {EffectStage.PREPARED, EffectStage.MAY_HAVE_RUN}:
-                    continuation_prompt = self._prepared_interaction_prompt(
+                    continuation_prompt = self._prepared_host_turn_prompt(
                         context, state
                     )
                     if (
@@ -801,7 +783,7 @@ class LLMTaskExecutor:
         raw_ref = scoped.publish_json(
             (
                 f"generations/{state.current_generation}/raw-responses/"
-                f"{state.interaction_round}.json"
+                f"{state.host_turn_round}.json"
             ),
             raw_doc,
         )
@@ -936,21 +918,10 @@ class LLMTaskExecutor:
         if self._uses_host_turn(request, options):
             turn = decode_host_turn(
                 value,
-                seen_request_ids=set(current.seen_request_ids),
+                seen_host_request_ids=set(current.seen_host_request_ids),
             )
             if turn.state == "request_host":
                 return self._handle_host_turn(
-                    context, request, current, store, turn, execution, options
-                )
-            value = turn.result
-        elif isinstance(request.output, InteractiveJsonOutput):
-            turn = decode_interactive_turn(
-                value,
-                request.output,
-                seen_request_ids=set(current.seen_request_ids),
-            )
-            if turn.state == "interact":
-                return self._handle_interaction(
                     context, request, current, store, turn, execution, options
                 )
             value = turn.result
@@ -992,7 +963,6 @@ class LLMTaskExecutor:
                 options.limits,
                 automatic_replacement_limit=0,
             ),
-            interaction_resolver=None,
         )
         formatter_executor = LLMTaskExecutor(self.registry)
         formatter_store = formatter_executor._task_store(context, task_id)
@@ -1222,201 +1192,6 @@ class LLMTaskExecutor:
         assert outcome is not None
         return outcome
 
-    def _handle_interaction(
-        self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
-        store: Any,
-        turn: Any,
-        execution: ProviderExecution,
-        options: LLMExecutionOptions,
-    ) -> LLMTaskOutcome:
-        assert isinstance(request.output, InteractiveJsonOutput)
-        scoped = self._artifacts(context, state.semantic_key)
-        next_round = state.interaction_round + 1
-        turn_ref = scoped.publish_json(
-            f"interactions/{next_round}/request.json",
-            encode_interactive_turn(turn),
-        )
-        current = store.read() or state
-        context.effects.commit(current.current.effect_id)
-        current_generation = replace(
-            current.current,
-            effect_id=effect_id_for(
-                current.task_id,
-                current.current_generation,
-                next_round,
-            ),
-        )
-        next_state = replace(
-            current,
-            revision=current.revision + 1,
-            generations=current.generations[:-1] + (current_generation,),
-            interaction_round=next_round,
-            pending_interaction=turn_ref,
-            seen_request_ids=current.seen_request_ids
-            + tuple(item.request_id for item in turn.requests),
-        )
-        store.compare_and_swap(next_state.revision - 1, next_state)
-        resolver = options.interaction_resolver
-        if resolver is None:
-            return self._pause(
-                store,
-                next_state,
-                ResumeReason.INTERACTION_REQUIRED,
-                "operation_requests_pending",
-                input_required=True,
-                request_ref=turn_ref,
-            )
-        return self._resolve_pending_turn(
-            context,
-            request,
-            next_state,
-            store,
-            turn,
-            options,
-        )
-
-    def _resolve_pending_interaction(
-        self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
-        store: Any,
-        options: LLMExecutionOptions,
-    ) -> LLMTaskOutcome:
-        if self._uses_host_turn(request, options):
-            return self._resolve_pending_host_turn(
-                context, request, state, store, options
-            )
-        assert isinstance(request.output, InteractiveJsonOutput)
-        assert state.pending_interaction is not None
-        resolver = options.interaction_resolver
-        if resolver is None:
-            return self._pause(
-                store,
-                state,
-                ResumeReason.INTERACTION_REQUIRED,
-                "operation_requests_pending",
-                input_required=True,
-                request_ref=state.pending_interaction,
-            )
-        raw = context.artifacts.read_bytes(state.pending_interaction)
-        turn = decode_interactive_turn(
-            json.loads(raw.decode("utf-8")),
-            request.output,
-        )
-        request_ids = {item.request_id for item in turn.requests}
-        if not request_ids.issubset(state.seen_request_ids):
-            raise CorruptTaskStateError(
-                "Pending interaction is inconsistent with recorded request IDs."
-            )
-        return self._resolve_pending_turn(
-            context,
-            request,
-            state,
-            store,
-            turn,
-            options,
-        )
-
-    def _resolve_pending_turn(
-        self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
-        store: Any,
-        turn: Any,
-        options: LLMExecutionOptions,
-    ) -> LLMTaskOutcome:
-        resolver = options.interaction_resolver
-        assert resolver is not None
-        operation_names = tuple(item.operation for item in turn.requests)
-        self._observe_interaction(
-            options,
-            InteractionProgress(
-                stage="requested",
-                interaction_round=state.interaction_round,
-                operation_names=operation_names,
-                request_count=len(turn.requests),
-                error_count=0,
-            ),
-        )
-        responses: list[InteractionResponse] = []
-        try:
-            for item in turn.requests:
-                context.checkpoint()
-                try:
-                    responses.append(resolver.resolve(item))
-                finally:
-                    context.checkpoint()
-        except StoppedError:
-            raise
-        except Exception:
-            self._observe_interaction(
-                options,
-                InteractionProgress(
-                    stage="resolved",
-                    interaction_round=state.interaction_round,
-                    operation_names=operation_names,
-                    request_count=len(turn.requests),
-                    error_count=min(
-                        len(turn.requests),
-                        sum(response.error is not None for response in responses) + 1,
-                    ),
-                ),
-            )
-            raise
-        self._observe_interaction(
-            options,
-            InteractionProgress(
-                stage="resolved",
-                interaction_round=state.interaction_round,
-                operation_names=operation_names,
-                request_count=len(turn.requests),
-                error_count=sum(
-                    response.error is not None for response in responses
-                ),
-            ),
-        )
-        resume_input = ResumeInput(
-            resume_key=f"internal-{state.revision}",
-            action=ResumeAction.CONTINUE,
-            responses=tuple(responses),
-        )
-        return self._continue_interaction(
-            context, request, state, store, resume_input, options
-        )
-
-    @staticmethod
-    def _observe_interaction(
-        options: LLMExecutionOptions,
-        progress: InteractionProgress,
-    ) -> None:
-        observer = options.interaction_observer
-        if observer is None:
-            return
-        try:
-            observer(progress)
-        except Exception:
-            pass
-
-    def _resume_interaction(
-        self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
-        store: Any,
-        input: ResumeInput,
-        options: LLMExecutionOptions,
-    ) -> LLMTaskOutcome:
-        if self._uses_host_turn(request, options):
-            return self._resume_host_turn(context, request, state, store, input, options)
-        state = replace(state, revision=state.revision + 1, pause=None)
-        store.compare_and_swap(state.revision - 1, state)
-        return self._continue_interaction(context, request, state, store, input, options)
-
     def _handle_host_turn(
         self,
         context: Any,
@@ -1430,9 +1205,9 @@ class LLMTaskExecutor:
         del execution
         assert turn.request is not None
         scoped = self._artifacts(context, state.semantic_key)
-        next_round = state.interaction_round + 1
+        next_round = state.host_turn_round + 1
         turn_ref = scoped.publish_json(
-            f"interactions/{next_round}/request.json",
+            f"host-turns/{next_round}/request.json",
             encode_host_turn(turn),
         )
         current = store.read() or state
@@ -1449,16 +1224,17 @@ class LLMTaskExecutor:
             current,
             revision=current.revision + 1,
             generations=current.generations[:-1] + (generation,),
-            interaction_round=next_round,
-            pending_interaction=turn_ref,
-            seen_request_ids=current.seen_request_ids + (turn.request.request_id,),
+            host_turn_round=next_round,
+            pending_host_turn=turn_ref,
+            seen_host_request_ids=current.seen_host_request_ids
+            + (turn.request.request_id,),
         )
         store.compare_and_swap(next_state.revision - 1, next_state)
         if options.host_broker is None:
             return self._pause(
                 store,
                 next_state,
-                ResumeReason.INTERACTION_REQUIRED,
+                ResumeReason.SUPERVISION_REQUIRED,
                 "host_broker_required",
                 input_required=True,
                 request_ref=turn_ref,
@@ -1475,17 +1251,17 @@ class LLMTaskExecutor:
         store: Any,
         options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
-        assert state.pending_interaction is not None
+        assert state.pending_host_turn is not None
         if options.host_broker is None:
             return self._pause(
                 store,
                 state,
-                ResumeReason.INTERACTION_REQUIRED,
+                ResumeReason.SUPERVISION_REQUIRED,
                 "host_broker_required",
                 input_required=True,
-                request_ref=state.pending_interaction,
+                request_ref=state.pending_host_turn,
         )
-        raw = context.artifacts.read_bytes(state.pending_interaction)
+        raw = context.artifacts.read_bytes(state.pending_host_turn)
         turn = decode_host_turn(json.loads(raw.decode("utf-8")))
         assert turn.request is not None
         workspace = self._prepare_workspace(context, request, state, options=options)
@@ -1515,23 +1291,19 @@ class LLMTaskExecutor:
         input: ResumeInput,
         options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
-        assert state.pending_interaction is not None
-        raw = context.artifacts.read_bytes(state.pending_interaction)
+        assert state.pending_host_turn is not None
+        raw = context.artifacts.read_bytes(state.pending_host_turn)
         turn = decode_host_turn(json.loads(raw.decode("utf-8")))
         assert turn.request is not None
-        if len(input.responses) != 1 or input.responses[0].request_id != turn.request.request_id:
+        response = input.host_response
+        if response is None:
             return LLMFailed(
-                InvalidRequestError("Host-turn resume requires one matching host response.")
+                InvalidRequestError("Host-turn resume requires a host_response.")
             )
-        supplied = input.responses[0]
-        if supplied.error is not None:
+        if input.action is not ResumeAction.CONTINUE:
             return LLMFailed(
-                InvalidRequestError("Host-turn responses must use a host response document.")
+                InvalidRequestError("Host-turn resume requires continue.")
             )
-        try:
-            response = decode_host_response(supplied.result)
-        except InvalidRequestError as exc:
-            return LLMFailed(exc)
         workspace = self._prepare_workspace(context, request, state, options=options)
         try:
             self._validate_host_files(workspace, response)
@@ -1553,106 +1325,21 @@ class LLMTaskExecutor:
         host_response: HostResponse,
         options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
-        response = InteractionResponse(
-            host_request.request_id,
-            result=host_response_document(host_response),
-        )
         scoped = self._artifacts(context, state.semantic_key)
-        document = response_document((response,))
+        document = host_continuation_document(host_request.request_id, host_response)
         scoped.publish_json(
-            f"interactions/{state.interaction_round}/response.json",
+            f"host-turns/{state.host_turn_round}/continuation.json",
             document,
         )
         next_state = replace(
             state,
             revision=state.revision + 1,
-            pending_interaction=None,
+            pending_host_turn=None,
             pause=None,
         )
         store.compare_and_swap(state.revision, next_state)
         adapter = self.registry.create(next_state.resolved_provider or "")
         prompt = canonical_json_bytes(document).decode("utf-8")
-        self._prepare_effect(
-            context, request, next_state, options=options, prompt=prompt
-        )
-        try:
-            execution = self._call_resume(
-                context,
-                request,
-                next_state,
-                store,
-                adapter,
-                options,
-                prompt=prompt,
-                count_recovery=False,
-            )
-        except ProviderFailure as exc:
-            outcome = self._provider_failure(
-                context, request, store.read() or next_state, store, exc, options
-            )
-            return outcome or self._drive(
-                context, request, store.read() or next_state, store, options
-            )
-        if execution.terminal_kind is ProviderTerminalKind.FAILED:
-            assert execution.failure is not None
-            outcome = self._provider_failure(
-                context,
-                request,
-                store.read() or next_state,
-                store,
-                execution.failure,
-                options,
-            )
-            return outcome or self._drive(
-                context, request, store.read() or next_state, store, options
-            )
-        if execution.terminal_kind is ProviderTerminalKind.STOPPED:
-            return LLMStopped()
-        outcome = self._consume_execution(
-            context,
-            request,
-            store.read() or next_state,
-            store,
-            execution,
-            options,
-        )
-        return outcome or self._drive(
-            context, request, store.read() or next_state, store, options
-        )
-
-    def _continue_interaction(
-        self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
-        store: Any,
-        input: ResumeInput,
-        options: LLMExecutionOptions,
-    ) -> LLMTaskOutcome:
-        assert isinstance(request.output, InteractiveJsonOutput)
-        assert state.pending_interaction is not None
-        raw = context.artifacts.read_bytes(state.pending_interaction)
-        turn = decode_interactive_turn(
-            json.loads(raw.decode("utf-8")),
-            request.output,
-            seen_request_ids=set(state.seen_request_ids)
-            - set(item.request_id for item in input.responses),
-        )
-        responses = validate_responses(turn, input.responses, request.output)
-        scoped = self._artifacts(context, state.semantic_key)
-        scoped.publish_json(
-            f"interactions/{state.interaction_round}/response.json",
-            response_document(responses),
-        )
-        next_state = replace(
-            state,
-            revision=state.revision + 1,
-            pending_interaction=None,
-            pause=None,
-        )
-        store.compare_and_swap(state.revision, next_state)
-        adapter = self.registry.create(next_state.resolved_provider or "")
-        prompt = canonical_json_bytes(response_document(responses)).decode("utf-8")
         self._prepare_effect(
             context, request, next_state, options=options, prompt=prompt
         )
@@ -1824,7 +1511,7 @@ class LLMTaskExecutor:
         execution: ProviderExecution,
         options: LLMExecutionOptions,
     ) -> LLMCompleted:
-        validate_value(value, request.output if not isinstance(request.output, InteractiveJsonOutput) else _result_contract(request.output))
+        validate_value(value, request.output)
         scoped = self._artifacts(context, state.semantic_key)
         if isinstance(request.output, TextOutput):
             ref = scoped.publish_bytes(
@@ -1852,7 +1539,7 @@ class LLMTaskExecutor:
             revision=current.revision + 1,
             accepted=accepted,
             pause=None,
-            pending_interaction=None,
+            pending_host_turn=None,
         )
         store.compare_and_swap(current.revision, next_state)
         context.effects.commit(current.current.effect_id)
@@ -1893,7 +1580,7 @@ class LLMTaskExecutor:
             try:
                 turn = decode_host_turn(
                     value,
-                    seen_request_ids=set(state.seen_request_ids),
+                    seen_host_request_ids=set(state.seen_host_request_ids),
                 )
             except ArcLLMError as exc:
                 return LLMFailed(exc)
@@ -1944,12 +1631,7 @@ class LLMTaskExecutor:
         try:
             content = context.artifacts.read_bytes(state.accepted.artifact_ref)
             value = self._decode_artifact_value(content, request)
-            validate_value(
-                value,
-                request.output
-                if not isinstance(request.output, InteractiveJsonOutput)
-                else _result_contract(request.output),
-            )
+            validate_value(value, request.output)
             if state.accepted.origin is AcceptedOrigin.PROVIDER:
                 context.effects.commit(state.current.effect_id)
             session = None
@@ -2057,73 +1739,54 @@ class LLMTaskExecutor:
                 f"{internet}Request the host only when needed. After a refused request, do not "
                 "repeat the same request until its retry_condition has changed."
             )
-        if not isinstance(request.output, InteractiveJsonOutput):
-            return request.prompt
-        return f"{request.prompt}\n\n{_INTERACTIVE_PROGRESS_GUIDANCE}"
+        return request.prompt
 
-    def _prepared_interaction_prompt(
+    def _prepared_host_turn_prompt(
         self,
         context: Any,
         state: LLMTaskState,
     ) -> str | None:
-        if state.interaction_round == 0:
+        if state.host_turn_round == 0:
             return None
         base_effect_id = effect_id_for(state.task_id, state.current_generation)
         expected_effect_id = effect_id_for(
             state.task_id,
             state.current_generation,
-            state.interaction_round,
+            state.host_turn_round,
         )
         if state.current.effect_id == base_effect_id:
             return None
         if state.current.effect_id != expected_effect_id:
             raise CorruptTaskStateError(
-                "Interactive continuation effect does not match its persisted round."
+                "Host-turn continuation effect does not match its persisted round."
             )
-        if state.pending_interaction is not None:
+        if state.pending_host_turn is not None:
             raise CorruptTaskStateError(
-                "Interactive continuation has no persisted response artifact."
+                "Host-turn continuation has no persisted response artifact."
             )
         scoped = self._artifacts(context, state.semantic_key)
         try:
             ref = scoped.find(
-                f"interactions/{state.interaction_round}/response.json"
+                f"host-turns/{state.host_turn_round}/continuation.json"
             )
             if ref is None:
-                raise ValueError("response artifact is missing")
+                raise ValueError("continuation artifact is missing")
             document = json.loads(scoped.read_bytes(ref).decode("utf-8"))
-            if not isinstance(document, Mapping) or set(document) != {
-                "schema_version",
-                "responses",
-            }:
-                raise ValueError("response artifact has an invalid closed shape")
-            if document["schema_version"] != "arc.llm.interaction_response.v1":
-                raise ValueError("response artifact has an unsupported schema")
-            raw_responses = document["responses"]
-            if not isinstance(raw_responses, list):
-                raise ValueError("response artifact responses are not an array")
-            responses = []
-            for raw in raw_responses:
-                if not isinstance(raw, Mapping) or set(raw) != {
-                    "request_id",
-                    "result",
-                    "error",
-                }:
-                    raise ValueError("response artifact contains an invalid response")
-                responses.append(
-                    InteractionResponse(raw["request_id"], raw["result"], raw["error"])
-                )
-            canonical_document = response_document(tuple(responses))
+            continuation = decode_host_continuation(document)
+            canonical_document = host_continuation_document(
+                continuation.request_id,
+                continuation.response,
+            )
             if document != canonical_document:
-                raise ValueError("response artifact is not canonical")
+                raise ValueError("continuation artifact is not canonical")
             return canonical_json_bytes(canonical_document).decode("utf-8")
         except ArcLLMError as exc:
             raise CorruptTaskStateError(
-                "Interactive continuation response artifact is corrupt."
+                "Host-turn continuation artifact is corrupt."
             ) from exc
         except Exception as exc:
             raise CorruptTaskStateError(
-                "Interactive continuation response artifact is corrupt."
+                "Host-turn continuation artifact is corrupt."
             ) from exc
 
     def _execution_document(
@@ -2208,11 +1871,7 @@ class LLMTaskExecutor:
                 "After a refused host request, do not repeat the same request until "
                 "its retry_condition has changed."
             )
-        return (
-            _INTERACTIVE_PROGRESS_GUIDANCE
-            if isinstance(request.output, InteractiveJsonOutput)
-            else None
-        )
+        return None
 
     def _resolve_model(self, request: LLMRequest) -> Any:
         return resolve_model_selection(request.model, available=self.registry.names())
@@ -2356,7 +2015,7 @@ class LLMTaskExecutor:
 
         continuation_path = None
         if continuation_prompt is not None:
-            continuation_path = "host/interaction-response.json"
+            continuation_path = "host/continuation.json"
             self._publish_workspace_file(
                 workspace / continuation_path,
                 continuation_prompt.encode("utf-8"),
@@ -2870,9 +2529,3 @@ def _provider_material_error(message: str) -> CorruptTaskStateError:
         message,
         details={"code": "provider_material_corrupt"},
     )
-
-
-def _result_contract(contract: InteractiveJsonOutput) -> Any:
-    from .request import JsonOutput
-
-    return JsonOutput(contract.result_schema, repair="strict")

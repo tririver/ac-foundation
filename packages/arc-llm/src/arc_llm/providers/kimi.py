@@ -1,6 +1,6 @@
 """Kimi CLI print-mode adapter.
 
-Kimi's local CLI is invoked in its non-interactive print mode.  The executor
+Kimi's local CLI is invoked in its one-shot print mode. The executor
 places the task contract and verified inputs in the generation workspace; this
 adapter never serializes artifacts into a provider-specific protocol.
 """
