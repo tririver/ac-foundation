@@ -12,7 +12,8 @@ Run one typed request in an explicit durable root:
 ```bash
 arc-llm generate \
   --request local/example/request.json \
-  --run-root local/example/llm
+  --run-root local/example/.arc/llm \
+  --host-authority unknown
 ```
 
 Use `arc-llm --help` and `arc-llm generate --help` for the request contract,
@@ -28,7 +29,7 @@ from pathlib import Path
 from arc_llm import LLMClient, LLMRequest, TextOutput
 
 request = LLMRequest("summary-1", "Summarize the argument.", TextOutput())
-result = LLMClient().generate(request, run_root=Path("local/example/llm"))
+result = LLMClient().generate(request, run_root=Path("local/example/.arc/llm"))
 ```
 
 Package workflows that already have an `arc_jobs.RunContext` should use
