@@ -10,8 +10,14 @@ any particular agent host or checked-out Skill.
   documented CLI or public API when the Skill is unavailable.
 - Read `packages/` for implementation and package-local `tests/` for focused
   tests. Use repository `tests/` for cross-package contracts.
-- Put development runs, previews, logs, and generated artifacts in ignored
-  `local/` paths unless the user supplies an external project directory.
+- Inside this checkout, put every non-source task artifact in an ignored
+  `local/` path: development runs, temporary extraction or conversion files,
+  render previews, logs, command results, generated artifacts, and evaluation
+  output. Do not create top-level `tmp/`, `output/`, `results/`, or similar
+  task-data directories. Generic tool or Skill output conventions do not
+  override this repository rule. The only exceptions are a project directory
+  explicitly supplied by the user and the documented ARC shared runtime and
+  paper-cache roots.
 
 Workflows:
 
@@ -123,8 +129,11 @@ Packages:
   separate approval when required; update their producers, consumers,
   validation, tests, and docs together.
 - Treat the worktree as shared: preserve others' changes, inspect status and
-  diffs, stage intended paths or hunks, and commit each verified functional
-  change promptly unless the user asks otherwise.
+  diffs, and stage only intended paths or hunks.
+- After a functional change passes its relevant validation, commit it before
+  starting the next functional change or handing work back to the user, unless
+  the user explicitly asks not to commit. Do not leave validated changes
+  uncommitted merely because unrelated worktree changes are present.
 - Do not revert, rewrite, discard, or absorb another agent's work to isolate a
   commit; do not wait for a globally clean worktree or repeatedly diff-chase for
   perfect commit purity.
