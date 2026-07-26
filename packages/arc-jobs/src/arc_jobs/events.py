@@ -251,5 +251,10 @@ class EventWriter:
                 documents.append(value)
         return tuple(documents)
 
+    def read_all(self) -> tuple[dict[str, JsonValue], ...]:
+        """Return every complete event after validating the full log."""
+
+        return tuple(self._complete_documents())
+
     def validate(self) -> None:
         self._complete_documents()

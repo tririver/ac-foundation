@@ -143,6 +143,17 @@ def test_event_writer_roundtrips_arbitrary_progress_bodies(tmp_path):
     writer.validate()
 
 
+def test_event_writer_reads_and_validates_complete_history(tmp_path):
+    path = tmp_path / "events.jsonl"
+    writer = EventWriter(path, run_id="run-1")
+    writer.emit("first", {"value": 1})
+    writer.emit("second", {"value": 2})
+
+    assert [
+        item["event"] for item in writer.read_all()
+    ] == ["first", "second"]
+
+
 def test_event_sink_observes_fsynced_event_after_lock_release(tmp_path):
     path = tmp_path / "events.jsonl"
     observed = []
