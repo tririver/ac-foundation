@@ -226,7 +226,7 @@ def test_run_engine_ignores_event_sink_failures(tmp_path):
         repository.run_directory("run-1") / "events.jsonl",
         run_id="run-1",
     ).tail()
-    assert "progress_sink_failed" in [event["event"] for event in events]
+    assert [event["event"] for event in events].count("progress_sink_failed") == 1
     assert repository.validate("run-1").ok
 
 

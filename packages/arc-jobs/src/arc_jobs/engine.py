@@ -24,7 +24,7 @@ from .errors import (
     StoppedError,
     UnsupportedSchemaError,
 )
-from .events import EventSink, EventWriter
+from .events import EventSink, EventWriter, _SinkFailureState
 from .groups import WorkGroupRunner, inspect_group
 from .identity import canonical_json_bytes, semantic_key, validate_simple_id
 from .lease import FileLease
@@ -623,6 +623,7 @@ class RunContext:
         *,
         resume_input: Mapping[str, JsonValue] | None,
         event_sink: EventSink | None = None,
+        _sink_failure_state: _SinkFailureState | None = None,
     ):
         self.repository = repository
         self.run_id = snapshot.run_id
@@ -639,6 +640,7 @@ class RunContext:
             self.run_directory / "events.jsonl",
             run_id=self.run_id,
             event_sink=event_sink,
+            _sink_failure_state=_sink_failure_state,
         )
         self.artifacts = ImmutableArtifactStore(
             self.run_directory, repository_root=repository.root
@@ -787,10 +789,12 @@ class RunEngine:
         run_directory = self.repository.run_directory(run_id)
         lease = FileLease(run_directory / "lease.lock").acquire()
         store = self.repository._snapshot_store(run_id)
+        sink_failure_state = _SinkFailureState()
         events = EventWriter(
             run_directory / "events.jsonl",
             run_id=run_id,
             event_sink=event_sink,
+            _sink_failure_state=sink_failure_state,
         )
         try:
             snapshot = store.read()
@@ -868,6 +872,7 @@ class RunEngine:
                 snapshot,
                 resume_input=resume_input,
                 event_sink=event_sink,
+                _sink_failure_state=sink_failure_state,
             )
             try:
                 context.checkpoint()

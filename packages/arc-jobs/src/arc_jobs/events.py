@@ -19,6 +19,21 @@ MAX_TAIL_BYTES = 1024 * 1024
 EventSink: TypeAlias = Callable[[Mapping[str, JsonValue]], None]
 
 
+class _SinkFailureState:
+    """Suppress repeated diagnostics across writers in one runtime execution."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._reported = False
+
+    def claim_report(self) -> bool:
+        with self._lock:
+            if self._reported:
+                return False
+            self._reported = True
+            return True
+
+
 class EventWriter:
     def __init__(
         self,
@@ -26,12 +41,12 @@ class EventWriter:
         *,
         run_id: str,
         event_sink: EventSink | None = None,
+        _sink_failure_state: _SinkFailureState | None = None,
     ):
         self.path = path
         self.run_id = validate_simple_id(run_id, label="run id")
         self._event_sink = event_sink
-        self._sink_failure_lock = threading.Lock()
-        self._sink_failure_reported = False
+        self._sink_failure_state = _sink_failure_state or _SinkFailureState()
         self._last_sequence: int | None = None
         self._last_size: int | None = None
 
@@ -198,12 +213,7 @@ class EventWriter:
         try:
             self._event_sink(document)
         except Exception as exc:
-            report_failure = False
-            with self._sink_failure_lock:
-                if not self._sink_failure_reported:
-                    self._sink_failure_reported = True
-                    report_failure = True
-            if report_failure:
+            if self._sink_failure_state.claim_report():
                 try:
                     self._append(
                         "progress_sink_failed",
