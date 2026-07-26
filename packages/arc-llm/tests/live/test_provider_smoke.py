@@ -77,12 +77,7 @@ def test_live_provider_strict_json_continuation_and_local_replay() -> None:
     )
     service = LLMTaskService()
     options = LLMExecutionOptions(
-        limits=ExecutionLimits(
-            idle_timeout_seconds=120,
-            safe_retry_limit=0,
-            native_resume_limit=0,
-            automatic_replacement_limit=0,
-        ),
+        limits=ExecutionLimits(idle_timeout_seconds=120),
         gate=ProviderGateOptions(global_limit=1),
     )
     contract = JsonOutput(

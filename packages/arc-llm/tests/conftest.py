@@ -6,7 +6,6 @@ from typing import Any
 import pytest
 
 from arc_llm import (
-    DeliveryState,
     FailureCategory,
     IsolationMode,
     NativeResumeHandle,
@@ -54,7 +53,6 @@ class ScriptedAdapter:
     def start(self, request: Any, observer: Any, stop: Any) -> ProviderExecution:
         self.start_calls += 1
         self.requests.append(request)
-        observer.before_delivery()
         return self._next(request, observer)
 
     def resume(
@@ -62,7 +60,6 @@ class ScriptedAdapter:
     ) -> ProviderExecution:
         self.resume_calls += 1
         self.requests.append(request)
-        observer.before_delivery()
         return self._next(request, observer)
 
     def _next(self, request: Any, observer: Any) -> ProviderExecution:
@@ -134,5 +131,4 @@ def may_have_run_failure(message: str = "connection lost") -> ProviderFailure:
     return ProviderFailure(
         message,
         category=FailureCategory.TRANSPORT,
-        delivery=DeliveryState.MAY_HAVE_RUN,
     )

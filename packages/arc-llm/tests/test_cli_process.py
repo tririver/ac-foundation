@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from arc_llm import (
-    DeliveryState,
     FailureCategory,
     LLMRequest,
     ModelSelection,
@@ -248,8 +247,7 @@ def test_cli_semantic_conflict_is_failed_even_when_existing_run_succeeded(
     assert result["error"]["code"] == "idempotency_conflict"
 
 
-def test_process_runner_drains_both_streams_and_calls_delivery_barrier() -> None:
-    barrier: list[str] = []
+def test_process_runner_drains_both_streams() -> None:
     result = ProcessRunner().run(
         [
             sys.executable,
@@ -261,13 +259,11 @@ def test_process_runner_drains_both_streams_and_calls_delivery_barrier() -> None
         env=None,
         cwd=Path.cwd(),
         idle_timeout_seconds=5,
-        before_stdin=lambda: barrier.append("before"),
         stop_check=lambda: None,
     )
     assert result.returncode == 0
     assert result.stdout == b"payload"
     assert result.stderr == b"diagnostic"
-    assert barrier == ["before"]
 
 
 def test_process_runner_starts_child_in_required_workspace(tmp_path: Path) -> None:
@@ -277,7 +273,6 @@ def test_process_runner_starts_child_in_required_workspace(tmp_path: Path) -> No
         env=None,
         cwd=tmp_path,
         idle_timeout_seconds=5,
-        before_stdin=lambda: None,
         stop_check=lambda: None,
     )
     assert Path(result.stdout.decode().strip()) == tmp_path
@@ -297,12 +292,10 @@ def test_process_creation_failure_is_not_delivered_and_unavailable(
             env={},
             cwd=Path.cwd(),
             idle_timeout_seconds=1,
-            before_stdin=lambda: None,
             stop_check=lambda: None,
         )
     except ProviderFailure as failure:
         assert failure.category is FailureCategory.UNAVAILABLE
-        assert failure.delivery is DeliveryState.NOT_DELIVERED
     else:
         raise AssertionError("process creation failure was not normalized")
 
@@ -315,12 +308,10 @@ def test_process_idle_timeout_terminates_and_reaps_provider() -> None:
             env=None,
             cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
-            before_stdin=lambda: None,
             stop_check=lambda: None,
         )
     except ProviderFailure as failure:
         assert failure.category is FailureCategory.TIMEOUT
-        assert failure.delivery is DeliveryState.MAY_HAVE_RUN
     else:
         raise AssertionError("idle provider was not terminated")
 
@@ -342,7 +333,6 @@ def test_process_allows_long_runtime_when_small_chunks_stay_active() -> None:
         env=None,
         cwd=Path.cwd(),
         idle_timeout_seconds=0.08,
-        before_stdin=lambda: None,
         stop_check=lambda: None,
         on_stdout=stdout_chunks.append,
         on_stderr=stderr_chunks.append,
@@ -363,7 +353,6 @@ def test_process_idle_timeout_covers_blocked_stdin_delivery() -> None:
             env=None,
             cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
-            before_stdin=lambda: None,
             stop_check=lambda: None,
         )
     assert caught.value.category is FailureCategory.TIMEOUT
@@ -380,7 +369,6 @@ def test_process_stop_remains_active_after_delivery() -> None:
             raise ProviderFailure(
                 "stopped",
                 category=FailureCategory.STOPPED,
-                delivery=DeliveryState.MAY_HAVE_RUN,
             )
 
     with pytest.raises(ProviderFailure) as caught:
@@ -390,11 +378,9 @@ def test_process_stop_remains_active_after_delivery() -> None:
             env=None,
             cwd=Path.cwd(),
             idle_timeout_seconds=5,
-            before_stdin=lambda: None,
             stop_check=stop,
         )
     assert caught.value.category is FailureCategory.STOPPED
-    assert caught.value.delivery is DeliveryState.MAY_HAVE_RUN
     assert checks >= 2
 
 
@@ -433,7 +419,6 @@ def test_timeout_terminates_descendant_after_group_leader_exits(
             env=None,
             cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
-            before_stdin=lambda: None,
             stop_check=lambda: None,
         )
     assert caught.value.category is FailureCategory.TIMEOUT
@@ -473,7 +458,6 @@ def test_timeout_force_kills_term_ignoring_descendant_after_leader_exit(
             env=None,
             cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
-            before_stdin=lambda: None,
             stop_check=lambda: None,
         )
     assert caught.value.category is FailureCategory.TIMEOUT

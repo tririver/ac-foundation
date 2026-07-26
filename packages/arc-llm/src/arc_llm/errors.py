@@ -43,12 +43,6 @@ class FailureCategory(StrEnum):
     INTERNAL = "internal"
 
 
-class DeliveryState(StrEnum):
-    NOT_DELIVERED = "not_delivered"
-    MAY_HAVE_RUN = "may_have_run"
-    OUTPUT_SAVED = "output_saved"
-
-
 class ArcLLMError(RuntimeError):
     """Base exception with a stable machine-readable code."""
 
@@ -113,14 +107,13 @@ class CandidateConflictError(ArcLLMError):
 
 
 class ProviderFailure(ArcLLMError):
-    """A normalized provider failure with delivery semantics."""
+    """A normalized provider failure."""
 
     def __init__(
         self,
         message: str,
         *,
         category: FailureCategory,
-        delivery: DeliveryState,
         retryable: bool = False,
         retry_after_seconds: float | None = None,
         details: Mapping[str, Any] | None = None,
@@ -140,7 +133,6 @@ class ProviderFailure(ArcLLMError):
         }[category]
         super().__init__(code, message, details=details)
         self.category = category
-        self.delivery = delivery
         self.retryable = retryable
         self.retry_after_seconds = retry_after_seconds
 

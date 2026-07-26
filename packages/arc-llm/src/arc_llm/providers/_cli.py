@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from ..errors import DeliveryState, FailureCategory, ProviderFailure
+from ..errors import FailureCategory, ProviderFailure
 from ..output import CandidateMaterial
 from .base import (
     NativeResumeHandle,
@@ -59,14 +59,12 @@ class EventAccumulator:
             raise ProviderFailure(
                 "Provider event stream has multiple terminal responses.",
                 category=FailureCategory.SCHEMA,
-                delivery=DeliveryState.MAY_HAVE_RUN,
                 details={"code": "invalid_terminal_closure"},
             )
         if not terminal:
             raise ProviderFailure(
                 "Provider event stream ended without terminal material.",
-                category=FailureCategory.SCHEMA,
-                delivery=DeliveryState.MAY_HAVE_RUN,
+                category=FailureCategory.TRANSPORT,
                 details={"code": "incomplete_terminal_closure"},
             )
 
@@ -150,7 +148,6 @@ def run_cli(
         env=os.environ if env is None else env,
         cwd=cwd,
         idle_timeout_seconds=timeout,
-        before_stdin=observer.before_delivery,
         stop_check=stop.raise_if_requested,
         on_stdout=accumulator.feed,
     )
@@ -234,7 +231,6 @@ def classify_cli_failure(stderr: str) -> ProviderFailure:
     return ProviderFailure(
         "Provider command failed.",
         category=category,
-        delivery=DeliveryState.MAY_HAVE_RUN,
         retryable=category in {FailureCategory.RATE_LIMIT, FailureCategory.TRANSPORT},
         retry_after_seconds=retry_after,
         details={"diagnostic": _redact_text(stderr[:4096])},

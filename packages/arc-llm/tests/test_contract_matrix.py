@@ -715,11 +715,11 @@ def test_identity_matrix_separates_semantics_execution_and_operations() -> None:
     assert execution_fingerprint(reordered) == recipe_fingerprint
 
     first_options = LLMExecutionOptions(
-        limits=ExecutionLimits(idle_timeout_seconds=1, safe_retry_limit=0),
+        limits=ExecutionLimits(idle_timeout_seconds=1),
         gate=ProviderGateOptions(global_limit=1, circuit_failure_threshold=1),
     )
     second_options = LLMExecutionOptions(
-        limits=ExecutionLimits(idle_timeout_seconds=900, safe_retry_limit=7),
+        limits=ExecutionLimits(idle_timeout_seconds=900),
         gate=ProviderGateOptions(
             global_limit=24,
             provider_limits={"codex": 2},

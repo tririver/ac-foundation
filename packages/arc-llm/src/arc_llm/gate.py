@@ -18,7 +18,7 @@ from arc_jobs import (
     StateConflictError,
 )
 
-from .errors import DeliveryState, FailureCategory, ProviderFailure
+from .errors import FailureCategory, ProviderFailure
 from .request import ProviderGateOptions
 
 _CIRCUIT_SCHEMA_VERSION = "arc.llm.provider_circuit.v1"
@@ -333,7 +333,6 @@ def _open_failure(state: _CircuitState, now: float) -> ProviderFailure:
     return ProviderFailure(
         "Provider circuit is open.",
         category=category,
-        delivery=DeliveryState.NOT_DELIVERED,
         retryable=True,
         details={
             "code": "provider_circuit_open",

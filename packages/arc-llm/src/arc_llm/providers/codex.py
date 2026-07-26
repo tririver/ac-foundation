@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..errors import DeliveryState, FailureCategory, ProviderFailure
+from ..errors import FailureCategory, ProviderFailure
 from ..output import CandidateMaterial
 from ._cli import _redact_text, executable_diagnostic, run_cli
 from .base import (
@@ -211,12 +211,10 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
         diagnostic = "Codex returned a terminal error event."
     if _is_invalid_request(code, message):
         category = FailureCategory.INVALID_REQUEST
-        delivery = DeliveryState.NOT_DELIVERED
         retryable = False
         failure_message = "Codex rejected the request."
     else:
         category = FailureCategory.TRANSPORT
-        delivery = DeliveryState.MAY_HAVE_RUN
         retryable = True
         failure_message = "Codex reported a failed turn."
     details: dict[str, Any] = {"diagnostic": _redact_text(diagnostic[:4096])}
@@ -227,7 +225,6 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
     return ProviderFailure(
         failure_message,
         category=category,
-        delivery=delivery,
         retryable=retryable,
         details=details,
     )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Mapping
@@ -10,7 +9,6 @@ from typing import Any, Mapping
 from arc_jobs import (
     ArtifactRef,
     CorruptStateError,
-    EffectStage,
     ExecutionFingerprint,
     JsonValue,
     SemanticKeyDigest,
@@ -19,7 +17,7 @@ from arc_jobs import (
     encode_artifact_ref,
 )
 
-TASK_SCHEMA_VERSION = "arc.llm.task.v4"
+TASK_SCHEMA_VERSION = "arc.llm.task.v6"
 SESSION_SCHEMA_VERSION = "arc.llm.session.v2"
 
 
@@ -50,16 +48,13 @@ class TaskPause:
 
 @dataclass(frozen=True)
 class GenerationRecord:
+    """The sole currently active provider generation for a task."""
+
     generation: int
-    effect_id: str
     execution: ExecutionFingerprint
     native_handle: str | None = None
     raw_response: ArtifactRef | None = None
-    replacement_of: int | None = None
-    replacement_reason: str | None = None
-    possible_duplicate_execution: bool = False
-    safe_retries: int = 0
-    native_resumes: int = 0
+    attempt_started: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,8 +64,7 @@ class LLMTaskState:
     semantic_key: SemanticKeyDigest
     resolved_provider: str | None
     resolved_model: str | None
-    current_generation: int
-    generations: tuple[GenerationRecord, ...]
+    generation: GenerationRecord | None
     request_ref: ArtifactRef
     accepted: AcceptedRecord | None = None
     session_key: str | None = None
@@ -81,9 +75,9 @@ class LLMTaskState:
 
     @property
     def current(self) -> GenerationRecord:
-        if not self.generations or self.generations[-1].generation != self.current_generation:
-            raise CorruptStateError("current generation is missing")
-        return self.generations[-1]
+        if self.generation is None:
+            raise CorruptStateError("current provider generation is missing")
+        return self.generation
 
 
 @dataclass(frozen=True)
@@ -107,68 +101,20 @@ class LLMSessionState:
     accepted_turn_records: tuple[AcceptedSessionTurn, ...]
 
 
-class RecoveryAction(StrEnum):
-    REPLAY_ACCEPTED = "replay_accepted"
-    RECOVER_SAVED_OUTPUT = "recover_saved_output"
-    START = "start"
-    NATIVE_RESUME = "native_resume"
-    REPLACE = "replace"
-    PAUSE_UNCERTAIN = "pause_uncertain"
-
-
-def decide_recovery(
-    state: LLMTaskState,
-    effect_stage: EffectStage,
-    *,
-    execution: ExecutionFingerprint,
-    supports_native_resume: bool,
-    safe_retry_limit: int,
-    native_resume_limit: int,
-    automatic_replacement_limit: int,
-) -> RecoveryAction:
-    if state.accepted is not None:
-        return RecoveryAction.REPLAY_ACCEPTED
-    current = state.current
-    if effect_stage in {EffectStage.OUTPUT_SAVED, EffectStage.COMMITTED}:
-        return RecoveryAction.RECOVER_SAVED_OUTPUT
-    if effect_stage is EffectStage.PREPARED:
-        if current.safe_retries <= safe_retry_limit:
-            return RecoveryAction.START
-        return RecoveryAction.PAUSE_UNCERTAIN
-    if current.execution == execution and current.native_handle and supports_native_resume:
-        if current.native_resumes < native_resume_limit:
-            return RecoveryAction.NATIVE_RESUME
-    return RecoveryAction.PAUSE_UNCERTAIN
-
-
-def replace_current(
+def fresh_generation(
     state: LLMTaskState,
     *,
     execution: ExecutionFingerprint,
-    reason: str,
-    possible_duplicate: bool,
 ) -> LLMTaskState:
-    generation = state.current_generation + 1
-    record = GenerationRecord(
-        generation,
-        effect_id_for(state.task_id, generation),
-        execution,
-        replacement_of=state.current_generation,
-        replacement_reason=reason,
-        possible_duplicate_execution=possible_duplicate,
-    )
+    generation = 1 if state.generation is None else state.current.generation + 1
     return replace(
         state,
         revision=state.revision + 1,
-        current_generation=generation,
-        generations=state.generations + (record,),
+        generation=GenerationRecord(generation, execution),
+        host_turn_round=0,
+        pending_host_turn=None,
+        seen_host_request_ids=(),
     )
-
-
-def effect_id_for(task_id: str, generation: int, host_turn_round: int = 0) -> str:
-    task_digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:24]
-    suffix = "" if host_turn_round == 0 else f"-h{host_turn_round}"
-    return f"llm-{task_digest}-g{generation}{suffix}"
 
 
 class TaskStateContract:
@@ -182,8 +128,9 @@ class TaskStateContract:
             "semantic_key_sha256": value.semantic_key.sha256,
             "resolved_provider": value.resolved_provider,
             "resolved_model": value.resolved_model,
-            "current_generation": value.current_generation,
-            "generations": [_generation_doc(item) for item in value.generations],
+            "generation": (
+                None if value.generation is None else _generation_doc(value.generation)
+            ),
             "request_ref": _ref_doc(value.request_ref),
             "accepted": _accepted_doc(value.accepted),
             "session_key": value.session_key,
@@ -201,8 +148,7 @@ class TaskStateContract:
             "semantic_key_sha256",
             "resolved_provider",
             "resolved_model",
-            "current_generation",
-            "generations",
+            "generation",
             "request_ref",
             "accepted",
             "session_key",
@@ -214,18 +160,17 @@ class TaskStateContract:
         _exact(document, required)
         if document["semantic_key_schema"] != "arc.llm.semantic_key.v3":
             raise CorruptStateError("unsupported LLM semantic key schema")
-        generations_doc = document["generations"]
         seen_doc = document["seen_host_request_ids"]
-        if not isinstance(generations_doc, list) or not isinstance(seen_doc, list):
-            raise CorruptStateError("invalid task state arrays")
+        if not isinstance(seen_doc, list):
+            raise CorruptStateError("host request IDs must be an array")
+        raw_generation = document["generation"]
         state = LLMTaskState(
             revision=_int(document["revision"], "revision"),
             task_id=_str(document["task_id"], "task_id"),
             semantic_key=SemanticKeyDigest(_str(document["semantic_key_sha256"], "semantic key")),
             resolved_provider=_nullable_str(document["resolved_provider"], "provider"),
             resolved_model=_nullable_str(document["resolved_model"], "model"),
-            current_generation=_int(document["current_generation"], "current generation"),
-            generations=tuple(_generation(item) for item in generations_doc),
+            generation=None if raw_generation is None else _generation(raw_generation),
             request_ref=_required_ref(document["request_ref"]),
             accepted=_accepted(document["accepted"]),
             session_key=_nullable_str(document["session_key"], "session key"),
@@ -251,16 +196,9 @@ class TaskStateContract:
             raise ValueError("Task identity is immutable.")
         if previous.accepted is not None and next.accepted != previous.accepted:
             raise ValueError("Accepted result is immutable.")
-        if next.current_generation < previous.current_generation:
-            raise ValueError("Generation cannot decrease.")
-        if next.generations[: len(previous.generations)] != previous.generations:
-            current_changed = (
-                len(next.generations) == len(previous.generations)
-                and next.generations[:-1] == previous.generations[:-1]
-            )
-            if not current_changed:
-                raise ValueError("Past generations are immutable.")
-
+        if previous.generation is not None and next.generation is not None:
+            if next.generation.generation < previous.generation.generation:
+                raise ValueError("Generation cannot decrease.")
 
 class SessionStateContract:
     schema_version = SESSION_SCHEMA_VERSION
@@ -385,22 +323,17 @@ def _validate_session(state: LLMSessionState) -> None:
 def _validate_task(state: LLMTaskState) -> None:
     if state.revision < 0:
         raise CorruptStateError("invalid task revision")
-    if not state.generations:
+    if state.generation is None:
         if (
-            state.current_generation != 0
-            or state.accepted is None
+            state.accepted is None
             or state.accepted.origin is not AcceptedOrigin.ADOPTED
         ):
             raise CorruptStateError("only an adopted task may have no provider generation")
         return
-    if state.current_generation < 1:
+    if state.generation.generation < 1:
         raise CorruptStateError("invalid task generation")
-    expected = tuple(range(1, len(state.generations) + 1))
-    actual = tuple(item.generation for item in state.generations)
-    if actual != expected or state.current_generation != actual[-1]:
-        raise CorruptStateError("task generations are not contiguous")
     if state.accepted is not None and state.accepted.generation is not None:
-        if state.accepted.generation > state.current_generation:
+        if state.accepted.generation > state.generation.generation:
             raise CorruptStateError("accepted generation does not exist")
     if len(set(state.seen_host_request_ids)) != len(state.seen_host_request_ids):
         raise CorruptStateError("duplicate seen host request IDs")
@@ -409,16 +342,11 @@ def _validate_task(state: LLMTaskState) -> None:
 def _generation_doc(value: GenerationRecord) -> dict[str, JsonValue]:
     return {
         "generation": value.generation,
-        "effect_id": value.effect_id,
         "execution_fingerprint_schema": value.execution.schema_version,
         "execution_fingerprint_sha256": value.execution.sha256,
         "native_handle": value.native_handle,
         "raw_response": _ref_doc(value.raw_response),
-        "replacement_of": value.replacement_of,
-        "replacement_reason": value.replacement_reason,
-        "possible_duplicate_execution": value.possible_duplicate_execution,
-        "safe_retries": value.safe_retries,
-        "native_resumes": value.native_resumes,
+        "attempt_started": value.attempt_started,
     }
 
 
@@ -429,35 +357,22 @@ def _generation(value: JsonValue) -> GenerationRecord:
         value,
         {
             "generation",
-            "effect_id",
             "execution_fingerprint_schema",
             "execution_fingerprint_sha256",
             "native_handle",
             "raw_response",
-            "replacement_of",
-            "replacement_reason",
-            "possible_duplicate_execution",
-            "safe_retries",
-            "native_resumes",
+            "attempt_started",
         },
     )
-    duplicate = value["possible_duplicate_execution"]
-    if not isinstance(duplicate, bool):
-        raise CorruptStateError("possible_duplicate_execution must be boolean")
     return GenerationRecord(
         _int(value["generation"], "generation"),
-        _str(value["effect_id"], "effect id"),
         ExecutionFingerprint(
             _str(value["execution_fingerprint_schema"], "execution schema"),
             _str(value["execution_fingerprint_sha256"], "execution digest"),
         ),
         _nullable_str(value["native_handle"], "native handle"),
         _ref(value["raw_response"]),
-        _nullable_int(value["replacement_of"], "replacement generation"),
-        _nullable_str(value["replacement_reason"], "replacement reason"),
-        duplicate,
-        _int(value["safe_retries"], "safe retries"),
-        _int(value["native_resumes"], "native resumes"),
+        _bool(value["attempt_started"], "attempt started"),
     )
 
 
@@ -596,3 +511,9 @@ def _int(value: Any, name: str) -> int:
 
 def _nullable_int(value: Any, name: str) -> int | None:
     return None if value is None else _int(value, name)
+
+
+def _bool(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise CorruptStateError(f"{name} must be a boolean")
+    return value

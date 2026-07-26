@@ -78,9 +78,6 @@ class ModelSelection:
 @dataclass(frozen=True)
 class ExecutionLimits:
     idle_timeout_seconds: float = 1800.0
-    safe_retry_limit: int = 1
-    native_resume_limit: int = 1
-    automatic_replacement_limit: int = 1
 
     def __post_init__(self) -> None:
         if (
@@ -89,14 +86,6 @@ class ExecutionLimits:
             or self.idle_timeout_seconds <= 0
         ):
             raise InvalidRequestError("idle_timeout_seconds must be positive.")
-        for name in (
-            "safe_retry_limit",
-            "native_resume_limit",
-            "automatic_replacement_limit",
-        ):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise InvalidRequestError(f"{name} must be a non-negative integer.")
 
 
 @dataclass(frozen=True)

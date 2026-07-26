@@ -12,11 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from ..errors import (
-    DeliveryState,
-    FailureCategory,
-    ProviderFailure,
-)
+from ..errors import FailureCategory, ProviderFailure
 
 
 @dataclass(frozen=True)
@@ -37,7 +33,6 @@ class ProcessRunner:
         env: Mapping[str, str] | None,
         cwd: Path,
         idle_timeout_seconds: float,
-        before_stdin: Callable[[], None],
         stop_check: Callable[[], None],
         on_stdout: Callable[[bytes], None] | None = None,
         on_stderr: Callable[[bytes], None] | None = None,
@@ -59,7 +54,6 @@ class ProcessRunner:
             raise ProviderFailure(
                 f"Unable to start provider process: {exc}",
                 category=FailureCategory.UNAVAILABLE,
-                delivery=DeliveryState.NOT_DELIVERED,
             ) from exc
 
         chunks: queue.Queue[tuple[str, bytes | None]] = queue.Queue()
@@ -84,7 +78,6 @@ class ProcessRunner:
 
         def write_stdin() -> None:
             try:
-                before_stdin()
                 assert process.stdin is not None
                 process.stdin.write(stdin)
                 process.stdin.flush()
@@ -119,7 +112,6 @@ class ProcessRunner:
                     failure = ProviderFailure(
                         "Provider produced no activity before the idle timeout.",
                         category=FailureCategory.TIMEOUT,
-                        delivery=DeliveryState.MAY_HAVE_RUN,
                     )
                     break
                 try:
@@ -153,7 +145,6 @@ class ProcessRunner:
             raise ProviderFailure(
                 f"Provider pipe failed: {errors[0]}",
                 category=FailureCategory.TRANSPORT,
-                delivery=DeliveryState.MAY_HAVE_RUN,
             )
         return ProcessResult(returncode, b"".join(stdout_parts), b"".join(stderr_parts))
 

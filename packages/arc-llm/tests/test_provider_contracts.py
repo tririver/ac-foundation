@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 
 from arc_llm import (
-    DeliveryState,
     NativeResumeHandle,
     OutputInvalidError,
     ProviderRequest,
@@ -25,11 +24,7 @@ from arc_llm.providers.registry import default_registry
 
 class Observer:
     def __init__(self) -> None:
-        self.deliveries = 0
         self.handles: list[NativeResumeHandle] = []
-
-    def before_delivery(self) -> None:
-        self.deliveries += 1
 
     def native_handle(self, handle: NativeResumeHandle) -> None:
         self.handles.append(handle)
@@ -40,8 +35,6 @@ class Observer:
     def progress(self, _kind: str, _data: Any) -> None:
         pass
 
-    def response_saved(self, _ref: Any) -> None:
-        pass
 
 
 class Stop:
@@ -67,7 +60,6 @@ class FakeRunner:
 
     def run(self, argv: Any, **kwargs: Any) -> ProcessResult:
         argv = list(argv)
-        kwargs["before_stdin"]()
         if "--output-schema" in argv:
             path = Path(argv[argv.index("--output-schema") + 1])
             if not path.is_absolute():
@@ -171,7 +163,6 @@ def test_codex_structured_invalid_request_is_not_delivered(tmp_path: Path) -> No
 
     assert execution.terminal_kind is ProviderTerminalKind.FAILED
     assert execution.failure is not None
-    assert execution.failure.delivery is DeliveryState.NOT_DELIVERED
     assert execution.failure.details["provider_code"] == "invalid_json_schema"
 
 

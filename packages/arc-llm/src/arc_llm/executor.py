@@ -14,8 +14,6 @@ from arc_jobs import (
     ArtifactRef,
     ArtifactSourceRef,
     BoundedLeasePool,
-    EffectRequestDigest,
-    EffectStage,
     ResumeReason,
     RevisionConflictError,
     SemanticKeyDigest,
@@ -31,7 +29,6 @@ from .errors import (
     ArcLLMError,
     CandidateConflictError,
     CorruptTaskStateError,
-    DeliveryState,
     FailureCategory,
     IdempotencyConflictError,
     InvalidRequestError,
@@ -46,7 +43,6 @@ from .identity import (
     document_sha256,
     execution_document,
     execution_fingerprint,
-    input_identity_document,
     semantic_document,
     semantic_key,
 )
@@ -95,13 +91,10 @@ from .recovery import (
     GenerationRecord,
     LLMTaskState,
     LLMSessionState,
-    RecoveryAction,
     SessionStateContract,
     TaskPause,
     TaskStateContract,
-    decide_recovery,
-    effect_id_for,
-    replace_current,
+    fresh_generation,
 )
 from .request import (
     RESUME_SCHEMA_VERSION,
@@ -167,7 +160,6 @@ class LLMTaskExecutor:
                 ProviderFailure(
                     f"LLM session lineage lock failed: {exc}",
                     category=FailureCategory.LOCAL_IO,
-                    delivery=DeliveryState.NOT_DELIVERED,
                 )
             )
         try:
@@ -217,7 +209,6 @@ class LLMTaskExecutor:
                         ProviderFailure(
                             f"Host-turn resolution failed locally: {exc}",
                             category=FailureCategory.LOCAL_IO,
-                            delivery=DeliveryState.NOT_DELIVERED,
                         )
                     )
             return self._drive(context, durable_request, state, store, options)
@@ -252,7 +243,6 @@ class LLMTaskExecutor:
             )
             generation = GenerationRecord(
                 1,
-                effect_id_for(request.task_id, 1),
                 execution,
                 native_handle=initial_handle,
             )
@@ -262,8 +252,7 @@ class LLMTaskExecutor:
                 semantic_key=SemanticKeyDigest(key.sha256),
                 resolved_provider=resolved.provider,
                 resolved_model=resolved.model,
-                current_generation=1,
-                generations=(generation,),
+                generation=generation,
                 request_ref=request_ref,
                 session_key=(
                     durable_request.session.session_key
@@ -272,7 +261,6 @@ class LLMTaskExecutor:
                 ),
             )
             store.create(state)
-            self._prepare_effect(context, durable_request, state, options=options)
             return self._drive(
                 context,
                 durable_request,
@@ -289,7 +277,6 @@ class LLMTaskExecutor:
                 ProviderFailure(
                     f"Local LLM setup failed: {exc}",
                     category=FailureCategory.LOCAL_IO,
-                    delivery=DeliveryState.NOT_DELIVERED,
                 )
             )
 
@@ -319,7 +306,6 @@ class LLMTaskExecutor:
                 ProviderFailure(
                     f"LLM session lineage lock failed: {exc}",
                     category=FailureCategory.LOCAL_IO,
-                    delivery=DeliveryState.NOT_DELIVERED,
                 )
             )
         try:
@@ -368,24 +354,21 @@ class LLMTaskExecutor:
             execution_doc = self._execution_document(
                 adapter, state.resolved_model or "", request, options
             )
-            state = replace_current(
+            state = fresh_generation(
                 state,
                 execution=execution_fingerprint(execution_doc),
-                reason=input.reason or "user_replacement",
-                possible_duplicate=True,
             )
             state = replace(state, pause=None)
             store.compare_and_swap(state.revision - 1, state)
             self._artifacts(context, state.semantic_key).publish_json(
-                f"execution/{state.current_generation}/recipe.json",
+                f"execution/{state.current.generation}/recipe.json",
                 execution_doc,
             )
             self._publish_policy(
                 self._artifacts(context, state.semantic_key),
-                state.current_generation,
+                state.current.generation,
                 options,
             )
-            self._prepare_effect(context, request, state, options=options)
             return self._drive(context, request, state, store, options)
         if state.pending_host_turn is not None:
             if input is None or input.action is not ResumeAction.CONTINUE:
@@ -445,8 +428,7 @@ class LLMTaskExecutor:
                 semantic_key=SemanticKeyDigest(key.sha256),
                 resolved_provider=None,
                 resolved_model=None,
-                current_generation=0,
-                generations=(),
+                generation=None,
                 request_ref=request_ref,
                 accepted=AcceptedRecord(
                     target,
@@ -476,7 +458,15 @@ class LLMTaskExecutor:
         state: LLMTaskState,
         store: Any,
         options: LLMExecutionOptions,
+        *,
+        crash_retry_available: bool = True,
     ) -> LLMTaskOutcome:
+        """Run or locally recover one task with one fresh-generation crash retry.
+
+        Raw provider material is durable before any local validation. A later
+        public invocation first replays that material locally. Provider crashes
+        clear a native handle and may start one new generation in this call.
+        """
         while True:
             try:
                 current = store.read()
@@ -485,81 +475,31 @@ class LLMTaskExecutor:
                 state = current
                 if state.accepted is not None:
                     return self._replay(context, request, state, options)
-                adapter = self.registry.create(state.resolved_provider or "")
-                execution_doc = self._execution_document(
-                    adapter, state.resolved_model or "", request, options
-                )
-                execution = execution_fingerprint(execution_doc)
-                effect = context.effects.read(state.current.effect_id)
-                continuation_prompt: str | None = None
-                if effect is None:
-                    continuation_prompt = self._prepared_host_turn_prompt(
-                        context, state
-                    )
-                    self._prepare_effect(
+                state = self._recover_published_raw(context, state, store)
+                if state.current.raw_response is not None:
+                    return self._recover_saved(
                         context,
                         request,
                         state,
-                        options=options,
-                        prompt=continuation_prompt,
-                    )
-                    effect = context.effects.read(state.current.effect_id)
-                assert effect is not None
-                if effect.stage in {EffectStage.PREPARED, EffectStage.MAY_HAVE_RUN}:
-                    continuation_prompt = self._prepared_host_turn_prompt(
-                        context, state
-                    )
-                    if (
-                        effect.stage is EffectStage.PREPARED
-                        and continuation_prompt is not None
-                    ):
-                        self._prepare_effect(
-                            context,
-                            request,
-                            state,
-                            options=options,
-                            prompt=continuation_prompt,
-                        )
-                action = decide_recovery(
-                    state,
-                    effect.stage,
-                    execution=execution,
-                    supports_native_resume=adapter.capabilities().native_resume,
-                    safe_retry_limit=options.limits.safe_retry_limit,
-                    native_resume_limit=options.limits.native_resume_limit,
-                    automatic_replacement_limit=options.limits.automatic_replacement_limit,
-                )
-                if action is RecoveryAction.REPLAY_ACCEPTED:
-                    return self._replay(context, request, state, options)
-                if action is RecoveryAction.RECOVER_SAVED_OUTPUT:
-                    return self._recover_saved(context, request, state, store, effect.output_ref, options)
-                if action is RecoveryAction.PAUSE_UNCERTAIN:
-                    return self._pause(
                         store,
-                        state,
-                        ResumeReason.SUPERVISION_REQUIRED,
-                        "recovery_limit_reached",
-                        input_required=True,
-                        request_ref=self._supervision_artifact(
-                            context, state, "recovery_limit_reached"
-                        ),
+                        state.current.raw_response,
+                        options,
                     )
-                if action is RecoveryAction.REPLACE:
-                    state = replace_current(
-                        state,
-                        execution=execution,
-                        reason="uncertain_delivery",
-                        possible_duplicate=True,
+                if state.current.attempt_started:
+                    if not crash_retry_available:
+                        return self._pause(
+                            store,
+                            state,
+                            ResumeReason.EXECUTION_INTERRUPTED,
+                            "provider_crash_retry_exhausted",
+                            input_required=False,
+                        )
+                    state = self._fresh_after_crash(
+                        context, request, state, store, options
                     )
-                    store.compare_and_swap(state.revision - 1, state)
-                    scoped = self._artifacts(context, state.semantic_key)
-                    scoped.publish_json(
-                        f"execution/{state.current_generation}/recipe.json",
-                        execution_doc,
-                    )
-                    self._publish_policy(scoped, state.current_generation, options)
-                    self._prepare_effect(context, request, state, options=options)
+                    crash_retry_available = False
                     continue
+                adapter = self.registry.create(state.resolved_provider or "")
                 diagnostic = adapter.doctor()
                 if not diagnostic.available:
                     return self._pause(
@@ -569,12 +509,11 @@ class LLMTaskExecutor:
                         "provider_unavailable",
                         input_required=False,
                     )
-                planned_continuation = (
-                    effect.stage is EffectStage.PREPARED
-                    and state.current.native_handle is not None
+                continuation_prompt = self._prepared_host_turn_prompt(context, state)
+                if continuation_prompt is not None or (
+                    state.current.native_handle is not None
                     and request.session is not None
-                )
-                if continuation_prompt is not None:
+                ):
                     execution_result = self._call_resume(
                         context,
                         request,
@@ -583,17 +522,6 @@ class LLMTaskExecutor:
                         adapter,
                         options,
                         prompt=continuation_prompt,
-                        count_recovery=action is RecoveryAction.NATIVE_RESUME,
-                    )
-                elif action is RecoveryAction.NATIVE_RESUME or planned_continuation:
-                    execution_result = self._call_resume(
-                        context,
-                        request,
-                        state,
-                        store,
-                        adapter,
-                        options,
-                        count_recovery=action is RecoveryAction.NATIVE_RESUME,
                     )
                 else:
                     execution_result = self._call_start(
@@ -601,18 +529,25 @@ class LLMTaskExecutor:
                     )
                 if execution_result.terminal_kind is ProviderTerminalKind.FAILED:
                     assert execution_result.failure is not None
-                    outcome = self._provider_failure(
-                        context,
-                        request,
-                        store.read() or state,
-                        store,
-                        execution_result.failure,
-                        options,
-                    )
-                    if outcome is None:
+                    failure = execution_result.failure
+                    active_state = store.read() or state
+                    if self._is_crash_failure(failure):
+                        if not crash_retry_available:
+                            return self._pause(
+                                store,
+                                active_state,
+                                ResumeReason.EXECUTION_INTERRUPTED,
+                                "provider_crash_retry_exhausted",
+                                input_required=False,
+                            )
+                        state = self._fresh_after_crash(
+                            context, request, active_state, store, options
+                        )
+                        crash_retry_available = False
                         continue
-                    return outcome
+                    return self._provider_failure(store, active_state, failure)
                 if execution_result.terminal_kind is ProviderTerminalKind.STOPPED:
+                    self._clear_attempt_started(store.read() or state, store)
                     return LLMStopped()
                 outcome = self._consume_execution(
                     context,
@@ -622,16 +557,25 @@ class LLMTaskExecutor:
                     execution_result,
                     options,
                 )
-                if outcome is None:
+                if outcome is not None:
+                    return outcome
+            except ProviderFailure as failure:
+                if self._is_crash_failure(failure):
+                    active_state = store.read() or state
+                    if not crash_retry_available:
+                        return self._pause(
+                            store,
+                            active_state,
+                            ResumeReason.EXECUTION_INTERRUPTED,
+                            "provider_crash_retry_exhausted",
+                            input_required=False,
+                        )
+                    state = self._fresh_after_crash(
+                        context, request, active_state, store, options
+                    )
+                    crash_retry_available = False
                     continue
-                return outcome
-            except ProviderFailure as exc:
-                outcome = self._provider_failure(
-                    context, request, store.read() or state, store, exc, options
-                )
-                if outcome is None:
-                    continue
-                return outcome
+                return self._provider_failure(store, store.read() or state, failure)
             except StoppedError:
                 return LLMStopped()
             except ArcLLMError as exc:
@@ -641,7 +585,6 @@ class LLMTaskExecutor:
                     ProviderFailure(
                         f"LLM execution failed locally: {exc}",
                         category=FailureCategory.LOCAL_IO,
-                        delivery=DeliveryState.NOT_DELIVERED,
                     )
                 )
 
@@ -652,6 +595,7 @@ class LLMTaskExecutor:
         workspace = self._prepare_workspace(context, request, state, options=options)
         gate = self._provider_gate(context, options)
         with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
+            state = self._mark_attempt_started(state, store)
             try:
                 execution = adapter.start(
                     ProviderRequest(
@@ -673,6 +617,20 @@ class LLMTaskExecutor:
             self._record_gate_execution(context, permit, execution)
             return execution
 
+    def _mark_attempt_started(self, state: LLMTaskState, store: Any) -> LLMTaskState:
+        if state.current.attempt_started:
+            return state
+        next_state = self._update_current(state, attempt_started=True)
+        store.compare_and_swap(state.revision, next_state)
+        return next_state
+
+    def _clear_attempt_started(self, state: LLMTaskState, store: Any) -> LLMTaskState:
+        if not state.current.attempt_started:
+            return state
+        next_state = self._update_current(state, attempt_started=False)
+        store.compare_and_swap(state.revision, next_state)
+        return next_state
+
     def _call_resume(
         self,
         context: Any,
@@ -683,7 +641,6 @@ class LLMTaskExecutor:
         options: LLMExecutionOptions,
         *,
         prompt: str | None = None,
-        count_recovery: bool = True,
     ) -> ProviderExecution:
         handle = state.current.native_handle
         if handle is None:
@@ -696,13 +653,9 @@ class LLMTaskExecutor:
             options=options,
             continuation_prompt=prompt,
         )
-        if count_recovery:
-            next_state = self._update_current(
-                state, native_resumes=state.current.native_resumes + 1
-            )
-            store.compare_and_swap(state.revision, next_state)
         gate = self._provider_gate(context, options)
         with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
+            state = self._mark_attempt_started(state, store)
             try:
                 execution = adapter.resume(
                     NativeResumeHandle(adapter.name, handle),
@@ -734,7 +687,6 @@ class LLMTaskExecutor:
 
         return DurableProviderObserver(
             context=context,
-            effect_id=state.current.effect_id,
             on_handle=save_handle,
         )
 
@@ -782,12 +734,11 @@ class LLMTaskExecutor:
         raw_doc = self._execution_document_value(execution)
         raw_ref = scoped.publish_json(
             (
-                f"generations/{state.current_generation}/raw-responses/"
+                f"generations/{state.current.generation}/raw-responses/"
                 f"{state.host_turn_round}.json"
             ),
             raw_doc,
         )
-        context.effects.save_output(state.current.effect_id, raw_ref)
         current = store.read() or state
         changes: dict[str, Any] = {"raw_response": raw_ref}
         if execution.native_handle is not None:
@@ -801,8 +752,41 @@ class LLMTaskExecutor:
             store,
             execution,
             options,
-            allow_replacement=True,
         )
+
+    def _recover_published_raw(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        store: Any,
+    ) -> LLMTaskState:
+        """Attach raw material that was published before its state CAS.
+
+        Provider material is immutable and its location is deterministic for a
+        generation/host-turn pair.  This closes the only publication window in
+        which an interrupted process could otherwise issue the provider call a
+        second time despite already having a locally recoverable response.
+        """
+        if state.current.raw_response is not None:
+            return state
+        scoped = self._artifacts(context, state.semantic_key)
+        ref = scoped.find(
+            f"generations/{state.current.generation}/raw-responses/"
+            f"{state.host_turn_round}.json"
+        )
+        if ref is None:
+            return state
+        # Verify the persisted document before it affects durable state.
+        self._execution_from_raw(context, ref, state.resolved_provider or "")
+        next_state = self._update_current(state, raw_response=ref)
+        try:
+            store.compare_and_swap(state.revision, next_state)
+            return next_state
+        except RevisionConflictError:
+            current = store.read()
+            if current is None:
+                raise InvalidRequestError("LLM task state disappeared.")
+            return current
 
     def _consume_candidates(
         self,
@@ -812,8 +796,6 @@ class LLMTaskExecutor:
         store: Any,
         execution: ProviderExecution,
         options: LLMExecutionOptions,
-        *,
-        allow_replacement: bool,
     ) -> LLMTaskOutcome | None:
         current = store.read() or state
         try:
@@ -830,7 +812,7 @@ class LLMTaskExecutor:
             candidate_digests = [item.digest for item in candidates]
             assert tuple(candidate_digests) == exc.candidate_digests
             candidate_ref = self._artifacts(context, current.semantic_key).publish_json(
-                f"generations/{current.current_generation}/candidates.json",
+                f"generations/{current.current.generation}/candidates.json",
                 {
                     "candidate_digests": candidate_digests,
                     "candidates": [
@@ -874,39 +856,9 @@ class LLMTaskExecutor:
                             execution,
                             options,
                         )
-                    # The formatter found that required content is absent. This
-                    # is a substantive output failure, so the ordinary
-                    # replacement policy remains applicable.
+                    # The formatter found that required content is absent.
                 elif formatted is not None:
                     return formatted
-            if not allow_replacement:
-                return self._pause(
-                    store,
-                    current,
-                    ResumeReason.SUPERVISION_REQUIRED,
-                    "output_invalid",
-                    input_required=True,
-                    request_ref=self._supervision_artifact(
-                        context, current, "output_invalid"
-                    ),
-                )
-            replacements = sum(
-                item.replacement_of is not None for item in current.generations
-            )
-            if replacements < options.limits.automatic_replacement_limit:
-                adapter = self.registry.create(current.resolved_provider or "")
-                execution_doc = self._execution_document(
-                    adapter, current.resolved_model or "", request, options
-                )
-                next_state = replace_current(
-                    store.read() or current,
-                    execution=execution_fingerprint(execution_doc),
-                    reason="output_invalid",
-                    possible_duplicate=False,
-                )
-                store.compare_and_swap(next_state.revision - 1, next_state)
-                self._prepare_effect(context, request, next_state, options=options)
-                return None
             return self._pause(
                 store,
                 store.read() or current,
@@ -945,7 +897,7 @@ class LLMTaskExecutor:
         current = store.read() or state
         task_id = formatter_task_id(
             outer_semantic_key=current.semantic_key.sha256,
-            generation=current.current_generation,
+            generation=current.current.generation,
             source_sha256=source.sha256,
         )
         formatter_request = LLMRequest(
@@ -957,13 +909,9 @@ class LLMTaskExecutor:
                 model=current.resolved_model,
             ),
         )
-        formatter_options = replace(
-            options,
-            limits=replace(
-                options.limits,
-                automatic_replacement_limit=0,
-            ),
-        )
+        # The formatter is its own durable task and therefore owns its single
+        # automatic crash retry independently from the parent generation.
+        formatter_options = options
         formatter_executor = LLMTaskExecutor(self.registry)
         formatter_store = formatter_executor._task_store(context, task_id)
         child_state = formatter_store.read()
@@ -992,7 +940,7 @@ class LLMTaskExecutor:
         )
         raw_ref = (
             None
-            if child_state is None or not child_state.generations
+            if child_state is None or child_state.generation is None
             else child_state.current.raw_response
         )
         formatter_usage = outcome.usage if isinstance(outcome, LLMCompleted) else None
@@ -1051,7 +999,7 @@ class LLMTaskExecutor:
             self._emit_formatting_event(
                 context,
                 status=status,
-                generation=current.current_generation,
+                generation=current.current.generation,
                 formatter_task_id=task_id,
                 record_ref=record_ref,
             )
@@ -1110,7 +1058,7 @@ class LLMTaskExecutor:
     ) -> ArtifactRef:
         return self._artifacts(context, state.semantic_key).publish_json(
             (
-                f"generations/{state.current_generation}/formatting/"
+                f"generations/{state.current.generation}/formatting/"
                 f"{child_revision:08d}-{status}.json"
             ),
             {
@@ -1187,7 +1135,6 @@ class LLMTaskExecutor:
             store,
             execution,
             options,
-            allow_replacement=False,
         )
         assert outcome is not None
         return outcome
@@ -1211,19 +1158,14 @@ class LLMTaskExecutor:
             encode_host_turn(turn),
         )
         current = store.read() or state
-        context.effects.commit(current.current.effect_id)
-        generation = replace(
-            current.current,
-            effect_id=effect_id_for(
-                current.task_id,
-                current.current_generation,
-                next_round,
-            ),
-        )
         next_state = replace(
             current,
             revision=current.revision + 1,
-            generations=current.generations[:-1] + (generation,),
+            generation=replace(
+                current.current,
+                raw_response=None,
+                attempt_started=False,
+            ),
             host_turn_round=next_round,
             pending_host_turn=turn_ref,
             seen_host_request_ids=current.seen_host_request_ids
@@ -1338,75 +1280,29 @@ class LLMTaskExecutor:
             pause=None,
         )
         store.compare_and_swap(state.revision, next_state)
-        adapter = self.registry.create(next_state.resolved_provider or "")
-        prompt = canonical_json_bytes(document).decode("utf-8")
-        self._prepare_effect(
-            context, request, next_state, options=options, prompt=prompt
-        )
-        try:
-            execution = self._call_resume(
-                context,
-                request,
-                next_state,
-                store,
-                adapter,
-                options,
-                prompt=prompt,
-                count_recovery=False,
-            )
-        except ProviderFailure as exc:
-            outcome = self._provider_failure(
-                context, request, store.read() or next_state, store, exc, options
-            )
-            return outcome or self._drive(
-                context, request, store.read() or next_state, store, options
-            )
-        if execution.terminal_kind is ProviderTerminalKind.FAILED:
-            assert execution.failure is not None
-            outcome = self._provider_failure(
-                context,
-                request,
-                store.read() or next_state,
-                store,
-                execution.failure,
-                options,
-            )
-            return outcome or self._drive(
-                context, request, store.read() or next_state, store, options
-            )
-        if execution.terminal_kind is ProviderTerminalKind.STOPPED:
-            return LLMStopped()
-        outcome = self._consume_execution(
-            context,
-            request,
-            store.read() or next_state,
-            store,
-            execution,
-            options,
-        )
-        return outcome or self._drive(
-            context, request, store.read() or next_state, store, options
-        )
+        return self._drive(context, request, next_state, store, options)
+
+    @staticmethod
+    def _is_crash_failure(failure: ProviderFailure) -> bool:
+        return failure.category in {
+            FailureCategory.TRANSPORT,
+            FailureCategory.TIMEOUT,
+            FailureCategory.INTERNAL,
+        }
 
     def _provider_failure(
         self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
         store: Any,
+        state: LLMTaskState,
         failure: ProviderFailure,
-        options: LLMExecutionOptions,
-    ) -> LLMTaskOutcome | None:
+    ) -> LLMTaskOutcome:
+        state = self._clear_attempt_started(store.read() or state, store)
         if failure.category in {
             FailureCategory.AUTHENTICATION,
             FailureCategory.QUOTA,
             FailureCategory.RATE_LIMIT,
             FailureCategory.UNAVAILABLE,
         }:
-            if failure.delivery is DeliveryState.NOT_DELIVERED:
-                state = self._replace_verified_not_delivered(
-                    context, request, state, store, options
-                )
             return self._pause(
                 store,
                 state,
@@ -1416,89 +1312,31 @@ class LLMTaskExecutor:
             )
         if failure.category is FailureCategory.STOPPED:
             return LLMStopped()
-        if failure.category in {
-            FailureCategory.INVALID_REQUEST,
-            FailureCategory.SCHEMA,
-            FailureCategory.LOCAL_IO,
-            FailureCategory.INTERNAL,
-        }:
-            return LLMFailed(failure)
-        if failure.delivery is DeliveryState.NOT_DELIVERED:
-            if state.current.safe_retries < options.limits.safe_retry_limit:
-                self._replace_verified_not_delivered(
-                    context,
-                    request,
-                    state,
-                    store,
-                    options,
-                    safe_retries=state.current.safe_retries + 1,
-                )
-                return None
-            return self._pause(
-                store,
-                state,
-                ResumeReason.SUPERVISION_REQUIRED,
-                "recovery_limit_reached",
-                input_required=True,
-                request_ref=self._supervision_artifact(
-                    context, state, "recovery_limit_reached"
-                ),
-            )
-        if failure.delivery is DeliveryState.MAY_HAVE_RUN:
-            return None
         return LLMFailed(failure)
 
-    def _replace_verified_not_delivered(
+    def _fresh_after_crash(
         self,
         context: Any,
         request: LLMRequest,
         state: LLMTaskState,
         store: Any,
         options: LLMExecutionOptions,
-        *,
-        safe_retries: int | None = None,
     ) -> LLMTaskState:
-        """Start a new generation only after the provider proved non-delivery.
-
-        Effect journals are monotonic, so a conservative delivery barrier may
-        already have recorded ``MAY_HAVE_RUN`` even when a typed provider
-        failure subsequently proves that the request was not delivered.  A new
-        PREPARED generation preserves that proof without downgrading the old
-        effect or treating an uncertain delivery as retryable.
-        """
-
-        effect = context.effects.read(state.current.effect_id)
-        if effect is None or effect.stage is EffectStage.PREPARED:
-            if safe_retries is not None:
-                next_state = self._update_current(state, safe_retries=safe_retries)
-                store.compare_and_swap(state.revision, next_state)
-                return next_state
-            return state
-        if effect.stage is not EffectStage.MAY_HAVE_RUN:
-            return state
+        """Discard an interrupted generation and start one fresh attempt."""
         adapter = self.registry.create(state.resolved_provider or "")
         execution_doc = self._execution_document(
             adapter, state.resolved_model or "", request, options
         )
-        next_state = replace_current(
+        next_state = fresh_generation(
             state,
             execution=execution_fingerprint(execution_doc),
-            reason="verified_not_delivered",
-            possible_duplicate=False,
         )
-        if safe_retries is not None:
-            next_state = replace(
-                next_state,
-                generations=next_state.generations[:-1]
-                + (replace(next_state.current, safe_retries=safe_retries),),
-            )
         store.compare_and_swap(state.revision, next_state)
         scoped = self._artifacts(context, next_state.semantic_key)
         scoped.publish_json(
-            f"execution/{next_state.current_generation}/recipe.json", execution_doc
+            f"execution/{next_state.current.generation}/recipe.json", execution_doc
         )
-        self._publish_policy(scoped, next_state.current_generation, options)
-        self._prepare_effect(context, request, next_state, options=options)
+        self._publish_policy(scoped, next_state.current.generation, options)
         return next_state
 
     def _accept(
@@ -1525,7 +1363,7 @@ class LLMTaskExecutor:
         accepted = AcceptedRecord(
             ref,
             AcceptedOrigin.PROVIDER,
-            current.current_generation,
+            current.current.generation,
             current.resolved_provider,
             current.resolved_model,
         )
@@ -1542,7 +1380,6 @@ class LLMTaskExecutor:
             pending_host_turn=None,
         )
         store.compare_and_swap(current.revision, next_state)
-        context.effects.commit(current.current.effect_id)
         return LLMCompleted(
             value,
             next_state.resolved_provider,
@@ -1632,8 +1469,6 @@ class LLMTaskExecutor:
             content = context.artifacts.read_bytes(state.accepted.artifact_ref)
             value = self._decode_artifact_value(content, request)
             validate_value(value, request.output)
-            if state.accepted.origin is AcceptedOrigin.PROVIDER:
-                context.effects.commit(state.current.effect_id)
             session = None
             if state.session_key is not None:
                 session = self._advance_session(
@@ -1696,34 +1531,6 @@ class LLMTaskExecutor:
             pause.response_contract,
         )
 
-    def _prepare_effect(
-        self,
-        context: Any,
-        request: LLMRequest,
-        state: LLMTaskState,
-        *,
-        options: LLMExecutionOptions,
-        prompt: str | None = None,
-    ) -> None:
-        exact_request = {
-            "provider": state.resolved_provider,
-            "model": state.resolved_model,
-            "prompt": (
-                self._initial_provider_prompt(request, options)
-                if prompt is None
-                else prompt
-            ),
-            "output_schema": self._provider_output_schema(request, options),
-            "runtime": self._capability_document(options),
-            "inputs": input_identity_document(request),
-            "generation": state.current_generation,
-        }
-        context.effects.prepare(
-            state.current.effect_id,
-            effect_request_digest=EffectRequestDigest(document_sha256(exact_request)),
-            details={"task_id": request.task_id, "generation": state.current_generation},
-        )
-
     def _initial_provider_prompt(
         self, request: LLMRequest, options: LLMExecutionOptions
     ) -> str:
@@ -1748,18 +1555,6 @@ class LLMTaskExecutor:
     ) -> str | None:
         if state.host_turn_round == 0:
             return None
-        base_effect_id = effect_id_for(state.task_id, state.current_generation)
-        expected_effect_id = effect_id_for(
-            state.task_id,
-            state.current_generation,
-            state.host_turn_round,
-        )
-        if state.current.effect_id == base_effect_id:
-            return None
-        if state.current.effect_id != expected_effect_id:
-            raise CorruptTaskStateError(
-                "Host-turn continuation effect does not match its persisted round."
-            )
         if state.pending_host_turn is not None:
             raise CorruptTaskStateError(
                 "Host-turn continuation has no persisted response artifact."
@@ -1956,8 +1751,7 @@ class LLMTaskExecutor:
             context.run_directory
             / "llm-workspaces"
             / state.semantic_key.sha256
-            / f"generation-{state.current_generation:04d}"
-            / f"effect-{state.current.effect_id}"
+            / f"generation-{state.current.generation:04d}"
         )
         inputs_root = workspace / "inputs"
         work_root = workspace / "work"
@@ -2167,7 +1961,7 @@ class LLMTaskExecutor:
         return replace(
             state,
             revision=state.revision + 1,
-            generations=state.generations[:-1] + (generation,),
+            generation=generation,
         )
 
     def _existing_session_handle(
@@ -2217,7 +2011,7 @@ class LLMTaskExecutor:
                 initial = LLMSessionState(
                     0,
                     state.session_key,
-                    state.current_generation,
+                    state.current.generation,
                     state.resolved_provider or "",
                     state.resolved_model or "",
                     state.current.execution,
@@ -2244,7 +2038,7 @@ class LLMTaskExecutor:
             next_state = replace(
                 current,
                 revision=current.revision + 1,
-                generation=state.current_generation,
+                generation=state.current.generation,
                 native_handle=state.current.native_handle,
                 accepted_turns=current.accepted_turns + 1,
                 accepted_prefix_sha256=next_prefix,
@@ -2272,9 +2066,6 @@ class LLMTaskExecutor:
             "schema_version": "arc.llm.operational_policy.v1",
             "limits": {
                 "idle_timeout_seconds": options.limits.idle_timeout_seconds,
-                "safe_retry_limit": options.limits.safe_retry_limit,
-                "native_resume_limit": options.limits.native_resume_limit,
-                "automatic_replacement_limit": options.limits.automatic_replacement_limit,
             },
             "gate": {
                 "enabled": options.gate.enabled,
@@ -2470,7 +2261,7 @@ class LLMTaskExecutor:
         self, context: Any, state: LLMTaskState, code: str
     ) -> ArtifactRef:
         return self._artifacts(context, state.semantic_key).publish_json(
-            f"generations/{state.current_generation}/supervision/{code}.json",
+            f"generations/{state.current.generation}/supervision/{code}.json",
             {"schema_version": "arc.llm.supervision_request.v1", "code": code},
         )
 

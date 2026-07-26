@@ -1,152 +1,88 @@
+"""Provider stream-closure contracts independent of delivery accounting."""
+
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from arc_llm import DeliveryState, FailureCategory, ProviderFailure
+from arc_llm import FailureCategory, ProviderFailure, ProviderTerminalKind
 from arc_llm.output import CandidateMaterial
 from arc_llm.providers._cli import EventAccumulator, run_cli
-from arc_llm.providers.base import ProviderTerminalKind
+from arc_llm.providers.base import ProviderExecution
 from arc_llm.providers.codex import _parse_event as parse_codex_event
 from arc_llm.providers.process import ProcessResult
 
 
 class _Observer:
-    def before_delivery(self) -> None:
+    def native_handle(self, _handle) -> None:
         pass
 
-    def native_handle(self, handle) -> None:
+    def raw_event(self, _event) -> None:
         pass
 
-    def raw_event(self, event) -> None:
-        pass
-
-
-class _Stop:
-    def raise_if_requested(self) -> None:
+    def progress(self, _kind, _data) -> None:
         pass
 
 
-def _encoded(*events: dict[str, object]) -> bytes:
-    return b"".join(json.dumps(event).encode() + b"\n" for event in events)
+def _candidate(event):
+    if event.get("kind") == "terminal":
+        return CandidateMaterial(value={"answer": event["answer"]}, terminal=True), None, None
+    return None, None, None
 
 
-def test_event_stream_requires_exactly_one_terminal_candidate() -> None:
-    def parse_terminal(event):
-        text = event.get("text")
-        return (
-            CandidateMaterial(text=text, terminal=bool(event.get("terminal")))
-            if isinstance(text, str)
-            else None,
-            None,
-            None,
-        )
+def test_duplicate_terminal_events_are_schema_failures() -> None:
+    accumulator = EventAccumulator("test", _Observer(), _candidate)
+    accumulator.feed(b'{"kind":"terminal","answer":1}\n')
+    accumulator.feed(b'{"kind":"terminal","answer":2}\n')
 
-    incomplete = EventAccumulator("test", _Observer(), parse_terminal)
-    incomplete.feed(
-        _encoded(
-            {
-                "text": "draft",
-            }
-        )
-    )
-    with pytest.raises(ProviderFailure) as missing:
-        incomplete.finish()
-    assert missing.value.category is FailureCategory.SCHEMA
-    assert missing.value.delivery is DeliveryState.MAY_HAVE_RUN
-    assert missing.value.details["code"] == "incomplete_terminal_closure"
-
-    duplicate = EventAccumulator("test", _Observer(), parse_terminal)
-    duplicate.feed(
-        _encoded(
-            {
-                "text": "one",
-                "terminal": True,
-            },
-            {
-                "text": "two",
-                "terminal": True,
-            },
-        )
-    )
-    with pytest.raises(ProviderFailure) as multiple:
-        duplicate.finish()
-    assert multiple.value.details["code"] == "invalid_terminal_closure"
-
-    complete = EventAccumulator("test", _Observer(), parse_terminal)
-    complete.feed(
-        _encoded(
-            {"text": "done", "terminal": True},
-        )
-    )
-    complete.finish()
-    assert len(complete.candidates) == 1
-    assert complete.candidates[0].terminal
+    with pytest.raises(ProviderFailure) as raised:
+        accumulator.finish()
+    assert raised.value.category is FailureCategory.SCHEMA
+    assert raised.value.details["code"] == "invalid_terminal_closure"
 
 
-def test_codex_events_are_not_terminal_candidates() -> None:
+def test_single_terminal_event_closes_cleanly() -> None:
+    accumulator = EventAccumulator("test", _Observer(), _candidate)
+    accumulator.feed(b'{"kind":"terminal","answer":1}\n')
+    accumulator.finish()
+    assert len(accumulator.candidates) == 1
+
+
+def test_codex_agent_messages_are_not_terminal_responses() -> None:
     accumulator = EventAccumulator("codex", _Observer(), parse_codex_event)
     accumulator.feed(
-        _encoded(
-            {
-                "type": "item.completed",
-                "item": {"type": "agent_message", "text": "one"},
-            },
-            {
-                "type": "item.completed",
-                "item": {"type": "agent_message", "text": "two"},
-            },
-        )
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"draft"}}\n'
     )
-    accumulator.finish(validate_terminal=False)
-    assert accumulator.candidates == []
+    with pytest.raises(ProviderFailure) as raised:
+        accumulator.finish()
+    assert raised.value.category is FailureCategory.TRANSPORT
+    assert raised.value.details["code"] == "incomplete_terminal_closure"
 
 
-@pytest.mark.parametrize(
-    "stdout",
-    [
-        _encoded(
-            {
-                "type": "item.updated",
-                "item": {"type": "agent_message", "text": "draft"},
-            }
-        ),
-        _encoded(
-            {
-                "type": "item.completed",
-                "item": {"type": "agent_message", "text": "one"},
-            },
-            {
-                "type": "item.completed",
-                "item": {"type": "agent_message", "text": "two"},
-            },
-        ),
-    ],
-)
-def test_nonzero_exit_precedes_missing_or_multiple_terminal_validation(
-    stdout: bytes,
-) -> None:
-    class _NonzeroRunner:
-        def run(self, argv, **kwargs):
-            kwargs["before_stdin"]()
-            kwargs["on_stdout"](stdout)
-            return ProcessResult(19, stdout, b"connection reset")
+def test_nonzero_exit_precedes_stream_closure_validation(tmp_path: Path) -> None:
+    class Runner:
+        def run(self, *_args, **_kwargs):
+            return ProcessResult(1, b"", b"authentication failed")
 
-    result = run_cli(
-        provider="codex",
-        argv=("fake",),
+    class Stop:
+        def raise_if_requested(self) -> None:
+            pass
+
+    execution = run_cli(
+        provider="test",
+        argv=("test",),
         prompt="prompt",
         observer=_Observer(),
-        stop=_Stop(),
+        stop=Stop(),
         timeout=1,
-        parse_event=parse_codex_event,
-        runner=_NonzeroRunner(),
+        parse_event=_candidate,
+        runner=Runner(),
         env={},
-        cwd=Path.cwd(),
+        cwd=tmp_path,
     )
-    assert result.terminal_kind is ProviderTerminalKind.FAILED
-    assert result.failure is not None
-    assert result.failure.category is FailureCategory.TRANSPORT
-    assert result.diagnostics["returncode"] == 19
+    assert isinstance(execution, ProviderExecution)
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.AUTHENTICATION
+    assert execution.failure.details.get("code") != "incomplete_terminal_closure"

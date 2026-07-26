@@ -6,31 +6,20 @@ from arc_llm import NativeResumeHandle
 from arc_llm.progress import DurableProviderObserver
 
 
-def test_observer_contract_matrix_is_bounded_body_free_and_delivery_ordered() -> None:
-    calls: list[tuple[str, object]] = []
-
-    class Effects:
-        def mark_may_have_run(self, effect_id: str) -> None:
-            calls.append(("delivery", effect_id))
-
-        def save_output(self, effect_id: str, ref: object) -> None:
-            calls.append(("output", (effect_id, ref)))
-
+def _context(calls: list[tuple[str, object]]):
     class Events:
         def emit(self, kind: str, data: object) -> None:
-            calls.append(("progress", (kind, data)))
+            calls.append((kind, data))
 
-    context = type("Context", (), {"effects": Effects(), "events": Events()})()
+    return type("Context", (), {"events": Events()})()
+
+
+def test_observer_projects_handles_bounded_raw_diagnostics_and_progress() -> None:
+    calls: list[tuple[str, object]] = []
     handles: list[NativeResumeHandle] = []
     observer = DurableProviderObserver(
-        context=context,
-        effect_id="effect",
-        on_handle=handles.append,
-        raw_limit_bytes=12,
+        context=_context(calls), on_handle=handles.append, raw_limit_bytes=12
     )
-    observer.before_delivery()
-    observer.before_delivery()
-    assert calls == [("delivery", "effect")]
 
     handle = NativeResumeHandle("codex", "thread")
     observer.native_handle(handle)
@@ -41,34 +30,17 @@ def test_observer_contract_matrix_is_bounded_body_free_and_delivery_ordered() ->
     assert observer.truncated
 
     observer.progress("phase", {"round": 1, "status": "running"})
-    assert calls[-1][0] == "progress"
+    assert calls == [("phase", {"round": 1, "status": "running"})]
     with pytest.raises(ValueError):
         observer.progress("unsafe", {"nested": {"content": "paid output"}})
-    marker = object()
-    observer.response_saved(marker)
-    assert calls[-1] == ("output", ("effect", marker))
 
 
 @pytest.mark.parametrize(
     "key",
     ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),
 )
-def test_observer_uses_shared_progress_body_validator(key: str) -> None:
-    class Effects:
-        def mark_may_have_run(self, effect_id: str) -> None:
-            pass
-
-    class Events:
-        def emit(self, kind: str, data: object) -> None:
-            pass
-
-    context = type("Context", (), {"effects": Effects(), "events": Events()})()
-    observer = DurableProviderObserver(
-        context=context,
-        effect_id="effect",
-        on_handle=lambda handle: None,
-    )
-
+def test_observer_rejects_nested_progress_body_keys(key: str) -> None:
+    observer = DurableProviderObserver(context=_context([]), on_handle=lambda _handle: None)
     with pytest.raises(ValueError):
         observer.progress("unsafe", {"nested": [{key.capitalize(): "body"}]})
 
@@ -78,20 +50,6 @@ def test_observer_rejects_stringifiable_progress_body_key() -> None:
         def __str__(self) -> str:
             return "ConTent"
 
-    class Effects:
-        def mark_may_have_run(self, effect_id: str) -> None:
-            pass
-
-    class Events:
-        def emit(self, kind: str, data: object) -> None:
-            pass
-
-    context = type("Context", (), {"effects": Effects(), "events": Events()})()
-    observer = DurableProviderObserver(
-        context=context,
-        effect_id="effect",
-        on_handle=lambda handle: None,
-    )
-
+    observer = DurableProviderObserver(context=_context([]), on_handle=lambda _handle: None)
     with pytest.raises(ValueError):
         observer.progress("unsafe", {BodyKey(): "body"})

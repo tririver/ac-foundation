@@ -10,29 +10,21 @@ from .providers.base import NativeResumeHandle
 
 
 class DurableProviderObserver:
-    """Connect a provider adapter to arc-jobs effects and artifacts."""
+    """Project provider progress and native handles into durable task state."""
 
     def __init__(
         self,
         *,
         context: Any,
-        effect_id: str,
         on_handle: Callable[[NativeResumeHandle], None],
         raw_limit_bytes: int = 256 * 1024,
     ) -> None:
         self.context = context
-        self.effect_id = effect_id
         self.on_handle = on_handle
         self.raw_limit_bytes = raw_limit_bytes
         self.raw_events: list[Mapping[str, Any] | str] = []
         self.raw_bytes = 0
         self.truncated = False
-        self.delivered = False
-
-    def before_delivery(self) -> None:
-        if not self.delivered:
-            self.context.effects.mark_may_have_run(self.effect_id)
-            self.delivered = True
 
     def native_handle(self, handle: NativeResumeHandle) -> None:
         self.on_handle(handle)
@@ -48,6 +40,3 @@ class DurableProviderObserver:
     def progress(self, kind: str, data: Mapping[str, Any]) -> None:
         validate_progress_data(data)
         self.context.events.emit(kind, dict(data))
-
-    def response_saved(self, ref: Any) -> None:
-        self.context.effects.save_output(self.effect_id, ref)

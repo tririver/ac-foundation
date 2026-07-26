@@ -20,7 +20,6 @@ from arc_jobs import (
     RunStatus,
     StoppedError,
 )
-from arc_jobs import EffectStage
 from arc_jobs.lease import FileLease
 from arc_llm import (
     AdoptionAuthorization,
@@ -45,7 +44,6 @@ from arc_llm import (
     ProviderGateOptions,
     ProviderTerminalKind,
     ProviderUsage,
-    DeliveryState,
     FailureCategory,
     ResumeAction,
     ResumeInput,
@@ -56,7 +54,6 @@ from arc_llm import (
 from arc_llm.identity import canonical_json_bytes, semantic_key
 from arc_llm.output import CandidateMaterial
 from arc_llm.executor import HANDLER_NAME, LLMTaskExecutor
-from arc_llm.recovery import effect_id_for
 
 
 def _request(task_id: str = "task", *, repair: str = "format") -> LLMRequest:
@@ -173,8 +170,8 @@ def test_provider_prompt_uses_workspace_control(
     assert control["inputs"] == []
 
 
-def test_replay_commit_checkpoint_returns_stopped_outcome(
-    tmp_path: Path, adapter, registry, monkeypatch
+def test_replay_returns_the_accepted_artifact_without_a_provider_call(
+    tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.append(_completed({"answer": 42}))
     repository = RunRepository(tmp_path)
@@ -191,50 +188,25 @@ def test_replay_commit_checkpoint_returns_stopped_outcome(
     first = service.execute(context, _request())
     assert isinstance(first, LLMCompleted)
 
-    def stop_at_commit(effect_id: str) -> None:
-        raise StoppedError(f"stopped before committing {effect_id}")
-
-    monkeypatch.setattr(context.effects, "commit", stop_at_commit)
     replayed = service.execute(context, _request())
 
-    assert isinstance(replayed, LLMStopped)
+    assert isinstance(replayed, LLMCompleted)
     assert adapter.start_calls == 1
 
 
-@pytest.mark.parametrize(
-    ("replacement_limit", "replaces"),
-    (
-        (1, True),
-        (0, False),
-    ),
-)
-def test_live_invalid_output_replacement_or_pause_matrix(
-    tmp_path: Path,
-    adapter,
-    registry,
-    replacement_limit: int,
-    replaces: bool,
+def test_live_invalid_output_pauses_without_replacing_the_worker(
+    tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.append(_completed({"not_answer": True}))
-    if replacement_limit:
-        adapter.steps.append(_completed({"answer": 42}, handle="replacement"))
 
     result = LLMClient(registry=registry).generate(
         _request("live-invalid", repair="local"),
         run_root=tmp_path,
-        options=LLMExecutionOptions(
-            limits=ExecutionLimits(automatic_replacement_limit=replacement_limit)
-        ),
     )
 
-    if replaces:
-        assert isinstance(result.outcome, LLMCompleted)
-        assert result.outcome.value == {"answer": 42}
-        assert adapter.start_calls == 2
-    else:
-        assert isinstance(result.outcome, LLMPaused)
-        assert result.outcome.details["code"] == "output_invalid"
-        assert adapter.start_calls == 1
+    assert isinstance(result.outcome, LLMPaused)
+    assert result.outcome.details["code"] == "output_invalid"
+    assert adapter.start_calls == 1
 
 
 def test_content_rich_invalid_output_uses_formatter_without_worker_replacement(
@@ -262,9 +234,6 @@ def test_content_rich_invalid_output_uses_formatter_without_worker_replacement(
     result = LLMClient(registry=registry).generate(
         _request("format-rich"),
         run_root=tmp_path,
-        options=LLMExecutionOptions(
-            limits=ExecutionLimits(automatic_replacement_limit=3)
-        ),
     )
 
     assert isinstance(result.outcome, LLMCompleted)
@@ -300,7 +269,7 @@ def test_content_rich_invalid_output_uses_formatter_without_worker_replacement(
     }
 
 
-def test_formatter_insufficient_allows_worker_replacement(
+def test_formatter_insufficient_pauses_without_worker_replacement(
     tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.extend(
@@ -314,7 +283,6 @@ def test_formatter_insufficient_allows_worker_replacement(
                 },
                 handle="formatter",
             ),
-            _completed({"answer": "replacement answer"}, handle="replacement"),
         )
     )
 
@@ -323,9 +291,9 @@ def test_formatter_insufficient_allows_worker_replacement(
         run_root=tmp_path,
     )
 
-    assert isinstance(result.outcome, LLMCompleted)
-    assert result.outcome.value == {"answer": "replacement answer"}
-    assert adapter.start_calls == 3
+    assert isinstance(result.outcome, LLMPaused)
+    assert result.outcome.details["code"] == "output_invalid"
+    assert adapter.start_calls == 2
 
 
 def test_invalid_formatter_result_pauses_without_worker_replacement(
@@ -348,9 +316,6 @@ def test_invalid_formatter_result_pauses_without_worker_replacement(
     result = LLMClient(registry=registry).generate(
         _request("format-invalid"),
         run_root=tmp_path,
-        options=LLMExecutionOptions(
-            limits=ExecutionLimits(automatic_replacement_limit=3)
-        ),
     )
 
     assert isinstance(result.outcome, LLMPaused)
@@ -371,9 +336,6 @@ def test_malformed_formatter_envelope_pauses_without_worker_replacement(
     result = LLMClient(registry=registry).generate(
         _request("format-envelope-invalid"),
         run_root=tmp_path,
-        options=LLMExecutionOptions(
-            limits=ExecutionLimits(automatic_replacement_limit=3)
-        ),
     )
 
     assert isinstance(result.outcome, LLMPaused)
@@ -394,9 +356,6 @@ def test_formatter_stop_propagates_without_worker_replacement(
     result = LLMClient(registry=registry).generate(
         _request("format-stopped"),
         run_root=tmp_path,
-        options=LLMExecutionOptions(
-            limits=ExecutionLimits(automatic_replacement_limit=3)
-        ),
     )
 
     assert isinstance(result.outcome, LLMStopped)
@@ -554,9 +513,6 @@ def test_saved_output_recovery_pauses_without_provider_replay(
             llm_request,
             run_root=tmp_path,
             run_id=run_id,
-            options=LLMExecutionOptions(
-                limits=ExecutionLimits(automatic_replacement_limit=3)
-            ),
         )
 
     repository = RunRepository(tmp_path)
@@ -564,17 +520,12 @@ def test_saved_output_recovery_pauses_without_provider_replay(
     context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
     state = executor._task_store(context, llm_request.task_id).read()
     assert state is not None
-    effect = context.effects.read(state.current.effect_id)
-    assert effect is not None
-    assert effect.stage is EffectStage.OUTPUT_SAVED
+    assert state.current.raw_response is not None
 
     monkeypatch.setattr(executor, "_consume_candidates", original_consume_candidates)
     recovered = client.resume(
         run_root=tmp_path,
         run_id=run_id,
-        options=LLMExecutionOptions(
-            limits=ExecutionLimits(automatic_replacement_limit=3)
-        ),
     )
 
     assert isinstance(recovered.outcome, LLMPaused)
@@ -605,7 +556,7 @@ def test_same_task_id_with_changed_semantics_fails_before_provider(
     assert adapter.start_calls == 1
 
 
-def test_service_supports_multiple_tasks_in_one_parent_run_without_effect_collision(
+def test_service_supports_multiple_tasks_in_one_parent_run(
     tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.extend([_completed({"answer": 1}), _completed({"answer": 2})])
@@ -620,9 +571,7 @@ def test_service_supports_multiple_tasks_in_one_parent_run_without_effect_collis
     service = LLMTaskService(registry=registry)
     assert isinstance(service.execute(context, _request("one")), LLMCompleted)
     assert isinstance(service.execute(context, _request("two")), LLMCompleted)
-    effect_files = tuple((tmp_path / "runs" / "parent" / "effects").glob("*.json"))
-    assert len(effect_files) == 2
-    assert effect_files[0].name != effect_files[1].name
+    assert adapter.start_calls == 2
 
 
 @pytest.mark.parametrize("mutation", ("prompt", "output", "input"))
@@ -634,11 +583,10 @@ def test_execute_or_resume_rejects_semantic_conflict_at_no_input_pause(
 ) -> None:
     adapter.steps.extend(
         [
-            ProviderFailure(
-                "authentication unavailable",
-                category=FailureCategory.AUTHENTICATION,
-                delivery=DeliveryState.NOT_DELIVERED,
-            ),
+                ProviderFailure(
+                    "authentication unavailable",
+                    category=FailureCategory.AUTHENTICATION,
+                ),
             _completed({"answer": 42}),
         ]
     )
@@ -1429,7 +1377,6 @@ def test_unfinished_task_resumes_from_canonical_current_run_input(
             ProviderFailure(
                 "authentication unavailable",
                 category=FailureCategory.AUTHENTICATION,
-                delivery=DeliveryState.NOT_DELIVERED,
             ),
             _completed({"answer": 42}),
         ]
@@ -1552,7 +1499,6 @@ def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(
     def blocking_start(request, observer, stop):
         adapter.start_calls += 1
         adapter.requests.append(request)
-        observer.before_delivery()
         provider_entered.set()
         assert release_provider.wait(timeout=5)
         result = _completed({"answer": 42})
@@ -1618,7 +1564,6 @@ def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
     def blocking_resume(handle, request, observer, stop):
         adapter.resume_calls += 1
         adapter.requests.append(request)
-        observer.before_delivery()
         provider_entered.set()
         assert release_provider.wait(timeout=5)
         result = _completed({"answer": 2}, handle="thread-child")
@@ -1672,94 +1617,20 @@ def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
     assert adapter.resume_calls == 1
 
 
-@pytest.mark.parametrize("safe_retry_limit", (0, 1))
-def test_exhausted_safe_retries_pause_without_replacement_and_manual_resume(
-    tmp_path: Path,
-    adapter,
-    registry,
-    safe_retry_limit: int,
-) -> None:
-    failures = safe_retry_limit + 1
-    adapter.steps.extend(
-        [
-            *(
-                ProviderFailure(
-                    "request was not delivered",
-                    category=FailureCategory.TRANSPORT,
-                    delivery=DeliveryState.NOT_DELIVERED,
-                )
-                for _ in range(failures)
-            ),
-            _completed({"answer": 42}),
-        ]
-    )
-
-    def start_before_delivery(request, observer, stop):
-        adapter.start_calls += 1
-        adapter.requests.append(request)
-        result = adapter.steps.popleft()
-        if isinstance(result, ProviderFailure):
-            raise result
-        observer.before_delivery()
-        if result.native_handle is not None:
-            observer.native_handle(result.native_handle)
-        return result
-
-    adapter.start = start_before_delivery
-    client = LLMClient(registry=registry)
-    request = _request(f"safe-retry-{safe_retry_limit}")
-    options = LLMExecutionOptions(
-        limits=ExecutionLimits(safe_retry_limit=safe_retry_limit),
-        gate=ProviderGateOptions(enabled=False),
-        host_authority=HostAuthority.UNRESTRICTED,
-    )
-
-    paused = client.generate(request, run_root=tmp_path, options=options)
-
-    assert isinstance(paused.outcome, LLMPaused)
-    assert paused.outcome.reason is ResumeReason.SUPERVISION_REQUIRED
-    assert paused.outcome.details["code"] == "recovery_limit_reached"
-    assert paused.outcome.input_required
-    assert paused.outcome.request_ref is not None
-    assert adapter.start_calls == failures
-    repository = RunRepository(tmp_path)
-    snapshot = repository.inspect(paused.snapshot.run_id).snapshot
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
-    state = client.service._executor._task_store(context, request.task_id).read()
-    assert state is not None
-    assert len(state.generations) == 1
-    assert state.current.safe_retries == safe_retry_limit
-    assert state.current.replacement_of is None
-    assert not state.current.possible_duplicate_execution
-    assert context.effects.read(state.current.effect_id).stage is EffectStage.PREPARED
-
-    resumed = client.resume(
-        run_root=tmp_path,
-        run_id=paused.snapshot.run_id,
-        input=ResumeInput(paused.outcome.resume_key, ResumeAction.CONTINUE),
-        options=options,
-    )
-
-    assert isinstance(resumed.outcome, LLMCompleted)
-    assert resumed.outcome.value == {"answer": 42}
-    assert adapter.start_calls == failures + 1
-
-
-def test_pre_delivery_local_io_failure_stops_without_recovery_or_circuit(
+def test_local_io_failure_does_not_consume_crash_retry(
     tmp_path: Path,
     adapter,
     registry,
 ) -> None:
-    def fail_before_delivery(request, observer, stop):
+    def fail_locally(request, observer, stop):
         adapter.start_calls += 1
         adapter.requests.append(request)
         raise ProviderFailure(
             "durable observer write failed",
             category=FailureCategory.LOCAL_IO,
-            delivery=DeliveryState.NOT_DELIVERED,
         )
 
-    adapter.start = fail_before_delivery
+    adapter.start = fail_locally
     client = LLMClient(registry=registry)
     request = _request("local-io-before-delivery")
 
@@ -1774,9 +1645,7 @@ def test_pre_delivery_local_io_failure_stops_without_recovery_or_circuit(
     context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
     state = client.service._executor._task_store(context, request.task_id).read()
     assert state is not None
-    assert len(state.generations) == 1
-    assert state.current.replacement_of is None
-    assert not state.current.possible_duplicate_execution
+    assert state.current.generation == 1
     circuits = tmp_path / "operational" / "llm" / "circuits"
     assert not circuits.exists() or list(circuits.glob("*.json")) == []
 
@@ -1984,23 +1853,23 @@ def test_session_commit_closes_hard_crash_window_before_task_accepted_cas(
     task = executor._task_store(context, crashing_request.task_id).read()
     assert task is not None
     assert task.accepted is not None
-    effect = context.effects.read(task.current.effect_id)
-    assert effect is not None
-    assert effect.stage is EffectStage.COMMITTED
 
 
-def test_uncertain_delivery_with_saved_handle_uses_one_native_resume(
+def test_crashed_generation_never_native_resumes_a_saved_handle(
     tmp_path: Path, adapter, registry
 ) -> None:
+    first_call = True
+
     def uncertain_start(request, observer, stop):
+        nonlocal first_call
         adapter.start_calls += 1
-        observer.before_delivery()
-        observer.native_handle(NativeResumeHandle("codex", "recoverable-thread"))
-        raise ProviderFailure(
-            "transport disconnected",
-            category=FailureCategory.TRANSPORT,
-            delivery=DeliveryState.MAY_HAVE_RUN,
-        )
+        if first_call:
+            first_call = False
+            observer.native_handle(NativeResumeHandle("codex", "recoverable-thread"))
+            raise ProviderFailure(
+                "transport disconnected", category=FailureCategory.TRANSPORT
+            )
+        return adapter._next(request, observer)
 
     adapter.start = uncertain_start
     adapter.steps.append(_completed({"answer": 9}, handle="recoverable-thread"))
@@ -2008,18 +1877,17 @@ def test_uncertain_delivery_with_saved_handle_uses_one_native_resume(
     result = client.generate(_request(), run_root=tmp_path)
     assert isinstance(result.outcome, LLMCompleted)
     assert result.outcome.value == {"answer": 9}
-    assert adapter.start_calls == 1
-    assert adapter.resume_calls == 1
+    assert adapter.start_calls == 2
+    assert adapter.resume_calls == 0
 
 
-def test_uncertain_delivery_without_handle_requires_supervision(
+def test_two_crashes_pause_without_supervision_input(
     tmp_path: Path, adapter, registry
 ) -> None:
-    adapter.steps.append(
-        ProviderFailure(
-            "transport disconnected",
-            category=FailureCategory.TRANSPORT,
-            delivery=DeliveryState.MAY_HAVE_RUN,
+    adapter.steps.extend(
+        (
+            ProviderFailure("transport disconnected", category=FailureCategory.TRANSPORT),
+            ProviderFailure("transport disconnected", category=FailureCategory.TRANSPORT),
         )
     )
 
@@ -2027,9 +1895,9 @@ def test_uncertain_delivery_without_handle_requires_supervision(
     result = client.generate(_request(), run_root=tmp_path)
 
     assert isinstance(result.outcome, LLMPaused)
-    assert result.outcome.reason is ResumeReason.SUPERVISION_REQUIRED
-    assert result.outcome.input_required
-    assert adapter.start_calls == 1
+    assert result.outcome.reason is ResumeReason.EXECUTION_INTERRUPTED
+    assert not result.outcome.input_required
+    assert adapter.start_calls == 2
     assert adapter.resume_calls == 0
     repository = RunRepository(tmp_path)
     context = RunContext(
@@ -2040,8 +1908,7 @@ def test_uncertain_delivery_without_handle_requires_supervision(
     )
     state = client.service._executor._task_store(context, "task").read()
     assert state is not None
-    assert len(state.generations) == 1
-    assert not state.current.possible_duplicate_execution
+    assert state.current.generation == 2
 
 
 def test_provider_stop_pauses_the_outer_llm_run(

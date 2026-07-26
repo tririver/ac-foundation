@@ -10,7 +10,6 @@ import inspect
 import pytest
 
 from arc_llm import (
-    DeliveryState,
     FailureCategory,
     ProviderFailure,
     ProviderGateOptions,
@@ -56,7 +55,6 @@ def test_rate_limit_opens_durable_circuit_and_allows_one_half_open_probe(
             ProviderFailure(
                 "limited",
                 category=FailureCategory.RATE_LIMIT,
-                delivery=DeliveryState.MAY_HAVE_RUN,
             )
         )
 
@@ -92,7 +90,6 @@ def test_non_circuit_half_open_failure_releases_probe(tmp_path: Path) -> None:
             ProviderFailure(
                 "transport",
                 category=FailureCategory.TRANSPORT,
-                delivery=DeliveryState.MAY_HAVE_RUN,
             )
         )
     now[0] = 2.0
@@ -101,7 +98,6 @@ def test_non_circuit_half_open_failure_releases_probe(tmp_path: Path) -> None:
             ProviderFailure(
                 "bad request",
                 category=FailureCategory.INVALID_REQUEST,
-                delivery=DeliveryState.NOT_DELIVERED,
             )
         )
     with gate.acquire("codex", checkpoint=_checkpoint) as next_probe:
@@ -128,7 +124,6 @@ def test_provider_fatal_categories_open_circuit_immediately(
             ProviderFailure(
                 "fatal",
                 category=category,
-                delivery=DeliveryState.MAY_HAVE_RUN,
             )
         )
     with pytest.raises(ProviderFailure) as opened:
@@ -162,7 +157,6 @@ def test_circuit_record_errors_never_replace_provider_result(
     original = ProviderFailure(
         "provider failure",
         category=FailureCategory.TRANSPORT,
-        delivery=DeliveryState.MAY_HAVE_RUN,
     )
     failed.record_failure(original)
     assert isinstance(failed.record_error, OSError)
@@ -189,7 +183,6 @@ def test_crashed_half_open_probe_is_released_for_the_next_process(
             ProviderFailure(
                 "transport",
                 category=FailureCategory.TRANSPORT,
-                delivery=DeliveryState.MAY_HAVE_RUN,
             )
         )
 
@@ -226,7 +219,6 @@ def test_half_open_record_write_failure_still_releases_probe_lease(
             ProviderFailure(
                 "transport",
                 category=FailureCategory.TRANSPORT,
-                delivery=DeliveryState.MAY_HAVE_RUN,
             )
         )
     now[0] = 2.0
@@ -319,7 +311,6 @@ def test_inflight_success_cannot_clear_a_newer_circuit_epoch(tmp_path: Path) -> 
         ProviderFailure(
             "limited",
             category=FailureCategory.RATE_LIMIT,
-            delivery=DeliveryState.MAY_HAVE_RUN,
         )
     )
     older.release()
@@ -334,7 +325,6 @@ def test_gate_accepts_typed_failures_and_has_no_endpoint_status_surface() -> Non
     failure = ProviderFailure(
         "typed",
         category=FailureCategory.AUTHENTICATION,
-        delivery=DeliveryState.NOT_DELIVERED,
     )
     assert not failure.retryable
     wrapped = RuntimeError("wrapper")

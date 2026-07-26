@@ -222,8 +222,7 @@ service commands it names.
 ## Package Boundaries
 
 Do not substitute semantic keys, execution fingerprints, operational policy,
-effect-request digests, artifact digests, or resume-input digests for one
-another.
+artifact digests, or resume-input digests for one another.
 
 - `packages/arc-llm` owns reusable host LLM execution: host detection,
   provider selection, model defaults, and Codex/Claude prompt calls.
