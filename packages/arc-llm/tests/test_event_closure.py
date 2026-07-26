@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -143,6 +144,7 @@ def test_nonzero_exit_precedes_missing_or_multiple_terminal_validation(
         parse_event=parse_codex_event,
         runner=_NonzeroRunner(),
         env={},
+        cwd=Path.cwd(),
     )
     assert result.terminal_kind is ProviderTerminalKind.FAILED
     assert result.failure is not None

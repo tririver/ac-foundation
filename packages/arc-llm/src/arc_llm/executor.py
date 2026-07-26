@@ -74,10 +74,8 @@ from .output import (
 )
 from .progress import DurableProviderObserver
 from .providers import (
-    InputDeliveryMode,
     NativeResumeHandle,
     ProviderExecution,
-    ProviderInput,
     ProviderRegistry,
     ProviderRequest,
     ProviderResumeRequest,
@@ -113,6 +111,7 @@ from .request import (
     ResumeInput,
     SessionRef,
     TextOutput,
+    encode_output_contract,
     decode_request,
     request_to_document,
 )
@@ -136,17 +135,6 @@ _INTERACTIVE_PROGRESS_GUIDANCE = (
     "a concrete reason. Return a complete result when no further operation has "
     "a concrete expected contribution to the task."
 )
-_WINDOWS = os.name == "nt"
-
-
-def _set_readonly(path: Path) -> None:
-    try:
-        os.chmod(path, 0o400)
-    except OSError:
-        if not _WINDOWS:
-            raise
-
-
 class LLMTaskExecutor:
     def __init__(self, registry: ProviderRegistry | None = None) -> None:
         self.registry = registry or default_registry()
@@ -656,17 +644,18 @@ class LLMTaskExecutor:
         self, context: Any, request: LLMRequest, state: LLMTaskState, store: Any, adapter: Any, options: LLMExecutionOptions
     ) -> ProviderExecution:
         observer = self._observer(context, state, store)
+        workspace = self._prepare_workspace(context, request, state)
         gate = self._provider_gate(context, options)
         with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
             try:
                 execution = adapter.start(
                     ProviderRequest(
-                        self._initial_provider_prompt(request),
+                        self._workspace_prompt(),
                         state.resolved_model or "",
                         provider_schema(request.output),
                         self._capability_document(request),
                         options.limits.idle_timeout_seconds,
-                        self._materialize_inputs(context, request, adapter),
+                        workspace,
                     ),
                     observer,
                     context.stop,
@@ -694,6 +683,12 @@ class LLMTaskExecutor:
         if handle is None:
             raise InvalidRequestError("Native continuation has no saved handle.")
         observer = self._observer(context, state, store)
+        workspace = self._prepare_workspace(
+            context,
+            request,
+            state,
+            continuation_prompt=prompt,
+        )
         if count_recovery:
             next_state = self._update_current(
                 state, native_resumes=state.current.native_resumes + 1
@@ -705,15 +700,11 @@ class LLMTaskExecutor:
                 execution = adapter.resume(
                     NativeResumeHandle(adapter.name, handle),
                     ProviderResumeRequest(
-                        (
-                            self._initial_provider_prompt(request)
-                            if prompt is None
-                            else prompt
-                        ),
+                        self._workspace_prompt(),
                         provider_schema(request.output),
                         self._capability_document(request),
                         options.limits.idle_timeout_seconds,
-                        self._materialize_inputs(context, request, adapter),
+                        workspace,
                     ),
                     observer,
                     context.stop,
@@ -1822,10 +1813,6 @@ class LLMTaskExecutor:
 
     def _execution_document(self, adapter: Any, model: str, request: LLMRequest) -> dict[str, Any]:
         capabilities = adapter.capabilities()
-        delivery_modes = self.registry.delivery_modes(
-            adapter.name,
-            tuple(item.media_type for item in request.inputs),
-        )
         return execution_document(
             provider=adapter.name,
             model=model,
@@ -1834,18 +1821,7 @@ class LLMTaskExecutor:
                 "structured_output": capabilities.structured_output.value,
                 "config_isolation": capabilities.config_isolation.value,
                 "tool_isolation": capabilities.tool_isolation.value,
-                "input_delivery": [
-                    {
-                        "input_id": item.input_id,
-                        "media_type": item.media_type,
-                        "mode": mode.value,
-                    }
-                    for item, mode in zip(
-                        request.inputs,
-                        delivery_modes,
-                        strict=True,
-                    )
-                ],
+                "input_transport": "workspace_control.v1",
             },
             adapter_compatibility_version=adapter.compatibility_version,
             session_compatibility={},
@@ -1860,98 +1836,7 @@ class LLMTaskExecutor:
         }
 
     def _resolve_model(self, request: LLMRequest) -> Any:
-        media_types = tuple(item.media_type for item in request.inputs)
-        available = (
-            self.registry.supporting(media_types)
-            if request.model.provider == "auto"
-            else self.registry.names()
-        )
-        resolved = resolve_model_selection(request.model, available=available)
-        modes = self.registry.delivery_modes(resolved.provider, media_types)
-        unsupported = [
-            item.media_type
-            for item, mode in zip(request.inputs, modes, strict=True)
-            if mode is InputDeliveryMode.UNSUPPORTED
-        ]
-        if unsupported:
-            raise InvalidRequestError(
-                f"Provider {resolved.provider} does not support all input media.",
-                details={
-                    "code": "unsupported_input_media",
-                    "provider": resolved.provider,
-                    "media_types": unsupported,
-                },
-            )
-        return resolved
-
-    def _materialize_inputs(
-        self,
-        context: Any,
-        request: LLMRequest,
-        adapter: Any,
-    ) -> tuple[ProviderInput, ...]:
-        if not request.inputs:
-            return ()
-        modes = self.registry.delivery_modes(
-            adapter.name,
-            tuple(item.media_type for item in request.inputs),
-        )
-        materialized: list[ProviderInput] = []
-        delivery_root = context.run_directory / "provider-inputs"
-        delivery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(delivery_root, 0o700)
-        delivery_directory = delivery_root / semantic_key(request).sha256
-        delivery_directory.mkdir(exist_ok=True, mode=0o700)
-        os.chmod(delivery_directory, 0o700)
-        try:
-            for index, (item, mode) in enumerate(
-                zip(request.inputs, modes, strict=True)
-            ):
-                if mode is InputDeliveryMode.UNSUPPORTED:
-                    raise InvalidRequestError(
-                        f"Provider {adapter.name} does not support {item.media_type}.",
-                        details={
-                            "code": "unsupported_input_media",
-                            "provider": adapter.name,
-                            "media_type": item.media_type,
-                        },
-                    )
-                try:
-                    verified = context.artifacts.read_source(item.source)
-                except Exception as exc:
-                    raise InvalidRequestError(
-                        f"Input artifact could not be verified: {item.input_id}",
-                        details={
-                            "code": "invalid_input_artifact",
-                            "input_id": item.input_id,
-                        },
-                    ) from exc
-                if verified.media_type != item.media_type:
-                    raise InvalidRequestError(
-                        "Input artifact media type differs from the request: "
-                        f"{item.input_id}",
-                        details={
-                            "code": "input_media_type_mismatch",
-                            "input_id": item.input_id,
-                            "expected": item.media_type,
-                            "actual": verified.media_type,
-                        },
-                    )
-                path = delivery_directory / f"{index:04d}-{item.input_id}"
-                self._publish_readonly_input(path, verified.content)
-                materialized.append(
-                    ProviderInput(
-                        input_id=item.input_id,
-                        media_type=item.media_type,
-                        sha256=verified.digest.value,
-                        size_bytes=verified.digest.size_bytes,
-                        path=path,
-                        delivery_mode=mode,
-                    )
-                )
-        finally:
-            os.chmod(delivery_directory, 0o500)
-        return tuple(materialized)
+        return resolve_model_selection(request.model, available=self.registry.names())
 
     def _canonicalize_inputs(
         self,
@@ -2018,24 +1903,137 @@ class LLMTaskExecutor:
             )
         return durable
 
-    @staticmethod
-    def _publish_readonly_input(path: Path, content: bytes) -> None:
-        if path.exists() and path.read_bytes() == content:
-            _set_readonly(path)
-            return
-        descriptor, temporary = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            dir=path.parent,
+    def _prepare_workspace(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        *,
+        continuation_prompt: str | None = None,
+    ) -> Path:
+        """Publish one self-contained, relative-path-only provider workspace."""
+
+        workspace = (
+            context.run_directory
+            / "llm-workspaces"
+            / state.semantic_key.sha256
+            / f"generation-{state.current_generation:04d}"
+            / f"effect-{state.current.effect_id}"
         )
+        inputs_root = workspace / "inputs"
+        work_root = workspace / "work"
+        host_root = workspace / "host"
+        for directory in (inputs_root, work_root, host_root):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        input_documents: list[dict[str, Any]] = []
+        for index, item in enumerate(request.inputs):
+            try:
+                verified = context.artifacts.read_source(item.source)
+            except Exception as exc:
+                raise InvalidRequestError(
+                    f"Input artifact could not be verified: {item.input_id}",
+                    details={
+                        "code": "invalid_input_artifact",
+                        "input_id": item.input_id,
+                    },
+                ) from exc
+            if verified.media_type != item.media_type:
+                raise InvalidRequestError(
+                    f"Input artifact media type differs from the request: {item.input_id}",
+                    details={
+                        "code": "input_media_type_mismatch",
+                        "input_id": item.input_id,
+                        "expected": item.media_type,
+                        "actual": verified.media_type,
+                    },
+                )
+            digest = hashlib.sha256(verified.content).hexdigest()
+            if (
+                digest != item.source.expected_digest.value
+                or len(verified.content) != item.source.expected_digest.size_bytes
+            ):
+                raise InvalidRequestError(
+                    f"Input artifact digest differs from the request: {item.input_id}",
+                    details={
+                        "code": "input_digest_mismatch",
+                        "input_id": item.input_id,
+                    },
+                )
+            relative_path = (
+                f"inputs/{index:04d}-{item.input_id}{self._input_suffix(item.media_type)}"
+            )
+            self._publish_workspace_file(workspace / relative_path, verified.content)
+            input_documents.append(
+                {
+                    "input_id": item.input_id,
+                    "media_type": item.media_type,
+                    "sha256": digest,
+                    "size_bytes": len(verified.content),
+                    "path": relative_path,
+                }
+            )
+
+        continuation_path = None
+        if continuation_prompt is not None:
+            continuation_path = "host/interaction-response.json"
+            self._publish_workspace_file(
+                workspace / continuation_path,
+                continuation_prompt.encode("utf-8"),
+            )
+        control = {
+            "schema_version": "arc.llm.workspace_control.v1",
+            "task_id": request.task_id,
+            "prompt": request.prompt,
+            "output_contract": encode_output_contract(request.output),
+            "capabilities": self._capability_document(request),
+            "inputs": input_documents,
+            "work_directory": "work",
+            "continuation_response": continuation_path,
+            "provider_instructions": (
+                _INTERACTIVE_PROGRESS_GUIDANCE
+                if isinstance(request.output, InteractiveJsonOutput)
+                else None
+            ),
+        }
+        self._publish_workspace_file(
+            host_root / "control.json",
+            canonical_json_bytes(control),
+        )
+        return workspace
+
+    @staticmethod
+    def _workspace_prompt() -> str:
+        return (
+            "Read host/control.json from the current working directory. It contains "
+            "the task, output contract, verified relative input paths, and any "
+            "continuation response. Use work/ for scratch work when useful. Return "
+            "only the requested final response."
+        )
+
+    @staticmethod
+    def _input_suffix(media_type: str) -> str:
+        return {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "text/markdown": ".md",
+            "application/json": ".json",
+        }.get(media_type, ".bin")
+
+    @staticmethod
+    def _publish_workspace_file(path: Path, content: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.read_bytes() == content:
+            return
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
         temporary_path = Path(temporary)
         try:
             with os.fdopen(descriptor, "wb") as handle:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            _set_readonly(temporary_path)
             os.replace(temporary_path, path)
-            if not _WINDOWS:
+            if os.name != "nt":
                 directory_descriptor = os.open(path.parent, os.O_RDONLY)
                 try:
                     os.fsync(directory_descriptor)

@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from ..errors import DeliveryState, FailureCategory, ProviderFailure
@@ -131,6 +132,7 @@ def run_cli(
     ],
     runner: ProcessRunner,
     env: Mapping[str, str] | None,
+    cwd: Path,
     validate_terminal: bool = True,
     extract_failure: (
         Callable[[Mapping[str, Any]], ProviderFailure | None] | None
@@ -146,6 +148,7 @@ def run_cli(
         argv,
         stdin=prompt.encode("utf-8"),
         env=os.environ if env is None else env,
+        cwd=cwd,
         idle_timeout_seconds=timeout,
         before_stdin=observer.before_delivery,
         stop_check=stop.raise_if_requested,

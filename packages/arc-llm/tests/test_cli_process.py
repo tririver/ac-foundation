@@ -196,6 +196,7 @@ def test_process_runner_drains_both_streams_and_calls_delivery_barrier() -> None
         ],
         stdin=b"payload",
         env=None,
+        cwd=Path.cwd(),
         idle_timeout_seconds=5,
         before_stdin=lambda: barrier.append("before"),
         stop_check=lambda: None,
@@ -204,6 +205,19 @@ def test_process_runner_drains_both_streams_and_calls_delivery_barrier() -> None
     assert result.stdout == b"payload"
     assert result.stderr == b"diagnostic"
     assert barrier == ["before"]
+
+
+def test_process_runner_starts_child_in_required_workspace(tmp_path: Path) -> None:
+    result = ProcessRunner().run(
+        [sys.executable, "-c", "import os; print(os.getcwd())"],
+        stdin=b"",
+        env=None,
+        cwd=tmp_path,
+        idle_timeout_seconds=5,
+        before_stdin=lambda: None,
+        stop_check=lambda: None,
+    )
+    assert Path(result.stdout.decode().strip()) == tmp_path
 
 
 def test_process_creation_failure_is_not_delivered_and_unavailable(
@@ -218,6 +232,7 @@ def test_process_creation_failure_is_not_delivered_and_unavailable(
             ["missing-provider"],
             stdin=b"",
             env={},
+            cwd=Path.cwd(),
             idle_timeout_seconds=1,
             before_stdin=lambda: None,
             stop_check=lambda: None,
@@ -235,6 +250,7 @@ def test_process_idle_timeout_terminates_and_reaps_provider() -> None:
             [sys.executable, "-c", "import time; time.sleep(60)"],
             stdin=b"",
             env=None,
+            cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
             stop_check=lambda: None,
@@ -261,6 +277,7 @@ def test_process_allows_long_runtime_when_small_chunks_stay_active() -> None:
         ],
         stdin=b"",
         env=None,
+        cwd=Path.cwd(),
         idle_timeout_seconds=0.08,
         before_stdin=lambda: None,
         stop_check=lambda: None,
@@ -281,6 +298,7 @@ def test_process_idle_timeout_covers_blocked_stdin_delivery() -> None:
             [sys.executable, "-c", "import time; time.sleep(60)"],
             stdin=b"x" * (2 * 1024 * 1024),
             env=None,
+            cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
             stop_check=lambda: None,
@@ -307,6 +325,7 @@ def test_process_stop_remains_active_after_delivery() -> None:
             [sys.executable, "-c", "import time; time.sleep(60)"],
             stdin=b"delivered",
             env=None,
+            cwd=Path.cwd(),
             idle_timeout_seconds=5,
             before_stdin=lambda: None,
             stop_check=stop,
@@ -349,6 +368,7 @@ def test_timeout_terminates_descendant_after_group_leader_exits(
             [sys.executable, "-c", leader, str(marker), child],
             stdin=b"",
             env=None,
+            cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
             stop_check=lambda: None,
@@ -388,6 +408,7 @@ def test_timeout_force_kills_term_ignoring_descendant_after_leader_exit(
             [sys.executable, "-c", leader, str(marker), child],
             stdin=b"",
             env=None,
+            cwd=Path.cwd(),
             idle_timeout_seconds=0.05,
             before_stdin=lambda: None,
             stop_check=lambda: None,

@@ -59,7 +59,7 @@ from arc_llm import (
 from arc_llm.identity import canonical_json_bytes, semantic_key
 from arc_llm.interaction import response_document
 from arc_llm.output import CandidateMaterial
-from arc_llm.executor import HANDLER_NAME
+from arc_llm.executor import HANDLER_NAME, LLMTaskExecutor
 from arc_llm.recovery import effect_id_for
 
 
@@ -153,7 +153,7 @@ def test_client_generate_replays_accepted_result_without_provider_call(
     assert adapter.start_calls == 1
 
 
-def test_noninteractive_provider_prompt_is_byte_identical(
+def test_noninteractive_provider_prompt_uses_workspace_control(
     tmp_path: Path, adapter, registry
 ) -> None:
     prompt = "Exact prompt bytes.\nKeep this spacing.  "
@@ -168,7 +168,13 @@ def test_noninteractive_provider_prompt_is_byte_identical(
         run_root=tmp_path,
     )
     assert isinstance(result.outcome, LLMCompleted)
-    assert adapter.requests[0].prompt == prompt
+    provider_request = adapter.requests[0]
+    assert provider_request.prompt == LLMTaskExecutor._workspace_prompt()
+    control = json.loads(
+        (provider_request.workspace / "host" / "control.json").read_text()
+    )
+    assert control["prompt"] == prompt
+    assert control["inputs"] == []
 
 
 def test_replay_commit_checkpoint_returns_stopped_outcome(
@@ -821,7 +827,7 @@ def test_execute_or_resume_rejects_semantic_conflict_at_no_input_pause(
     assert adapter.resume_calls == 0
 
 
-def test_input_artifact_is_verified_and_materialized_before_provider_call(
+def test_input_artifact_is_verified_and_copied_to_workspace_before_provider_call(
     tmp_path: Path,
     adapter,
     registry,
@@ -844,20 +850,26 @@ def test_input_artifact_is_verified_and_materialized_before_provider_call(
     outcome = LLMTaskService(registry=registry).execute(context, request)
 
     assert isinstance(outcome, LLMCompleted)
-    delivered = adapter.requests[0].inputs
-    assert len(delivered) == 1
-    assert delivered[0].path.is_file()
-    assert delivered[0].path.read_bytes() == b"# paper\n"
-    assert delivered[0].sha256 == input_artifact.source.expected_digest.value
-    assert delivered[0].path.stat().st_mode & 0o777 == 0o400
-    assert delivered[0].path.parent.stat().st_mode & 0o777 == 0o500
+    workspace = adapter.requests[0].workspace
+    control = json.loads((workspace / "host" / "control.json").read_text())
+    assert control["inputs"] == [
+        {
+            "input_id": "paper",
+            "media_type": "text/markdown",
+            "sha256": input_artifact.source.expected_digest.value,
+            "size_bytes": len(b"# paper\n"),
+            "path": "inputs/0000-paper.md",
+        }
+    ]
+    assert (workspace / control["inputs"][0]["path"]).read_bytes() == b"# paper\n"
+    assert all(not Path(item).is_absolute() for item in (control["inputs"][0]["path"], control["work_directory"]))
     object_paths = (
         path
         for path in (tmp_path / "runs" / "parent" / "artifacts" / "objects").rglob("*")
         if path.is_file()
     )
-    recipe = next(path for path in object_paths if b'"input_delivery"' in path.read_bytes())
-    assert b'"mode":"read_tool"' in recipe.read_bytes()
+    recipe = next(path for path in object_paths if b'"input_transport"' in path.read_bytes())
+    assert b'"input_transport":"workspace_control.v1"' in recipe.read_bytes()
 
 
 def test_relocated_input_source_conflicts_with_immutable_standalone_invocation(
@@ -1352,9 +1364,10 @@ def test_standalone_resume_recovers_request_locators_before_task_state_exists(
     assert isinstance(resumed.outcome, LLMCompleted)
     assert resumed.outcome.value == {"answer": 42}
     assert adapter.start_calls == 1
-    assert adapter.requests[0].inputs[0].sha256 == (
-        input_artifact.source.expected_digest.value
+    control = json.loads(
+        (adapter.requests[0].workspace / "host" / "control.json").read_text()
     )
+    assert control["inputs"][0]["sha256"] == input_artifact.source.expected_digest.value
 
 
 def test_standalone_run_without_task_or_invocation_fails_typed_recovery(
@@ -1608,7 +1621,7 @@ def test_unfinished_task_resumes_from_canonical_current_run_input(
     assert resumed.outcome.value == {"answer": 42}
     assert adapter.start_calls == 2
     assert all(
-        item.inputs[0].path.stat().st_mode & 0o777 == 0o400
+        (item.workspace / "inputs" / "0000-paper.md").read_bytes() == b"# paper\n"
         for item in adapter.requests
     )
 
@@ -1641,7 +1654,7 @@ def test_corrupt_input_fails_before_provider_invocation(
     assert adapter.start_calls == 0
 
 
-def test_explicit_provider_rejects_unsupported_media_before_provider_invocation(
+def test_workspace_transport_copies_unknown_media_without_provider_filtering(
     tmp_path: Path,
     adapter,
     registry,
@@ -1656,6 +1669,7 @@ def test_explicit_provider_rejects_unsupported_media_before_provider_invocation(
         RunSpec("parent", "test.parent", {"case": "unsupported-input"})
     )
     context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    adapter.steps.append(_completed({"answer": 42}))
     request = LLMRequest(
         "unsupported-input",
         "Review.",
@@ -1666,10 +1680,13 @@ def test_explicit_provider_rejects_unsupported_media_before_provider_invocation(
 
     outcome = LLMTaskService(registry=registry).execute(context, request)
 
-    assert isinstance(outcome, LLMFailed)
-    assert outcome.error.code.value == "invalid_request"
-    assert outcome.error.details["code"] == "unsupported_input_media"
-    assert adapter.start_calls == 0
+    assert isinstance(outcome, LLMCompleted)
+    assert adapter.start_calls == 1
+    control = json.loads(
+        (adapter.requests[0].workspace / "host" / "control.json").read_text()
+    )
+    assert control["inputs"][0]["path"] == "inputs/0000-paper.bin"
+    assert (adapter.requests[0].workspace / "inputs" / "0000-paper.bin").read_bytes() == b"%PDF"
 
 
 def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(
@@ -1995,7 +2012,12 @@ def test_interactive_not_delivered_retry_resumes_with_persisted_response_prompt(
     assert completed.outcome.value == {"answer": 7}
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 2
-    assert continuation_prompts == [expected_prompt, expected_prompt]
+    assert continuation_prompts == [LLMTaskExecutor._workspace_prompt()] * 2
+    assert all(
+        (provider_request.workspace / "host" / "interaction-response.json").read_text()
+        == expected_prompt
+        for provider_request in adapter.requests[1:]
+    )
 
 
 @pytest.mark.parametrize(
@@ -2092,8 +2114,14 @@ def test_interactive_may_have_run_continuation_reloads_prompt_and_counts_native_
         ),
     )
 
-    assert continuation_prompts == [expected_prompt] * (1 + int(expects_completion))
-    assert "Original task prompt must not be retried." not in continuation_prompts
+    assert continuation_prompts == [LLMTaskExecutor._workspace_prompt()] * (
+        1 + int(expects_completion)
+    )
+    assert all(
+        (provider_request.workspace / "host" / "interaction-response.json").read_text()
+        == expected_prompt
+        for provider_request in adapter.requests[1:]
+    )
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 1 + int(expects_completion)
     repository = RunRepository(tmp_path)
@@ -2678,14 +2706,18 @@ def test_more_than_fifty_interaction_rounds_complete_with_runtime_progress(
     assert progress[-1] == InteractionProgress(
         "resolved", round_count, ("lookup",), 1, 0
     )
-    initial_prompt = adapter.requests[0].prompt
-    assert initial_prompt.startswith("Solve.\n\n")
-    assert initial_prompt.count("arc.llm.interactive_prompt.v1") == 1
-    assert "reasonably advance the task" in initial_prompt
-    assert "negative results" in initial_prompt
-    assert "ruling out hypotheses" in initial_prompt
-    assert "failed or ambiguous operations" in initial_prompt
-    assert "no further operation has a concrete expected contribution" in initial_prompt
+    assert adapter.requests[0].prompt == LLMTaskExecutor._workspace_prompt()
+    initial_control = json.loads(
+        (adapter.requests[0].workspace / "host" / "control.json").read_text()
+    )
+    assert initial_control["prompt"] == "Solve."
+    instructions = initial_control["provider_instructions"]
+    assert "arc.llm.interactive_prompt.v1" in instructions
+    assert "reasonably advance the task" in instructions
+    assert "negative results" in instructions
+    assert "ruling out hypotheses" in instructions
+    assert "failed or ambiguous operations" in instructions
+    assert "no further operation has a concrete expected contribution" in instructions
     expected_continuations = [
         canonical_json_bytes(
             response_document(
@@ -2699,7 +2731,13 @@ def test_more_than_fifty_interaction_rounds_complete_with_runtime_progress(
         ).decode("utf-8")
         for number in range(1, round_count + 1)
     ]
-    assert [item.prompt for item in adapter.requests[1:]] == expected_continuations
+    assert [item.prompt for item in adapter.requests[1:]] == [
+        LLMTaskExecutor._workspace_prompt()
+    ] * round_count
+    assert [
+        (item.workspace / "host" / "interaction-response.json").read_text()
+        for item in adapter.requests[1:]
+    ] == expected_continuations
 
 
 def test_interaction_stop_after_resolution_recovers_pending_turn(

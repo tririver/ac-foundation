@@ -21,16 +21,6 @@ SCANNED_FILES = (
     *tuple(sorted((ROOT / "packages").glob("*/README.md"))),
 )
 TEXT_SUFFIXES = {".py", ".md", ".json", ".txt", ".toml", ".yaml", ".yml"}
-ACP_BOUNDARY = ROOT / "packages" / "arc-llm" / "src" / "arc_llm" / "providers" / "acp.py"
-ACP_ALLOWED_LINES = (
-    'response.stop_reason == "cancelled"',
-    "activity_task.cancel()",
-    "asyncio.CancelledError",
-    "connection.cancel(",
-    "prompt_task.cancel()",
-)
-
-
 def _text_files() -> tuple[Path, ...]:
     paths = list(SCANNED_FILES)
     for root in SCANNED_ROOTS:
@@ -56,10 +46,6 @@ def test_arc_exposes_stop_without_an_owned_cancel_concept() -> None:
             path.read_text(encoding="utf-8").splitlines(), start=1
         ):
             if "cancel" not in line.lower():
-                continue
-            if path == ACP_BOUNDARY and any(
-                allowed in line for allowed in ACP_ALLOWED_LINES
-            ):
                 continue
             offenders.append(f"{relative}:{line_number}: {line.strip()}")
     assert offenders == []

@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 from ..errors import (
@@ -34,6 +35,7 @@ class ProcessRunner:
         *,
         stdin: bytes,
         env: Mapping[str, str] | None,
+        cwd: Path,
         idle_timeout_seconds: float,
         before_stdin: Callable[[], None],
         stop_check: Callable[[], None],
@@ -45,6 +47,7 @@ class ProcessRunner:
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
             "env": None if env is None else dict(env),
+            "cwd": str(cwd),
         }
         if os.name == "posix":
             popen_kwargs["start_new_session"] = True

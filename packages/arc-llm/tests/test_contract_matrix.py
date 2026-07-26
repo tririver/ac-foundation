@@ -73,7 +73,7 @@ def test_config_resolution_matrix_is_explicit_and_host_deterministic() -> None:
     for command, host in (
         ("openai-codex exec", "codex"),
         ("claude --print", "claude"),
-        ("kimi acp", "kimi"),
+        ("kimi -p task", "kimi"),
     ):
         assert detect_host(env={}, process_chain=(command,)).host == host
 
