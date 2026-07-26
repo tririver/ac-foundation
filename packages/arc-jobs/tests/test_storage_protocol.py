@@ -162,12 +162,17 @@ def test_cli_status_and_usage_emit_one_shared_envelope(tmp_path, capsys):
     assert json.loads(lines[0])["error"]["code"] == "invalid_request"
 
 
-def test_run_snapshot_v2_rejects_legacy_v1_document(tmp_path):
+def test_run_snapshot_v3_reads_v2_epoch_zero_and_rejects_v1(tmp_path):
     repository = RunRepository(tmp_path)
     repository.create(RunSpec("run-1", "example.v1", {}))
     path = repository.run_directory("run-1") / "snapshot.json"
     document = json.loads(path.read_text())
-    assert document["schema_version"] == "arc.jobs.run_snapshot.v2"
+    assert document["schema_version"] == "arc.jobs.run_snapshot.v3"
+    document["schema_version"] = "arc.jobs.run_snapshot.v2"
+    document.pop("recovery_epoch")
+    path.write_text(json.dumps(document))
+    assert repository.inspect("run-1").snapshot.recovery_epoch == 0
+
     document["schema_version"] = "arc.jobs.run_snapshot.v1"
     path.write_text(json.dumps(document))
 

@@ -91,6 +91,7 @@ from .storage import (
     atomic_write_bytes,
     atomic_write_json,
 )
+from .working import WorkingState
 
 __version__ = "1.0.1"
 
@@ -159,6 +160,7 @@ __all__ = [
     "ValidationReport",
     "VerifiedArtifact",
     "WorkUnit",
+    "WorkingState",
     "canonical_json_bytes",
     "atomic_write_bytes",
     "atomic_write_json",

@@ -18,6 +18,7 @@ from arc_jobs import (
     FileLease,
     FailureMode,
     InvalidTransitionError,
+    ImmutableArtifactStore,
     Paused,
     ResumeReason,
     RunBusyError,
@@ -733,7 +734,7 @@ class FailFastReplayHandler:
         )
 
 
-def test_fail_fast_resume_does_not_schedule_after_durable_failure(tmp_path):
+def test_paused_resume_still_replays_durable_failure_in_same_epoch(tmp_path):
     handler = FailFastReplayHandler()
     engine = RunEngine(RunRepository(tmp_path))
     assert engine.execute(
@@ -741,3 +742,253 @@ def test_fail_fast_resume_does_not_schedule_after_durable_failure(tmp_path):
     ).status is RunStatus.PAUSED
     assert engine.resume("run-1", handler).status is RunStatus.SUCCEEDED
     assert handler.called == ["a"]
+
+
+class FailOnceHandler:
+    name = "fail-once.v1"
+
+    def __init__(self):
+        self.calls = 0
+        self.semantic_inputs = []
+
+    def execute(self, context):
+        self.calls += 1
+        self.semantic_inputs.append(dict(context.semantic_input))
+        if self.calls == 1:
+            return Failed(RunError("expected", "repair and resume"))
+        return Succeeded()
+
+
+class RecoveringGroupHandler:
+    name = "recovering-group.v1"
+
+    def __init__(self):
+        self.calls = []
+        self.failed_b = False
+
+    def execute(self, context):
+        def worker(unit):
+            self.calls.append(unit.unit_id)
+            if unit.unit_id == "b" and not self.failed_b:
+                self.failed_b = True
+                return UnitResult(
+                    "b",
+                    "failed",
+                    error=RunError("expected", "retry b"),
+                )
+            return {"unit": unit.unit_id}
+
+        result = context.run_group(
+            "group",
+            (WorkUnit("a", {"x": 1}), WorkUnit("b", {"x": 2})),
+            worker,
+            max_workers=1,
+            failure_mode=FailureMode.COLLECT,
+        )
+        if any(item.status == "failed" for item in result.units):
+            return Failed(RunError("group_failed", "retry failed units"))
+        return Succeeded()
+
+
+def test_failed_run_resumes_only_explicitly_into_new_recovery_epoch(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = FailOnceHandler()
+    spec = RunSpec("run-1", handler.name, {"value": 1})
+
+    failed = engine.execute(spec, handler)
+    replayed = engine.execute(spec, handler)
+
+    assert failed.status is RunStatus.FAILED
+    assert failed.recovery_epoch == 0
+    assert replayed == failed
+    assert handler.calls == 1
+
+    resumed = engine.resume("run-1", handler)
+
+    assert resumed.status is RunStatus.SUCCEEDED
+    assert resumed.attempt == 2
+    assert resumed.recovery_epoch == 1
+    assert handler.calls == 2
+    assert (
+        repository.run_directory("run-1")
+        / "recovery"
+        / "epoch-0001"
+        / "working"
+        / "semantic-input.json"
+    ).exists()
+
+
+def test_new_recovery_epoch_reuses_successful_group_units_and_retries_failed(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = RecoveringGroupHandler()
+
+    failed = engine.execute(RunSpec("run-1", handler.name, {}), handler)
+    resumed = engine.resume("run-1", handler)
+
+    assert failed.status is RunStatus.FAILED
+    assert resumed.status is RunStatus.SUCCEEDED
+    assert resumed.recovery_epoch == 1
+    assert handler.calls == ["a", "b", "b"]
+    assert [
+        unit.status for unit in repository.inspect_group("run-1", "group").units
+    ] == ["succeeded", "succeeded"]
+
+
+def test_working_semantic_edit_warns_and_is_used_without_mutating_spec(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = FailOnceHandler()
+    spec = RunSpec("run-1", handler.name, {"value": 1})
+    assert engine.execute(spec, handler).status is RunStatus.FAILED
+    working = repository.working_state("run-1")
+    working.semantic_input_path.write_text('{"value":2}\n')
+
+    resumed = engine.resume("run-1", handler)
+
+    assert resumed.status is RunStatus.SUCCEEDED
+    assert handler.semantic_inputs == [{"value": 1}, {"value": 2}]
+    assert repository.read_spec("run-1").semantic_input == {"value": 1}
+    index = json.loads(working.index_path.read_text())
+    assert [warning["code"] for warning in index["warnings"]] == [
+        "working_state_modified"
+    ]
+
+
+def test_malformed_working_semantic_input_names_path_and_remains_repairable(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = FailOnceHandler()
+    assert engine.execute(
+        RunSpec("run-1", handler.name, {"value": 1}), handler
+    ).status is RunStatus.FAILED
+    working = repository.working_state("run-1")
+    working.semantic_input_path.write_text("{malformed")
+
+    with pytest.raises(
+        CorruptStateError, match=r"working/semantic-input\.json"
+    ):
+        engine.resume("run-1", handler)
+
+    assert repository.inspect("run-1").snapshot.status is RunStatus.FAILED
+    working.semantic_input_path.write_text('{"value":3}\n')
+    assert engine.resume("run-1", handler).status is RunStatus.SUCCEEDED
+
+
+class EditableArtifactHandler:
+    name = "editable-artifact.v1"
+
+    def __init__(self):
+        self.calls = 0
+        self.observed = []
+
+    def execute(self, context):
+        self.calls += 1
+        ref = context.artifacts.find("stage/value")
+        if ref is None:
+            ref = context.artifacts.publish_json(
+                "stage/value", {"value": self.calls}
+            )
+        self.observed.append(
+            json.loads(context.artifacts.read_bytes(ref).decode("utf-8"))
+        )
+        if self.calls == 1:
+            return Failed(RunError("expected", "edit or delete the stage"))
+        return Succeeded(ref)
+
+
+def test_edited_working_artifact_is_rehashed_without_mutating_old_epoch(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = EditableArtifactHandler()
+    failed = engine.execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+    assert failed.status is RunStatus.FAILED
+    original_ref = ImmutableArtifactStore(
+        repository.run_directory("run-1"), repository_root=repository.root
+    ).find("stage/value")
+    assert original_ref is not None
+    original_bytes = ImmutableArtifactStore(
+        repository.run_directory("run-1"), repository_root=repository.root
+    ).read_bytes(original_ref)
+    working_path = (
+        repository.working_state("run-1").artifacts_directory
+        / "stage"
+        / "value"
+    )
+    working_path.write_text('{"value":99}\n')
+
+    recovered = engine.resume("run-1", handler)
+
+    assert recovered.status is RunStatus.SUCCEEDED
+    assert recovered.result_ref is not None
+    assert recovered.result_ref.artifact_id == "recovery-1/stage/value"
+    assert handler.observed[-1] == {"value": 99}
+    assert ImmutableArtifactStore(
+        repository.run_directory("run-1"), repository_root=repository.root
+    ).read_bytes(original_ref) == original_bytes
+
+
+def test_deleted_working_artifact_regenerates_in_recovery_epoch(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = EditableArtifactHandler()
+    assert engine.execute(
+        RunSpec("run-1", handler.name, {}), handler
+    ).status is RunStatus.FAILED
+    working_path = (
+        repository.working_state("run-1").artifacts_directory
+        / "stage"
+        / "value"
+    )
+    working_path.unlink()
+
+    recovered = engine.resume("run-1", handler)
+
+    assert recovered.status is RunStatus.SUCCEEDED
+    assert handler.observed == [{"value": 1}, {"value": 2}]
+
+
+class BlockingRecoveryHandler:
+    name = "blocking-recovery.v1"
+
+    def __init__(self):
+        self.calls = 0
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def execute(self, context):
+        self.calls += 1
+        if self.calls == 1:
+            return Failed(RunError("expected", "resume once"))
+        self.started.set()
+        self.release.wait(timeout=5)
+        return Succeeded()
+
+
+def test_concurrent_failed_resume_keeps_one_writer_and_one_epoch_bump(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = BlockingRecoveryHandler()
+    assert engine.execute(
+        RunSpec("run-1", handler.name, {}), handler
+    ).status is RunStatus.FAILED
+    results = []
+
+    thread = threading.Thread(
+        target=lambda: results.append(engine.resume("run-1", handler))
+    )
+    thread.start()
+    assert handler.started.wait(timeout=5)
+
+    with pytest.raises(RunBusyError):
+        engine.resume("run-1", handler)
+
+    handler.release.set()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert results[0].status is RunStatus.SUCCEEDED
+    assert results[0].recovery_epoch == 1
+    assert handler.calls == 2

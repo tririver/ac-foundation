@@ -388,7 +388,15 @@ def test_cli_commands_queries_and_unexpected_errors_use_one_envelope(
         assert main(command) == 0
         lines = capsys.readouterr().out.splitlines()
         assert len(lines) == 1
-        assert json.loads(lines[0])["status"] == "completed"
+        payload = json.loads(lines[0])
+        assert payload["status"] == "completed"
+        if command[0] == "status":
+            run = payload["data"]["run"]
+            assert run["can_resume"] is True
+            assert run["recovery_epoch"] == 0
+            assert run["working_state"]["semantic_input"] == (
+                "working/semantic-input.json"
+            )
 
     def explode(_self, _run_id):
         raise RuntimeError("unexpected")

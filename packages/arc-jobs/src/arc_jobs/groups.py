@@ -148,11 +148,13 @@ class WorkGroupRunner:
         stop: StopToken,
         events: EventWriter,
         checkpoint: Callable[[], None],
+        replay_directories: tuple[Path, ...] = (),
     ):
         self.directory = directory
         self.stop = stop
         self.events = events
         self.checkpoint = checkpoint
+        self.replay_directories = replay_directories
 
     def run(
         self,
@@ -201,6 +203,24 @@ class WorkGroupRunner:
         pending: deque[WorkUnit] = deque()
         for unit in units:
             path = group_directory / "units" / f"{unit.unit_id}.json"
+            if not path.exists():
+                for replay_root in self.replay_directories:
+                    replay_path = (
+                        replay_root
+                        / group_id
+                        / "units"
+                        / f"{unit.unit_id}.json"
+                    )
+                    if not replay_path.exists():
+                        continue
+                    replay_document = read_json_object(replay_path)
+                    if (
+                        replay_document.get("semantic_key_sha256")
+                        == keys[unit.unit_id]
+                        and replay_document.get("status") == "succeeded"
+                    ):
+                        atomic_write_json(path, replay_document)
+                    break
             if path.exists():
                 document = read_json_object(path)
                 if document.get("semantic_key_sha256") != keys[unit.unit_id]:

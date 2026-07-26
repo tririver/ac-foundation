@@ -61,6 +61,7 @@ from .storage import (
     require_fields,
     utc_now,
 )
+from .working import EditableArtifactStore, WorkingState
 
 T = TypeVar("T")
 _TERMINAL = {RunStatus.SUCCEEDED, RunStatus.FAILED}
@@ -212,7 +213,7 @@ class _SnapshotStore:
 
     def _encode(self, value: RunSnapshot) -> dict[str, JsonValue]:
         return {
-            "schema_version": "arc.jobs.run_snapshot.v2",
+            "schema_version": "arc.jobs.run_snapshot.v3",
             "run_id": value.run_id,
             "revision": value.revision,
             "status": value.status.value,
@@ -231,12 +232,12 @@ class _SnapshotStore:
                 else None
             ),
             "interrupted": value.interrupted,
+            "recovery_epoch": value.recovery_epoch,
         }
 
     def _decode(self, document: Mapping[str, JsonValue]) -> RunSnapshot:
-        require_fields(
-            document,
-            required={
+        schema_version = document.get("schema_version")
+        required = {
                 "schema_version",
                 "run_id",
                 "revision",
@@ -248,10 +249,14 @@ class _SnapshotStore:
                 "result_ref",
                 "error",
                 "interrupted",
-            },
-        )
-        if document["schema_version"] != "arc.jobs.run_snapshot.v2":
-            raise UnsupportedSchemaError(str(document["schema_version"]))
+        }
+        if schema_version is None:
+            require_fields(document, required=required)
+        if schema_version == "arc.jobs.run_snapshot.v3":
+            required.add("recovery_epoch")
+        elif schema_version != "arc.jobs.run_snapshot.v2":
+            raise UnsupportedSchemaError(str(schema_version))
+        require_fields(document, required=required)
         try:
             status = RunStatus(str(document["status"]))
         except ValueError as exc:
@@ -266,6 +271,11 @@ class _SnapshotStore:
             document["updated_at"],
             document["interrupted"],
         )
+        recovery_epoch = (
+            document["recovery_epoch"]
+            if schema_version == "arc.jobs.run_snapshot.v3"
+            else 0
+        )
         if (
             not isinstance(run_id, str)
             or not isinstance(revision, int)
@@ -277,6 +287,9 @@ class _SnapshotStore:
             or not isinstance(created_at, str)
             or not isinstance(updated_at, str)
             or not isinstance(interrupted, bool)
+            or not isinstance(recovery_epoch, int)
+            or isinstance(recovery_epoch, bool)
+            or recovery_epoch < 0
         ):
             raise CorruptStateError("invalid snapshot scalar fields")
         error_json = document["error"]
@@ -299,6 +312,7 @@ class _SnapshotStore:
             _decode_ref(document["result_ref"]),
             error,
             interrupted,
+            recovery_epoch,
         )
         self._validate(None, snapshot, reading=True)
         return snapshot
@@ -342,6 +356,7 @@ class _SnapshotStore:
                 RunStatus.FAILED,
             },
             RunStatus.PAUSED: {RunStatus.RUNNING},
+            RunStatus.FAILED: {RunStatus.RUNNING},
         }
         if next_value.status not in allowed.get(previous.status, set()):
             raise InvalidTransitionError(
@@ -354,6 +369,16 @@ class _SnapshotStore:
         )
         if next_value.attempt != expected_attempt:
             raise InvalidTransitionError("attempt changes only when entering RUNNING")
+        expected_recovery_epoch = (
+            previous.recovery_epoch + 1
+            if previous.status is RunStatus.FAILED
+            and next_value.status is RunStatus.RUNNING
+            else previous.recovery_epoch
+        )
+        if next_value.recovery_epoch != expected_recovery_epoch:
+            raise InvalidTransitionError(
+                "recovery_epoch changes only when resuming a failed run"
+            )
 
     def read(self) -> RunSnapshot:
         if not self.path.exists():
@@ -391,6 +416,9 @@ class RunRepository:
     def run_directory(self, run_id: str) -> Path:
         validate_simple_id(run_id, label="run id")
         return self.root / "runs" / run_id
+
+    def working_state(self, run_id: str) -> WorkingState:
+        return WorkingState(self.run_directory(run_id))
 
     def _snapshot_store(self, run_id: str) -> _SnapshotStore:
         return _SnapshotStore(self.run_directory(run_id) / "snapshot.json")
@@ -435,7 +463,7 @@ class RunRepository:
             if store.path.exists():
                 return store.read()
             now = utc_now()
-            return store.create(
+            snapshot = store.create(
                 RunSnapshot(
                     spec.run_id,
                     0,
@@ -445,6 +473,8 @@ class RunRepository:
                     now,
                 )
             )
+            self.working_state(spec.run_id).materialize(spec)
+            return snapshot
         finally:
             creation_lease.release()
 
@@ -479,6 +509,14 @@ class RunRepository:
             raise CorruptStateError("run semantic key does not match spec")
         return spec
 
+    def read_working_spec(self, run_id: str) -> RunSpec:
+        """Return current editable semantics while retaining immutable lineage."""
+
+        spec = self.read_spec(run_id)
+        working = self.working_state(run_id)
+        working.materialize(spec, include_legacy_artifacts=True)
+        return RunSpec(run_id, spec.handler, working.read_semantic_input())
+
     def inspect(self, run_id: str) -> RunView:
         snapshot = self._snapshot_store(run_id).read()
         stop = None
@@ -492,8 +530,11 @@ class RunRepository:
         return RunView(snapshot, stop)
 
     def inspect_group(self, run_id: str, group_id: str) -> GroupView:
-        self._snapshot_store(run_id).read()
-        return inspect_group(self.run_directory(run_id) / "groups", group_id)
+        snapshot = self._snapshot_store(run_id).read()
+        root = self.run_directory(run_id) / "groups"
+        if snapshot.recovery_epoch:
+            root = root / f"recovery-{snapshot.recovery_epoch:04d}"
+        return inspect_group(root, group_id)
 
     def request_stop(self, run_id: str, *, reason: str | None = None) -> RunView:
         """Cooperatively pause the current attempt without affecting a later one."""
@@ -622,14 +663,20 @@ class RunContext:
         snapshot: RunSnapshot,
         *,
         resume_input: Mapping[str, JsonValue] | None,
+        semantic_input: Mapping[str, JsonValue] | None = None,
         event_sink: EventSink | None = None,
         _sink_failure_state: _SinkFailureState | None = None,
     ):
         self.repository = repository
         self.run_id = snapshot.run_id
         self.attempt = snapshot.attempt
+        self.recovery_epoch = snapshot.recovery_epoch
         self.spec = repository.read_spec(snapshot.run_id)
-        self.semantic_input = self.spec.semantic_input
+        self.semantic_input = (
+            dict(semantic_input)
+            if semantic_input is not None
+            else self.spec.semantic_input
+        )
         self.resume_input = resume_input
         self.run_directory = repository.run_directory(self.run_id)
         self.stop = StopToken(
@@ -642,16 +689,40 @@ class RunContext:
             event_sink=event_sink,
             _sink_failure_state=_sink_failure_state,
         )
-        self.artifacts = ImmutableArtifactStore(
-            self.run_directory, repository_root=repository.root
+        self.working = repository.working_state(self.run_id)
+        self.artifacts = EditableArtifactStore(
+            ImmutableArtifactStore(
+                self.run_directory, repository_root=repository.root
+            ),
+            self.working,
+            recovery_epoch=self.recovery_epoch,
+        )
+
+    def execution_id(self, identifier: str) -> str:
+        """Namespace task identifiers only for explicit failed-run recovery."""
+
+        validate_simple_id(identifier, label="execution identifier")
+        if self.recovery_epoch == 0:
+            return identifier
+        prefix = f"recovery-{self.recovery_epoch}-"
+        value = f"{prefix}{identifier}"
+        if len(value) <= 128:
+            return validate_simple_id(value, label="execution identifier")
+        digest = hashlib.sha256(identifier.encode("utf-8")).hexdigest()[:24]
+        return validate_simple_id(
+            f"{prefix}{identifier[: 127 - len(prefix) - len(digest)]}-{digest}",
+            label="execution identifier",
         )
 
     def state(
         self, namespace: str, contract: StateContract[T]
     ) -> AtomicStateStore[T]:
         validate_simple_id(namespace, label="state namespace")
+        state_root = self.run_directory / "state"
+        if self.recovery_epoch:
+            state_root = state_root / f"recovery-{self.recovery_epoch:04d}"
         return AtomicStateStore(
-            self.run_directory / "state" / f"{namespace}.json", contract
+            state_root / f"{namespace}.json", contract
         )
 
     def checkpoint(self) -> None:
@@ -668,11 +739,29 @@ class RunContext:
         max_workers: int,
         failure_mode: FailureMode,
     ) -> GroupExecutionResult:
+        group_root = self.run_directory / "groups"
+        current_root = (
+            group_root
+            if self.recovery_epoch == 0
+            else group_root / f"recovery-{self.recovery_epoch:04d}"
+        )
+        replay_roots = (
+            ()
+            if self.recovery_epoch == 0
+            else (
+                *(
+                    group_root / f"recovery-{epoch:04d}"
+                    for epoch in range(self.recovery_epoch - 1, 0, -1)
+                ),
+                group_root,
+            )
+        )
         return WorkGroupRunner(
-            self.run_directory / "groups",
+            current_root,
             stop=self.stop,
             events=self.events,
             checkpoint=self.checkpoint,
+            replay_directories=replay_roots,
         ).run(
             group_id,
             units,
@@ -682,7 +771,16 @@ class RunContext:
         )
 
     def inspect_group(self, group_id: str) -> GroupView:
-        return self.repository.inspect_group(self.run_id, group_id)
+        return inspect_group(
+            (
+                self.run_directory / "groups"
+                if self.recovery_epoch == 0
+                else self.run_directory
+                / "groups"
+                / f"recovery-{self.recovery_epoch:04d}"
+            ),
+            group_id,
+        )
 
 
 class RunEngine:
@@ -706,6 +804,7 @@ class RunEngine:
             handler,
             resume_input=None,
             event_sink=event_sink,
+            allow_failed=False,
         )
 
     def resume(
@@ -724,6 +823,7 @@ class RunEngine:
             handler,
             resume_input=input,
             event_sink=event_sink,
+            allow_failed=True,
         )
 
     def _persist_resume_input(
@@ -785,6 +885,7 @@ class RunEngine:
         *,
         resume_input: Mapping[str, JsonValue] | None,
         event_sink: EventSink | None,
+        allow_failed: bool,
     ) -> RunSnapshot:
         run_directory = self.repository.run_directory(run_id)
         lease = FileLease(run_directory / "lease.lock").acquire()
@@ -798,10 +899,21 @@ class RunEngine:
         )
         try:
             snapshot = store.read()
-            if snapshot.status in _TERMINAL:
+            if snapshot.status is RunStatus.SUCCEEDED or (
+                snapshot.status is RunStatus.FAILED and not allow_failed
+            ):
                 if resume_input is not None:
                     self._validate_replayed_resume_input(run_directory, resume_input)
                 return snapshot
+            semantic_input: Mapping[str, JsonValue] | None = None
+            recovery_warnings: tuple[dict[str, JsonValue], ...] = ()
+            if snapshot.status is RunStatus.FAILED:
+                semantic_input, recovery_warnings = (
+                    self.repository.working_state(run_id).prepare_recovery(
+                        self.repository.read_spec(run_id),
+                        recovery_epoch=snapshot.recovery_epoch + 1,
+                    )
+                )
             stop_token = StopToken(
                 run_directory / "stop-requests" / f"{snapshot.attempt}.json",
                 target_attempt=snapshot.attempt,
@@ -854,6 +966,11 @@ class RunEngine:
                 awaiting=None,
                 result_ref=None,
                 error=None,
+                recovery_epoch=(
+                    snapshot.recovery_epoch + 1
+                    if snapshot.status is RunStatus.FAILED
+                    else snapshot.recovery_epoch
+                ),
             )
             snapshot = store.compare_and_swap(snapshot.revision, running)
             atomic_write_json(
@@ -871,9 +988,12 @@ class RunEngine:
                 self.repository,
                 snapshot,
                 resume_input=resume_input,
+                semantic_input=semantic_input,
                 event_sink=event_sink,
                 _sink_failure_state=sink_failure_state,
             )
+            for warning in recovery_warnings:
+                events.emit("run_warning", warning)
             try:
                 context.checkpoint()
                 outcome = handler.execute(context)
@@ -928,13 +1048,26 @@ class RunEngine:
                         f"{type(exc).__name__}: {str(exc)[:300]}",
                     ),
                 )
+            event_name = {
+                RunStatus.SUCCEEDED: "run_terminal",
+                RunStatus.FAILED: "run_attempt_failed",
+            }.get(next_snapshot.status, "run_paused")
             events.emit(
-                "run_terminal" if next_snapshot.status in _TERMINAL else "run_paused",
+                event_name,
                 {
                     "status": next_snapshot.status.value,
                     "attempt": next_snapshot.attempt,
                 },
             )
+            if next_snapshot.status is RunStatus.FAILED:
+                assert next_snapshot.error is not None
+                context.working.record_error(
+                    next_snapshot.error,
+                    attempt=next_snapshot.attempt,
+                    recovery_epoch=next_snapshot.recovery_epoch,
+                )
+            else:
+                context.working.clear_error()
             return store.compare_and_swap(snapshot.revision, next_snapshot)
         finally:
             lease.release()

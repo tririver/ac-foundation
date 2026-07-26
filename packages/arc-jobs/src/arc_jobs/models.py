@@ -100,6 +100,7 @@ class RunSnapshot:
     result_ref: ArtifactRef | None = None
     error: RunError | None = None
     interrupted: bool = False
+    recovery_epoch: int = 0
 
 
 @dataclass(frozen=True)
