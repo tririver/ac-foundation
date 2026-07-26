@@ -395,7 +395,7 @@ def test_fail_fast_skipped_loop_projects_as_failed_not_integrity_error(
     assert inspection.loops[1].failure.code == "fail_fast_skipped"
 
 
-def test_inspection_projects_active_worker_interaction_without_private_ids(
+def test_inspection_projects_active_worker_without_private_ids(
     tmp_path: Path,
 ) -> None:
     repository, _snapshot, _loop = _running_repository(tmp_path)
@@ -416,21 +416,6 @@ def test_inspection_projects_active_worker_interaction_without_private_ids(
             "worker_id": "proposer-a",
         },
     )
-    events.emit(
-        "proposer_reviewer_worker_interaction",
-        {
-            "loop_id": "loop-a",
-            "round": 1,
-            "role": "proposer",
-            "worker_id": "proposer-a",
-            "interaction_round": 9,
-            "interaction_stage": "requested",
-            "operation_names": ["search", "read"],
-            "request_count": 2,
-            "error_count": 0,
-        },
-    )
-
     inspection = inspect_batch(repository, "run-a")
     active = inspection.loops[0].active_workers
 
@@ -445,8 +430,6 @@ def test_inspection_projects_active_worker_interaction_without_private_ids(
     }
     assert len(active) == 1
     assert active[0].worker_id == "proposer-a"
-    assert active[0].interaction_round == 9
-    assert active[0].last_operation_names == ("search", "read")
     assert inspection.loops[0].last_activity_at is not None
 
     events.emit(

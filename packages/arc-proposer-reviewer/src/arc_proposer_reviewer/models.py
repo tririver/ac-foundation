@@ -6,12 +6,7 @@ from enum import StrEnum
 from typing import Literal, Mapping
 
 from arc_jobs import JsonValue, RunError
-from arc_llm import (
-    ExecutionLimits,
-    InteractionResolver,
-    ModelSelection,
-    OperationContract,
-)
+from arc_llm import LLMExecutionOptions, ModelSelection
 
 
 BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v3"
@@ -41,9 +36,6 @@ class WorkerSpec:
     instructions: str
     output_schema: Mapping[str, JsonValue]
     model: ModelSelection = field(default_factory=ModelSelection)
-    interaction_operations: Mapping[str, OperationContract] = field(
-        default_factory=dict
-    )
 
 
 @dataclass(frozen=True)
@@ -69,11 +61,7 @@ class BatchRequest:
 class ExecutionOptions:
     max_concurrent_loops: int = 1
     max_concurrent_workers: int = 1
-    llm_limits: ExecutionLimits = field(default_factory=ExecutionLimits)
-    interaction_resolver: InteractionResolver | None = None
-    loop_interaction_resolvers: Mapping[str, InteractionResolver] = field(
-        default_factory=dict
-    )
+    llm: LLMExecutionOptions = field(default_factory=LLMExecutionOptions)
     progress_callback: Callable[[Mapping[str, JsonValue]], None] | None = field(
         default=None,
         compare=False,

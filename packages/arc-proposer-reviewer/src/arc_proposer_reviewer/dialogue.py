@@ -18,7 +18,6 @@ class TranscriptTurn:
     round_number: int
     content_ref: ArtifactRef
     addressed_worker_ids: tuple[str, ...] = ()
-    interaction_provenance_refs: tuple[ArtifactRef, ...] = ()
 
 
 def encode_transcript_turn(turn: TranscriptTurn) -> dict[str, JsonValue]:
@@ -29,9 +28,6 @@ def encode_transcript_turn(turn: TranscriptTurn) -> dict[str, JsonValue]:
         "round": turn.round_number,
         "content_ref": _artifact_ref(turn.content_ref),
         "addressed_worker_ids": list(turn.addressed_worker_ids),
-        "interaction_provenance_refs": [
-            _artifact_ref(ref) for ref in turn.interaction_provenance_refs
-        ],
     }
 
 
@@ -47,7 +43,6 @@ def decode_transcript_turn(value: JsonValue) -> TranscriptTurn:
         "round",
         "content_ref",
         "addressed_worker_ids",
-        "interaction_provenance_refs",
     }
     if set(value) != expected:
         raise ValueError("transcript turn uses an invalid closed shape")
@@ -57,7 +52,6 @@ def decode_transcript_turn(value: JsonValue) -> TranscriptTurn:
     worker_id = value["worker_id"]
     round_number = value["round"]
     addressed_worker_ids = value["addressed_worker_ids"]
-    provenance_refs = value["interaction_provenance_refs"]
     if role not in {"proposer", "reviewer"}:
         raise ValueError("transcript turn role is invalid")
     if not isinstance(worker_id, str) or not worker_id:
@@ -67,7 +61,6 @@ def decode_transcript_turn(value: JsonValue) -> TranscriptTurn:
         or round_number < 1
         or not isinstance(addressed_worker_ids, list)
         or not all(isinstance(item, str) and item for item in addressed_worker_ids)
-        or not isinstance(provenance_refs, list)
     ):
         raise ValueError("transcript turn fields are invalid")
     return TranscriptTurn(
@@ -76,9 +69,6 @@ def decode_transcript_turn(value: JsonValue) -> TranscriptTurn:
         round_number=round_number,
         content_ref=artifact_ref_from_document(value["content_ref"]),
         addressed_worker_ids=tuple(addressed_worker_ids),
-        interaction_provenance_refs=tuple(
-            artifact_ref_from_document(item) for item in provenance_refs
-        ),
     )
 
 

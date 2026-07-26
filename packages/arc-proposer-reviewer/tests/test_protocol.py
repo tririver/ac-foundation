@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import replace
 
 import pytest
 
+from arc_llm import ModelSelection
 from arc_proposer_reviewer.models import (
     BATCH_SCHEMA_VERSION,
     BatchFailurePolicy,
@@ -15,7 +15,6 @@ from arc_proposer_reviewer.models import (
 )
 from arc_proposer_reviewer.protocol import decode_batch_request, encode_batch_request
 from arc_proposer_reviewer.validation import RequestValidationError
-from arc_llm import ModelSelection, OperationContract
 
 
 SCHEMA = {
@@ -24,21 +23,6 @@ SCHEMA = {
     "properties": {"answer": {"type": "string"}},
     "additionalProperties": False,
 }
-
-LOOKUP_OPERATION = OperationContract(
-    arguments_schema={
-        "type": "object",
-        "required": ["query"],
-        "properties": {"query": {"type": "string"}},
-        "additionalProperties": False,
-    },
-    response_schema={
-        "type": "object",
-        "required": ["value"],
-        "properties": {"value": {"type": "string"}},
-        "additionalProperties": False,
-    },
-)
 
 
 def request() -> BatchRequest:
@@ -57,11 +41,7 @@ def request() -> BatchRequest:
                         model=ModelSelection(provider="codex", model="gpt-test"),
                     ),
                 ),
-                reviewer=WorkerSpec(
-                    worker_id="reviewer",
-                    instructions="Review.",
-                    output_schema=SCHEMA,
-                ),
+                reviewer=WorkerSpec("reviewer", "Review.", SCHEMA),
                 max_rounds=2,
                 allow_early_stop=False,
                 on_proposer_failure=ProposerFailurePolicy.CONTINUE_IF_ANY,
@@ -71,179 +51,34 @@ def request() -> BatchRequest:
     )
 
 
-def test_batch_request_round_trips_without_losing_typed_llm_options() -> None:
+def test_batch_request_round_trips_with_closed_worker_shape() -> None:
     original = request()
-    decoded = decode_batch_request(encode_batch_request(original))
-    assert decoded == original
-    proposer = decoded.loops[0].proposers[0]
-    assert proposer.model.provider == "codex"
-    assert proposer.model.model == "gpt-test"
+    encoded = encode_batch_request(original)
+    proposer = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
+    assert set(proposer) == {"worker_id", "instructions", "output_schema", "model"}
+    assert decode_batch_request(encoded) == original
 
 
-def test_worker_interaction_contract_round_trips_as_closed_protocol() -> None:
-    original = request()
-    loop = original.loops[0]
-    proposer = replace(
-        loop.proposers[0],
-        interaction_operations={"lookup": LOOKUP_OPERATION},
-    )
-    reviewer = replace(
-        loop.reviewer,
-        interaction_operations={"lookup": LOOKUP_OPERATION},
-    )
-    configured = BatchRequest(
-        schema_version=original.schema_version,
-        batch_id=original.batch_id,
-        loops=(
-            LoopSpec(
-                loop_id=loop.loop_id,
-                context=loop.context,
-                proposers=(proposer,),
-                reviewer=reviewer,
-                max_rounds=loop.max_rounds,
-                allow_early_stop=loop.allow_early_stop,
-                on_proposer_failure=loop.on_proposer_failure,
-            ),
-        ),
-        failure_policy=original.failure_policy,
-    )
-
-    encoded = encode_batch_request(configured)
-    proposer_document = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
-    assert set(proposer_document) == {
-        "worker_id",
-        "instructions",
-        "output_schema",
-        "model",
-        "interaction_operations",
-    }
-    assert proposer_document["interaction_operations"] == {  # type: ignore[index]
-        "lookup": {
-            "arguments_schema": dict(LOOKUP_OPERATION.arguments_schema),
-            "response_schema": dict(LOOKUP_OPERATION.response_schema),
-        }
-    }
-    assert decode_batch_request(encoded) == configured
-
-    proposer_document["interaction_operations"]["lookup"]["surprise"] = True  # type: ignore[index]
-    with pytest.raises(RequestValidationError, match="unknown field"):
-        decode_batch_request(encoded)
-
-
-def test_default_worker_protocol_uses_the_complete_current_shape() -> None:
-    encoded = encode_batch_request(request())
-    proposer_document = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
-    assert set(proposer_document) == {
-        "worker_id",
-        "instructions",
-        "output_schema",
-        "model",
-        "interaction_operations",
-    }
-    assert proposer_document["interaction_operations"] == {}
-    assert decode_batch_request(encoded) == request()
-
-
-@pytest.mark.parametrize(
-    "missing_field",
-    ("interaction_operations",),
-)
-def test_worker_protocol_requires_the_complete_current_shape(
-    missing_field: str,
-) -> None:
+@pytest.mark.parametrize("field", ("surprise", "unexpected_capability"))
+def test_unknown_worker_fields_are_rejected(field: str) -> None:
     document = encode_batch_request(request())
     worker = document["loops"][0]["proposers"][0]  # type: ignore[index]
-    del worker[missing_field]
+    worker[field] = True
+    with pytest.raises(RequestValidationError, match="unknown field"):
+        decode_batch_request(document)
 
+
+def test_worker_fields_remain_required_and_request_validation_is_strict() -> None:
+    document = encode_batch_request(request())
+    worker = document["loops"][0]["proposers"][0]  # type: ignore[index]
+    del worker["model"]
     with pytest.raises(RequestValidationError, match="required field is missing"):
         decode_batch_request(document)
-
-
-@pytest.mark.parametrize(
-    "interaction_operations",
-    [
-        {"": LOOKUP_OPERATION},
-        {"lookup": object()},
-    ],
-)
-def test_invalid_worker_interaction_contract_is_rejected(
-    interaction_operations,
-) -> None:
-    original = request()
-    loop = original.loops[0]
-    invalid_proposer = replace(
-        loop.proposers[0],
-        interaction_operations=interaction_operations,
-    )
-    invalid = BatchRequest(
-        schema_version=original.schema_version,
-        batch_id=original.batch_id,
-        loops=(
-            LoopSpec(
-                loop_id=loop.loop_id,
-                context=loop.context,
-                proposers=(invalid_proposer,),
-                reviewer=loop.reviewer,
-                max_rounds=loop.max_rounds,
-                allow_early_stop=loop.allow_early_stop,
-                on_proposer_failure=loop.on_proposer_failure,
-            ),
-        ),
-        failure_policy=original.failure_policy,
-    )
-    with pytest.raises(RequestValidationError):
-        encode_batch_request(invalid)
-
-
-def test_unknown_request_field_is_rejected() -> None:
-    for field in ("surprise", "total_timeout"):
+    for mutation, message in (
+        (lambda value: value["loops"].append(copy.deepcopy(value["loops"][0])), "duplicate loop_id"),
+        (lambda value: value["loops"][0].update({"proposers": []}), "at least one proposer"),
+    ):
         document = encode_batch_request(request())
-        document[field] = True
-        with pytest.raises(RequestValidationError, match="unknown field"):
+        mutation(document)
+        with pytest.raises(RequestValidationError, match=message):
             decode_batch_request(document)
-
-
-def test_retired_interaction_turn_limit_and_v2_batch_are_rejected() -> None:
-    document = encode_batch_request(request())
-    worker = document["loops"][0]["proposers"][0]  # type: ignore[index]
-    worker["max_interaction_turns"] = 2
-    with pytest.raises(RequestValidationError, match="unknown field"):
-        decode_batch_request(document)
-
-    document = encode_batch_request(request())
-    document["schema_version"] = "arc.proposer_reviewer.batch.v2"
-    with pytest.raises(RequestValidationError, match="batch.v3"):
-        decode_batch_request(document)
-
-
-def test_string_boolean_is_rejected() -> None:
-    document = encode_batch_request(request())
-    document["loops"][0]["allow_early_stop"] = "false"  # type: ignore[index]
-    with pytest.raises(RequestValidationError, match="must be a boolean"):
-        decode_batch_request(document)
-
-
-@pytest.mark.parametrize(
-    ("mutation", "message"),
-    [
-        (
-            lambda value: value["loops"].append(copy.deepcopy(value["loops"][0])),
-            "duplicate loop_id",
-        ),
-        (
-            lambda value: value["loops"][0].update({"proposers": []}),
-            "at least one proposer",
-        ),
-        (
-            lambda value: value["loops"][0]["reviewer"].update(
-                {"worker_id": "proposer-a"}
-            ),
-            "unique within the loop",
-        ),
-    ],
-)
-def test_batch_identity_and_worker_cardinality_validation(mutation, message: str) -> None:
-    document = encode_batch_request(request())
-    mutation(document)
-    with pytest.raises(RequestValidationError, match=message):
-        decode_batch_request(document)

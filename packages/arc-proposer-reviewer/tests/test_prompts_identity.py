@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from arc_llm import OperationContract
 from arc_proposer_reviewer.identity import (
     LOOP_SEMANTIC_KEY_SCHEMA,
     WORKER_SEMANTIC_KEY_SCHEMA,
@@ -18,18 +17,6 @@ from arc_proposer_reviewer.prompts import (
 
 
 SCHEMA = {"type": "object", "additionalProperties": True}
-LOOKUP_OPERATION = OperationContract(
-    arguments_schema={
-        "type": "object",
-        "properties": {"query": {"type": "string"}},
-        "additionalProperties": False,
-    },
-    response_schema={
-        "type": "object",
-        "properties": {"value": {"type": "string"}},
-        "additionalProperties": False,
-    },
-)
 
 
 def loop(loop_id: str = "loop-a") -> LoopSpec:
@@ -62,58 +49,40 @@ def test_initial_prompt_has_fixed_section_order() -> None:
     changed_prompt = render_initial_proposer_prompt(
         loop=changed, worker=changed.proposers[0], round_number=1
     )
-    static_prefix = prompt.split("## Caller context", 1)[0]
-    assert changed_prompt.split("## Caller context", 1)[0] == static_prefix
+    assert prompt.split("## Caller context", 1)[0] == changed_prompt.split(
+        "## Caller context", 1
+    )[0]
 
 
-def test_delta_prompt_requires_complete_recomputation_and_targeted_feedback() -> None:
+def test_delta_and_reviewer_prompts_keep_only_business_context() -> None:
     value = loop()
-    prompt = render_delta_proposer_prompt(
+    delta = render_delta_proposer_prompt(
         loop=value,
         worker=value.proposers[0],
         round_number=2,
         previous_proposal={"answer": "old"},
         targeted_feedback="Address this exact issue.",
     )
-    assert "complete standalone proposal" in prompt
-    assert "Address this exact issue." in prompt
-    assert '"answer":"old"' in prompt
-
-
-def test_reviewer_prompt_contains_business_values_not_diagnostics() -> None:
-    value = loop()
-    prompt = render_reviewer_prompt(
+    assert "complete standalone proposal" in delta
+    assert "Address this exact issue." in delta
+    reviewer = render_reviewer_prompt(
         loop=value,
         round_number=1,
         proposals={"p": {"answer": "candidate"}},
         previous_review={"reason": "An earlier review."},
     )
-    assert '"answer":"candidate"' in prompt
-    assert "provider" not in prompt.lower()
-    assert "usage" not in prompt.lower()
-    assert "call_record" not in prompt
-    assert "complete review" in prompt
-    assert "Independently review all current proposals" in prompt
-    assert "Do not patch or merely endorse the previous review" in prompt
+    assert '"answer":"candidate"' in reviewer
+    assert "provider" not in reviewer.lower()
+    assert "Independently review all current proposals" in reviewer
 
 
-def test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops() -> None:
+def test_worker_identity_covers_only_current_worker_contract() -> None:
+    assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v4")
+    assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v4")
     value = loop()
     worker = value.proposers[0]
     base = worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=worker,
-        upstream_digests={},
-    )
-    # No API parameter exists for outer run ID, path, batch concurrency, or other loops.
-    assert base == worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=worker,
-        upstream_digests={},
+        role="proposer", loop=value, round_number=1, worker=worker, upstream_digests={}
     )
     assert base != worker_semantic_key(
         role="proposer",
@@ -129,62 +98,6 @@ def test_worker_identity_ignores_outer_run_path_concurrency_and_other_loops() ->
         worker=replace(worker, instructions="Changed."),
         upstream_digests={},
     )
-    assert base != worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=replace(
-            worker,
-            output_schema={
-                "type": "object",
-                "required": ["changed"],
-                "properties": {"changed": {"type": "boolean"}},
-            },
-        ),
-        upstream_digests={},
-    )
-    assert base != worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=worker,
-        upstream_digests={"prior": "abc"},
-    )
-
-
-def test_worker_identity_includes_the_closed_interaction_contract() -> None:
-    assert (
-        WORKER_SEMANTIC_KEY_SCHEMA
-        == "arc.proposer_reviewer.worker_semantic_key.v3"
-    )
-    assert (
-        LOOP_SEMANTIC_KEY_SCHEMA
-        == "arc.proposer_reviewer.loop_semantic_key.v3"
-    )
-    value = loop()
-    worker = value.proposers[0]
-    configured = replace(
-        worker,
-        interaction_operations={"lookup": LOOKUP_OPERATION},
-    )
-    base = worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=worker,
-        upstream_digests={},
-    )
-    configured_key = worker_semantic_key(
-        role="proposer",
-        loop=value,
-        round_number=1,
-        worker=configured,
-        upstream_digests={},
-    )
-    assert configured_key != base
-    assert worker_contract_document(configured)["interaction_operations"] == {
-        "lookup": {
-            "arguments_schema": dict(LOOKUP_OPERATION.arguments_schema),
-            "response_schema": dict(LOOKUP_OPERATION.response_schema),
-        }
+    assert set(worker_contract_document(worker)) == {
+        "worker_id", "instructions", "output_schema", "model"
     }

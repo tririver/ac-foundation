@@ -20,12 +20,9 @@ from arc_jobs import (
     WorkUnit,
 )
 from arc_llm import (
-    InteractionProgress,
-    InteractiveJsonOutput,
     JsonOutput,
     LLMStopped,
     LLMCompleted,
-    LLMExecutionOptions,
     LLMFailed,
     LLMPaused,
     LLMRequest,
@@ -96,18 +93,12 @@ class _ExecutionProgress:
         "round_finished",
         "worker_started",
         "worker_finished",
-        "interaction",
     ]
     loop_id: str
     round_number: int | None = None
     role: Literal["proposer", "reviewer"] | None = None
     worker_id: str | None = None
     status: str | None = None
-    interaction_round: int | None = None
-    interaction_stage: Literal["requested", "resolved"] | None = None
-    operation_names: tuple[str, ...] = ()
-    request_count: int = 0
-    error_count: int = 0
 
 
 class ProposerReviewerService:
@@ -409,7 +400,7 @@ class ProposerReviewerService:
                 request = LLMRequest(
                     task_id=task_id,
                     prompt=prompt,
-                    output=_worker_output(worker, worker.output_schema),
+                    output=_worker_output(worker.output_schema),
                     model=worker.model,
                     session=state.proposer_sessions.get(worker.worker_id),
                 )
@@ -570,7 +561,6 @@ class ProposerReviewerService:
                     transcript_refs=transcript_refs,
                 ),
                 output=_worker_output(
-                    loop.reviewer,
                     reviewer_envelope_schema(
                         payload_schema=loop.reviewer.output_schema,
                         active_proposer_ids=tuple(proposals),
@@ -767,13 +757,9 @@ class ProposerReviewerService:
             outcome = self._call_worker(
                 context,
                 request,
-                loop_id=loop_id,
                 task_id=task_id,
                 pause=pause,
                 options=options,
-                round_number=round_number,
-                role=role,
-                worker_id=worker_id,
             )
             status = _worker_outcome_status(outcome)
             return outcome
@@ -799,42 +785,12 @@ class ProposerReviewerService:
         context: RunContext,
         request: LLMRequest,
         *,
-        loop_id: str,
         task_id: str,
         pause: _PauseRecord | None,
         options: ExecutionOptions,
-        round_number: int,
-        role: Literal["proposer", "reviewer"],
-        worker_id: str,
     ):
-        def observe(progress: InteractionProgress) -> None:
-            _emit_progress(
-                context,
-                options,
-                _ExecutionProgress(
-                    "interaction",
-                    loop_id,
-                    round_number=round_number,
-                    role=role,
-                    worker_id=worker_id,
-                    interaction_round=progress.interaction_round,
-                    interaction_stage=progress.stage,
-                    operation_names=progress.operation_names,
-                    request_count=progress.request_count,
-                    error_count=progress.error_count,
-                ),
-            )
-
-        llm_options = LLMExecutionOptions(
-            limits=options.llm_limits,
-            interaction_resolver=options.loop_interaction_resolvers.get(
-                loop_id,
-                options.interaction_resolver,
-            ),
-            interaction_observer=observe,
-        )
         if pause is None:
-            return self.llm.execute(context, request, options=llm_options)
+            return self.llm.execute(context, request, options=options.llm)
         resume_input = None
         if context.resume_input is not None:
             if context.resume_input.get("resume_key") != pause.awaiting.resume_key:
@@ -846,7 +802,7 @@ class ProposerReviewerService:
             context,
             task_id,
             input=resume_input,
-            options=llm_options,
+            options=options.llm,
         )
 
 
@@ -874,17 +830,9 @@ def _successful_loop(
     )
 
 
-def _worker_output(
-    worker: WorkerSpec,
-    result_schema: Mapping[str, JsonValue],
-) -> JsonOutput | InteractiveJsonOutput:
-    """Build the worker's declared output contract."""
-    if not worker.interaction_operations:
-        return JsonOutput(result_schema)
-    return InteractiveJsonOutput(
-        result_schema=result_schema,
-        operations=worker.interaction_operations,
-    )
+def _worker_output(result_schema: Mapping[str, JsonValue]) -> JsonOutput:
+    """Build the worker's single structured result contract."""
+    return JsonOutput(result_schema)
 
 
 def _worker_outcome_status(outcome: object) -> str:
@@ -957,20 +905,12 @@ def _emit_progress(
         ("role", progress.role),
         ("worker_id", progress.worker_id),
         ("status", progress.status),
-        ("interaction_round", progress.interaction_round),
-        ("interaction_stage", progress.interaction_stage),
     ):
         if value is not None:
             data[name] = value
-    if progress.operation_names:
-        data["operation_names"] = list(progress.operation_names)
-    if progress.event == "interaction":
-        data["request_count"] = progress.request_count
-        data["error_count"] = progress.error_count
     try:
         event = {
             "round_finished": "proposer_reviewer_round_committed",
-            "interaction": "proposer_reviewer_worker_interaction",
         }.get(progress.event, f"proposer_reviewer_{progress.event}")
         context.events.emit(event, data)
     except Exception:

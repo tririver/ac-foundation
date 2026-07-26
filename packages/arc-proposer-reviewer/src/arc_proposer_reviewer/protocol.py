@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from arc_jobs import JsonValue
-from arc_llm import ArcLLMError, ModelSelection, OperationContract
+from arc_llm import ModelSelection
 
 from .identity import worker_contract_document
 from .models import (
@@ -140,7 +140,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             "instructions",
             "output_schema",
             "model",
-            "interaction_operations",
         },
         path,
     )
@@ -152,41 +151,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
     raw_exact_model = raw_model["model"]
     if raw_exact_model is not None and not isinstance(raw_exact_model, str):
         raise RequestValidationError("must be a string or null", path + ("model", "model"))
-    raw_operations = document["interaction_operations"]
-    if not isinstance(raw_operations, Mapping):
-        raise RequestValidationError(
-            "must be an object", path + ("interaction_operations",)
-        )
-    interaction_operations: dict[str, OperationContract] = {}
-    for name, raw_operation in raw_operations.items():
-        if not isinstance(name, str) or not name:
-            raise RequestValidationError(
-                "operation names must be non-empty strings",
-                path + ("interaction_operations",),
-            )
-        operation_path = path + ("interaction_operations", name)
-        operation = _object(raw_operation, operation_path)
-        _exact(
-            operation,
-            {"arguments_schema", "response_schema"},
-            operation_path,
-        )
-        raw_arguments = operation["arguments_schema"]
-        raw_response = operation["response_schema"]
-        if not isinstance(raw_arguments, Mapping):
-            raise RequestValidationError(
-                "must be an object", operation_path + ("arguments_schema",)
-            )
-        if not isinstance(raw_response, Mapping):
-            raise RequestValidationError(
-                "must be an object", operation_path + ("response_schema",)
-            )
-        try:
-            interaction_operations[name] = OperationContract(
-                dict(raw_arguments), dict(raw_response)
-            )
-        except (ArcLLMError, TypeError, ValueError) as exc:
-            raise RequestValidationError(str(exc), operation_path) from exc
     return WorkerSpec(
         worker_id=_required_text(document, "worker_id", path),
         instructions=_required_text(document, "instructions", path),
@@ -196,7 +160,6 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             model=raw_exact_model,
             tier=cast(Any, _required_text(raw_model, "tier", path + ("model",))),
         ),
-        interaction_operations=interaction_operations,
     )
 
 

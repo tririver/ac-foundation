@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arc_jobs import InvalidRunIdError, JsonValue, validate_simple_id
-from arc_llm import ArcLLMError, InteractiveJsonOutput, JsonOutput, OperationContract
+from arc_llm import ArcLLMError, JsonOutput, LLMExecutionOptions
 
 from .models import (
     BATCH_SCHEMA_VERSION,
@@ -60,18 +60,8 @@ def validate_execution_options(options: ExecutionOptions) -> None:
         options.max_concurrent_workers,
         ("max_concurrent_workers",),
     )
-    if not isinstance(options.loop_interaction_resolvers, Mapping):
-        raise RequestValidationError(
-            "must be an object",
-            ("loop_interaction_resolvers",),
-        )
-    for loop_id, resolver in options.loop_interaction_resolvers.items():
-        _valid_id(loop_id, ("loop_interaction_resolvers", loop_id))
-        if not callable(getattr(resolver, "resolve", None)):
-            raise RequestValidationError(
-                "resolver must provide resolve(request)",
-                ("loop_interaction_resolvers", loop_id),
-            )
+    if not isinstance(options.llm, LLMExecutionOptions):
+        raise RequestValidationError("must be LLMExecutionOptions", ("llm",))
     if options.progress_callback is not None and not callable(
         options.progress_callback
     ):
@@ -169,33 +159,6 @@ def _validate_loop(loop: LoopSpec, path: tuple[str | int, ...]) -> None:
         except (ArcLLMError, TypeError, ValueError) as exc:
             raise RequestValidationError(
                 str(exc), worker_path + ("output_schema",)
-            ) from exc
-        if not isinstance(worker.interaction_operations, Mapping):
-            raise RequestValidationError(
-                "must be an object",
-                worker_path + ("interaction_operations",),
-            )
-        if not worker.interaction_operations:
-            continue
-        for name, contract in worker.interaction_operations.items():
-            operation_path = worker_path + ("interaction_operations",)
-            if not isinstance(name, str) or not name:
-                raise RequestValidationError(
-                    "operation names must be non-empty strings", operation_path
-                )
-            if not isinstance(contract, OperationContract):
-                raise RequestValidationError(
-                    "operation contracts must be OperationContract values",
-                    operation_path + (name,),
-                )
-        try:
-            InteractiveJsonOutput(
-                result_schema=worker.output_schema,
-                operations=dict(worker.interaction_operations),
-            )
-        except (ArcLLMError, TypeError, ValueError) as exc:
-            raise RequestValidationError(
-                str(exc), worker_path + ("interaction_operations",)
             ) from exc
 
 

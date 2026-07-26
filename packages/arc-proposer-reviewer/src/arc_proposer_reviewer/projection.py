@@ -95,8 +95,6 @@ class ActiveWorkerSummary:
     worker_id: str
     role: Literal["proposer", "reviewer"]
     round_number: int
-    interaction_round: int | None
-    last_operation_names: tuple[str, ...]
     last_activity_at: str
 
 
@@ -351,40 +349,12 @@ class BatchProjection:
             if event == "proposer_reviewer_worker_finished":
                 workers.pop(key, None)
                 continue
-            if event not in {
-                "proposer_reviewer_worker_started",
-                "proposer_reviewer_worker_interaction",
-            }:
+            if event != "proposer_reviewer_worker_started":
                 continue
-            interaction_round = data.get("interaction_round")
-            operation_names = data.get("operation_names", [])
-            previous = workers.get(key)
             workers[key] = ActiveWorkerSummary(
                 worker_id=worker_id,
                 role=role,
                 round_number=round_number,
-                interaction_round=(
-                    interaction_round
-                    if type(interaction_round) is int
-                    else (
-                        None
-                        if previous is None
-                        else previous.interaction_round
-                    )
-                ),
-                last_operation_names=(
-                    tuple(
-                        name
-                        for name in operation_names
-                        if isinstance(name, str)
-                    )
-                    if isinstance(operation_names, list)
-                    else (
-                        ()
-                        if previous is None
-                        else previous.last_operation_names
-                    )
-                ),
                 last_activity_at=emitted_at,
             )
         return (
@@ -634,10 +604,7 @@ class BatchProjection:
 
     def _read_transcript(self, ref: object) -> TranscriptTurn:
         value = self._read_json(ref)
-        turn = decode_transcript_turn(value)
-        for provenance_ref in turn.interaction_provenance_refs:
-            self._verify_ref(provenance_ref)
-        return turn
+        return decode_transcript_turn(value)
 
     def _read_json(self, ref: object) -> JsonValue:
         content = self.artifacts.read_bytes(cast(object, ref))  # type: ignore[arg-type]

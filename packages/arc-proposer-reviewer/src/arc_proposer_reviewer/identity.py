@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import Literal, Mapping, cast
+from typing import Literal, Mapping
 
 from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
 
 from .models import LoopSpec, WorkerSpec
 
 
-WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v3"
-LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v3"
+WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v4"
+LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v4"
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
@@ -20,17 +20,6 @@ def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
             "provider": worker.model.provider,
             "model": worker.model.model,
             "tier": worker.model.tier,
-        },
-        "interaction_operations": {
-            name: {
-                "arguments_schema": cast(
-                    JsonValue, dict(contract.arguments_schema)
-                ),
-                "response_schema": cast(
-                    JsonValue, dict(contract.response_schema)
-                ),
-            }
-            for name, contract in sorted(worker.interaction_operations.items())
         },
     }
 

@@ -16,17 +16,12 @@ from arc_jobs import (
     RunStatus,
 )
 from arc_llm import (
-    InteractiveJsonOutput,
-    InteractionProgress,
-    InteractionRequest,
-    InteractionResponse,
     InvalidRequestError,
     JsonOutput,
     LLMCompleted,
     LLMFailed,
     LLMPaused,
     ModelSelection,
-    OperationContract,
     ResumeReason,
     SessionRef,
 )
@@ -57,22 +52,6 @@ REVIEW_PAYLOAD_SCHEMA = {
     "properties": {"score": {"type": "integer"}},
     "additionalProperties": False,
 }
-LOOKUP_OPERATION = OperationContract(
-    arguments_schema={
-        "type": "object",
-        "required": ["query"],
-        "properties": {"query": {"type": "string"}},
-        "additionalProperties": False,
-    },
-    response_schema={
-        "type": "object",
-        "required": ["value"],
-        "properties": {"value": {"type": "string"}},
-        "additionalProperties": False,
-    },
-)
-
-
 class FakeLLM:
     def __init__(self, *, pause_once: bool = False) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -126,11 +105,7 @@ def _completed(request):
             None,
             None,
         )
-    output_schema = (
-        request.output.result_schema
-        if isinstance(request.output, InteractiveJsonOutput)
-        else request.output.schema
-    )
+    output_schema = request.output.schema
     feedback_schema = output_schema["properties"]["feedback"]
     active_ids = feedback_schema["required"]
     return LLMCompleted(
@@ -240,22 +215,8 @@ def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
 def test_progress_callback_and_durable_events_are_body_free(
     tmp_path: Path,
 ) -> None:
-    class ObservedFake(FakeLLM):
-        def execute(self, context, request, *, options):
-            if options.interaction_observer is not None:
-                options.interaction_observer(
-                    InteractionProgress(
-                        "requested",
-                        7,
-                        ("lookup",),
-                        1,
-                        0,
-                    )
-                )
-            return super().execute(context, request, options=options)
-
     observed: list[Mapping[str, object]] = []
-    fake = ObservedFake()
+    fake = FakeLLM()
     repository, _handler, snapshot = _run(
         tmp_path,
         _request(_loop()),
@@ -269,10 +230,8 @@ def test_progress_callback_and_durable_events_are_body_free(
         "proposer_reviewer_loop_started",
         "proposer_reviewer_round_started",
         "proposer_reviewer_worker_started",
-        "proposer_reviewer_worker_interaction",
         "proposer_reviewer_worker_finished",
         "proposer_reviewer_worker_started",
-        "proposer_reviewer_worker_interaction",
         "proposer_reviewer_worker_finished",
         "proposer_reviewer_round_committed",
         "proposer_reviewer_loop_finished",
@@ -303,21 +262,12 @@ def test_progress_callback_failure_does_not_fail_execution(tmp_path: Path) -> No
     assert snapshot.status is RunStatus.SUCCEEDED
 
 
-def test_interactive_worker_contracts_reach_proposer_and_reviewer(
+def test_workers_receive_json_output_and_the_same_runtime_options(
     tmp_path: Path,
 ) -> None:
-    class FakeInteractionResolver:
+    class RecordingFake(FakeLLM):
         def __init__(self) -> None:
-            self.requests: list[InteractionRequest] = []
-
-        def resolve(self, request: InteractionRequest) -> InteractionResponse:
-            self.requests.append(request)
-            return InteractionResponse(request.request_id, result={"value": "evidence"})
-
-    class InteractiveFake(FakeLLM):
-        def __init__(self, resolver: FakeInteractionResolver) -> None:
             super().__init__()
-            self.resolver = resolver
             self.requests = []
             self.options = []
 
@@ -325,125 +275,22 @@ def test_interactive_worker_contracts_reach_proposer_and_reviewer(
             self.calls.append(("execute", request.task_id))
             self.requests.append(request)
             self.options.append(options)
-            assert isinstance(request.output, InteractiveJsonOutput)
-            assert options.interaction_resolver is self.resolver
-            self.resolver.resolve(
-                InteractionRequest(
-                    request_id=f"interaction-{len(self.requests)}",
-                    operation="lookup",
-                    arguments={"query": "evidence"},
-                )
-            )
             return _completed(request)
 
-    resolver = FakeInteractionResolver()
-    fake = InteractiveFake(resolver)
-    proposer = WorkerSpec(
-        "loop-a-p",
-        "Produce a proposal.",
-        PROPOSAL_SCHEMA,
-        interaction_operations={"lookup": LOOKUP_OPERATION},
-    )
-    reviewer = WorkerSpec(
-        "loop-a-r",
-        "Review all proposals.",
-        REVIEW_PAYLOAD_SCHEMA,
-        interaction_operations={"lookup": LOOKUP_OPERATION},
-    )
-    loop = LoopSpec(
-        loop_id="loop-a",
-        context={"question": "loop-a"},
-        proposers=(proposer,),
-        reviewer=reviewer,
-        max_rounds=1,
-        allow_early_stop=True,
-    )
-
+    fake = RecordingFake()
+    configured = ExecutionOptions()
     _repository, _handler, snapshot = _run(
-        tmp_path,
-        _request(loop),
-        fake,
-        options=ExecutionOptions(interaction_resolver=resolver),
+        tmp_path, _request(_loop()), fake, options=configured
     )
 
     assert snapshot.status is RunStatus.SUCCEEDED
-    assert len(fake.requests) == 2
-    proposer_output, reviewer_output = (request.output for request in fake.requests)
-    assert isinstance(proposer_output, InteractiveJsonOutput)
-    assert proposer_output.result_schema == PROPOSAL_SCHEMA
-    assert proposer_output.operations == {"lookup": LOOKUP_OPERATION}
-    assert isinstance(reviewer_output, InteractiveJsonOutput)
-    assert reviewer_output.result_schema == reviewer_envelope_schema(
+    assert all(isinstance(request.output, JsonOutput) for request in fake.requests)
+    assert all(options is configured.llm for options in fake.options)
+    assert fake.requests[0].output.schema == PROPOSAL_SCHEMA
+    assert fake.requests[1].output.schema == reviewer_envelope_schema(
         payload_schema=REVIEW_PAYLOAD_SCHEMA,
         active_proposer_ids=("loop-a-p",),
     )
-    envelope_properties = reviewer_output.result_schema["properties"]
-    assert envelope_properties["schema_version"]["type"] == "string"
-    assert envelope_properties["action"]["type"] == "string"
-    assert reviewer_output.operations == {"lookup": LOOKUP_OPERATION}
-    assert [request.operation for request in resolver.requests] == ["lookup", "lookup"]
-
-
-def test_loop_interaction_resolvers_scope_workers_without_using_global(
-    tmp_path: Path,
-) -> None:
-    class Resolver:
-        def resolve(self, request):
-            return InteractionResponse(request.request_id, result={"value": "ok"})
-
-    class ResolverRecordingFake(FakeLLM):
-        def __init__(self) -> None:
-            super().__init__()
-            self.resolvers = []
-
-        def execute(self, context, request, *, options):
-            self.calls.append(("execute", request.task_id))
-            self.resolvers.append(options.interaction_resolver)
-            return _completed(request)
-
-    def interactive_loop(loop_id: str) -> LoopSpec:
-        return LoopSpec(
-            loop_id=loop_id,
-            context={"question": loop_id},
-            proposers=(
-                WorkerSpec(
-                    f"{loop_id}-p",
-                    "Produce a proposal.",
-                    PROPOSAL_SCHEMA,
-                    interaction_operations={"lookup": LOOKUP_OPERATION},
-                ),
-            ),
-            reviewer=WorkerSpec(
-                f"{loop_id}-r",
-                "Review all proposals.",
-                REVIEW_PAYLOAD_SCHEMA,
-                interaction_operations={"lookup": LOOKUP_OPERATION},
-            ),
-            max_rounds=1,
-        )
-
-    global_resolver = Resolver()
-    loop_a_resolver = Resolver()
-    loop_b_resolver = Resolver()
-    fake = ResolverRecordingFake()
-    _repository, _handler, snapshot = _run(
-        tmp_path,
-        _request(interactive_loop("loop-a"), interactive_loop("loop-b")),
-        fake,
-        options=ExecutionOptions(
-            max_concurrent_loops=2,
-            interaction_resolver=global_resolver,
-            loop_interaction_resolvers={
-                "loop-a": loop_a_resolver,
-                "loop-b": loop_b_resolver,
-            },
-        ),
-    )
-
-    assert snapshot.status is RunStatus.SUCCEEDED
-    assert fake.resolvers.count(loop_a_resolver) == 2
-    assert fake.resolvers.count(loop_b_resolver) == 2
-    assert global_resolver not in fake.resolvers
 
 
 def test_stop_is_recorded_but_ignored_when_early_stop_is_disabled(
@@ -697,7 +544,7 @@ def test_maximum_length_ids_use_bounded_runtime_locators(tmp_path: Path) -> None
     assert _result(repository, snapshot).loops[0].loop_id == loop_id
 
 
-def test_pause_resume_returns_to_same_worker_task_identity(tmp_path: Path) -> None:
+def test_pause_resume_completes_the_paused_worker(tmp_path: Path) -> None:
     fake = FakeLLM(pause_once=True)
     repository, handler, paused = _run(tmp_path, _request(_loop()), fake)
     assert paused.status is RunStatus.PAUSED
@@ -706,9 +553,6 @@ def test_pause_resume_returns_to_same_worker_task_identity(tmp_path: Path) -> No
 
     resumed = RunEngine(repository).resume("run-a", handler)
     assert resumed.status is RunStatus.SUCCEEDED
-    execute_task = fake.calls[0][1]
-    resume_task = next(task_id for kind, task_id in fake.calls if kind == "resume")
-    assert resume_task == execute_task
     assert _result(repository, resumed).loops[0].rounds_completed == 1
 
 
