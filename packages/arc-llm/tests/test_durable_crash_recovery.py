@@ -65,7 +65,7 @@ def test_transport_crash_gets_one_fresh_generation_then_completes(
     assert adapter.start_calls == 2
     assert adapter.resume_calls == 0
     context = RunContext(
-        RunRepository(tmp_path), result.snapshot, resume_input=None, execution_slice=None
+        RunRepository(tmp_path), result.snapshot, resume_input=None
     )
     state = client.service._executor._task_store(context, "one-retry").read()
     assert state is not None
@@ -103,7 +103,6 @@ def test_second_crash_pauses_then_explicit_resume_gets_fresh_allowance(
         repository,
         paused_snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     paused_state = client.service._executor._task_store(
         paused_context,
@@ -119,7 +118,7 @@ def test_second_crash_pauses_then_explicit_resume_gets_fresh_allowance(
     diagnostic = json.loads(
         paused_context.artifacts.read_bytes(diagnostic_ref).decode("utf-8")
     )
-    assert diagnostic["schema_version"] == "arc.llm.provider_failure.v1"
+    assert diagnostic["schema_version"] == "arc.llm.provider_failure.v2"
     assert diagnostic["category"] == "timeout"
     assert set(diagnostic) == {
         "schema_version",
@@ -133,9 +132,21 @@ def test_second_crash_pauses_then_explicit_resume_gets_fresh_allowance(
         "returncode",
         "retryable",
         "retry_after_seconds",
-        "fresh_retry_available",
-        "terminal_event_types",
-    }
+            "fresh_retry_available",
+            "terminal_event_types",
+            "last_terminal_evidence",
+            "event_count",
+            "raw_events",
+            "raw_events_truncated",
+            "stdout_bytes",
+            "stderr_bytes",
+            "stdout_truncated",
+            "stderr_truncated",
+            "stderr_tail",
+            "last_activity_at",
+            "termination_reason",
+            "observation_errors",
+        }
 
     resumed = client.resume(
         run_root=tmp_path, run_id=first.snapshot.run_id, options=_direct()
@@ -252,7 +263,7 @@ def test_process_restart_mid_provider_call_freshens_the_started_generation(
     assert adapter.start_calls == 2
     assert adapter.resume_calls == 0
     context = RunContext(
-        RunRepository(tmp_path), resumed.snapshot, resume_input=None, execution_slice=None
+        RunRepository(tmp_path), resumed.snapshot, resume_input=None
     )
     state = client.service._executor._task_store(context, "process-restart").read()
     assert state is not None
@@ -267,7 +278,7 @@ def test_workspace_preparation_failure_never_marks_a_provider_attempt(
 
     repository = RunRepository(tmp_path)
     snapshot = repository.create(RunSpec("workspace-failure", "test", {}))
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context = RunContext(repository, snapshot, resume_input=None)
     client = LLMClient(registry=registry)
     executor = client.service._executor
     original_prepare = executor._prepare_workspace
@@ -326,8 +337,12 @@ def test_non_crash_provider_categories_do_not_consume_the_retry(
     if outcome_type is LLMPaused:
         assert isinstance(result.outcome, LLMPaused)
         assert result.outcome.reason is reason
+        provider_failure = result.outcome.details["provider_failure"]
     else:
         assert isinstance(result.outcome, LLMFailed)
+        provider_failure = result.outcome.error.details["provider_failure"]
+    assert provider_failure["category"] == category.value
+    assert "diagnostic_artifact_id" in provider_failure
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 0
     assert len(adapter.steps) == 1
@@ -415,7 +430,7 @@ def test_successful_broker_continuation_keeps_its_generation_and_native_resume(
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 1
     context = RunContext(
-        RunRepository(tmp_path), result.snapshot, resume_input=None, execution_slice=None
+        RunRepository(tmp_path), result.snapshot, resume_input=None
     )
     state = client.service._executor._task_store(context, "broker-refusal").read()
     assert state is not None

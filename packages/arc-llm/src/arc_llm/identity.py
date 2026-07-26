@@ -16,7 +16,7 @@ from .request import (
 )
 
 SEMANTIC_KEY_SCHEMA = "arc.llm.semantic_key.v3"
-EXECUTION_RECIPE_SCHEMA = "arc.llm.execution_recipe.v2"
+EXECUTION_RECIPE_SCHEMA = "arc.llm.execution_recipe.v3"
 _RESUME_KEY_DIGEST_LENGTH = 24
 
 

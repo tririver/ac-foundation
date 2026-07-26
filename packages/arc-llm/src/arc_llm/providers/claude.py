@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..errors import FailureCategory, ProviderFailure
 from ..output import CandidateMaterial
 from ._cli import executable_diagnostic, run_cli
 from .base import (
@@ -24,7 +25,7 @@ from .process import ProcessRunner
 
 class ClaudeAdapter:
     name = "claude"
-    compatibility_version = "claude-stream-json.v3-workspace"
+    compatibility_version = "claude-stream-json.v4-ordered-terminal"
 
     def __init__(
         self,
@@ -130,7 +131,7 @@ class ClaudeAdapter:
         self,
         argv: list[str],
         prompt: str,
-        timeout: float,
+        timeout: float | None,
         workspace: Path,
         environment: Mapping[str, str] | None,
         observer: Any,
@@ -147,6 +148,8 @@ class ClaudeAdapter:
             runner=self.runner,
             env=environment if environment is not None else self.env,
             cwd=workspace,
+            extract_failure=_extract_failure,
+            extract_message=_extract_message,
         )
 
 
@@ -156,7 +159,12 @@ def _parse_event(
     kind = event.get("type")
     handle = event.get("session_id") if kind in {"system", "result"} else None
     candidate = None
-    if kind == "result":
+    successful_result = (
+        kind == "result"
+        and event.get("is_error") is not True
+        and event.get("subtype") in {None, "success"}
+    )
+    if successful_result:
         if "structured_output" in event:
             candidate = CandidateMaterial(
                 value=event["structured_output"],
@@ -173,6 +181,44 @@ def _parse_event(
             _integer(usage_doc.get("cache_read_input_tokens")),
         )
     return candidate, handle if isinstance(handle, str) else None, usage
+
+
+def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
+    if event.get("type") != "result":
+        return None
+    subtype = event.get("subtype")
+    if event.get("is_error") is not True and subtype in {None, "success"}:
+        return None
+    return ProviderFailure(
+        "Claude reported an unsuccessful terminal result.",
+        category=FailureCategory.TRANSPORT,
+        retryable=True,
+        details={
+            "code": "claude_unsuccessful_result",
+            "provider_subtype": (
+                subtype[:256] if isinstance(subtype, str) else None
+            ),
+        },
+    )
+
+
+def _extract_message(event: Mapping[str, Any]) -> str | None:
+    if event.get("type") != "assistant":
+        return None
+    message = event.get("message")
+    if not isinstance(message, Mapping):
+        return None
+    content = message.get("content")
+    if not isinstance(content, list):
+        return None
+    texts = [
+        item.get("text")
+        for item in content
+        if isinstance(item, Mapping)
+        and item.get("type") == "text"
+        and isinstance(item.get("text"), str)
+    ]
+    return "\n".join(texts) if texts else None
 
 
 def _integer(value: Any) -> int | None:

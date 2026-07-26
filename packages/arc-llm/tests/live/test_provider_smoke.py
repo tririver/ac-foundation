@@ -73,7 +73,6 @@ def test_live_provider_strict_json_continuation_and_local_replay() -> None:
         repository,
         parent,
         resume_input=None,
-        execution_slice=None,
     )
     service = LLMTaskService()
     options = LLMExecutionOptions(

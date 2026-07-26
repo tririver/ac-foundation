@@ -29,7 +29,7 @@ def test_explicit_repository_owns_run_task_and_operational_layout(
     )
     repository = RunRepository(tmp_path / "explicit-root")
     snapshot = repository.create(RunSpec("parent", "test.parent", {"case": "paths"}))
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context = RunContext(repository, snapshot, resume_input=None)
     request = LLMRequest(
         "paths",
         "Return JSON.",

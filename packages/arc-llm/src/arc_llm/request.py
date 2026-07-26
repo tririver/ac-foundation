@@ -77,15 +77,19 @@ class ModelSelection:
 
 @dataclass(frozen=True)
 class ExecutionLimits:
-    idle_timeout_seconds: float = 1800.0
+    idle_timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
+        if self.idle_timeout_seconds is None:
+            return
         if (
             isinstance(self.idle_timeout_seconds, bool)
             or not isinstance(self.idle_timeout_seconds, (int, float))
             or self.idle_timeout_seconds <= 0
         ):
-            raise InvalidRequestError("idle_timeout_seconds must be positive.")
+            raise InvalidRequestError(
+                "idle_timeout_seconds must be null or positive."
+            )
 
 
 @dataclass(frozen=True)

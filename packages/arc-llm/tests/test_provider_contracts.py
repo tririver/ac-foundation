@@ -18,6 +18,7 @@ from arc_llm import (
 from arc_llm.output import select_output
 from arc_llm.request import JsonOutput
 from arc_llm.providers.claude import ClaudeAdapter
+from arc_llm.providers._cli import classify_cli_failure
 from arc_llm.providers.codex import CodexAdapter
 from arc_llm.providers.kimi import KimiAdapter
 from arc_llm.providers.process import ProcessResult
@@ -27,6 +28,7 @@ from arc_llm.providers.registry import default_registry
 class Observer:
     def __init__(self) -> None:
         self.handles: list[NativeResumeHandle] = []
+        self.progress_events: list[tuple[str, Any]] = []
 
     def native_handle(self, handle: NativeResumeHandle) -> None:
         self.handles.append(handle)
@@ -34,8 +36,8 @@ class Observer:
     def raw_event(self, _event: Any) -> None:
         pass
 
-    def progress(self, _kind: str, _data: Any) -> None:
-        pass
+    def progress(self, kind: str, data: Any) -> None:
+        self.progress_events.append((kind, data))
 
 
 
@@ -128,9 +130,10 @@ def test_codex_projects_native_schema_but_selects_only_last_message(
         b'{"type":"item.completed","item":{"type":"agent_message","text":"{\\"item\\":\\"draft\\"}"}}\n',
         last_message=b'{"item":"guide","values":[1,1]}',
     )
+    observer = Observer()
     result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
         ProviderRequest("Read host/control.json", "model", schema, {}, 3, workspace),
-        Observer(),
+        observer,
         Stop(),
     )
 
@@ -139,6 +142,15 @@ def test_codex_projects_native_schema_but_selects_only_last_message(
     assert "uniqueItems" not in native["properties"]["values"]
     assert len(result.candidates) == 1
     assert result.candidates[0].text == '{"item":"guide","values":[1,1]}'
+    assert (
+        "llm_message",
+        {
+            "direction": "response",
+            "message_kind": "assistant",
+            "preview": '{"item":"draft"}',
+            "truncated": False,
+        },
+    ) in observer.progress_events
     with pytest.raises(OutputInvalidError):
         select_output(result.candidates, JsonOutput(schema))
 
@@ -200,8 +212,8 @@ def test_codex_accepts_fresh_completed_output_after_nonzero_exit(
         {
             "code": "provider_nonzero_exit_with_valid_output",
             "message": (
-                "Codex returned a nonzero exit after writing a completed final "
-                "response."
+                "The provider returned a nonzero exit after writing a complete "
+                "terminal response."
             ),
             "provider": "codex",
             "returncode": 1,
@@ -275,7 +287,7 @@ def test_codex_accepts_completion_after_an_earlier_error(tmp_path: Path) -> None
     assert execution.failure is None
 
 
-def test_codex_does_not_override_runner_failure_with_completed_file(
+def test_codex_accepts_configured_timeout_after_completed_file(
     tmp_path: Path,
 ) -> None:
     workspace = _workspace(tmp_path)
@@ -298,11 +310,13 @@ def test_codex_does_not_override_runner_failure_with_completed_file(
         Stop(),
     )
 
-    assert execution.terminal_kind is ProviderTerminalKind.FAILED
-    assert execution.failure is not None
-    assert execution.failure.category is FailureCategory.TIMEOUT
+    assert execution.terminal_kind is ProviderTerminalKind.COMPLETED
+    assert execution.failure is None
     assert execution.diagnostics["runner_failure"] is True
     assert execution.diagnostics["terminal_event_types"] == ["turn.completed"]
+    assert execution.diagnostics["warnings"][0]["code"] == (
+        "provider_idle_timeout_with_valid_output"
+    )
 
 
 def test_claude_uses_workspace_cwd_and_keeps_prompt_free_of_artifact_paths(
@@ -325,6 +339,72 @@ def test_claude_uses_workspace_cwd_and_keeps_prompt_free_of_artifact_paths(
     assert call["stdin"] == b"Read host/control.json"
     assert str(workspace) not in call["stdin"].decode()
     assert "--json-schema" in call["argv"]
+
+
+def test_claude_accepts_successful_result_after_earlier_error_and_nonzero_exit(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"result","is_error":true,"subtype":"error","result":"retry"}\n'
+        b'{"type":"result","subtype":"success","result":"complete"}\n',
+        returncode=1,
+        stderr=b"provider transport closed late",
+    )
+
+    execution = ClaudeAdapter(
+        binary="fake-claude", runner=runner, env={}
+    ).start(
+        ProviderRequest("prompt", "model", None, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.COMPLETED
+    assert execution.candidates[-1].text == "complete"
+    assert execution.diagnostics["warnings"][0]["code"] == (
+        "provider_nonzero_exit_with_valid_output"
+    )
+
+
+def test_claude_late_error_result_overrides_successful_candidate(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"result","subtype":"success","result":"draft"}\n'
+        b'{"type":"result","is_error":true,"subtype":"error","result":"failed"}\n',
+    )
+
+    execution = ClaudeAdapter(
+        binary="fake-claude", runner=runner, env={}
+    ).start(
+        ProviderRequest("prompt", "model", None, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.details["code"] == "claude_unsuccessful_result"
+
+
+def test_claude_error_result_text_is_never_a_candidate(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"result","is_error":true,"subtype":"error","result":"looks valid"}\n'
+    )
+
+    execution = ClaudeAdapter(
+        binary="fake-claude", runner=runner, env={}
+    ).start(
+        ProviderRequest("prompt", "model", None, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.candidates == ()
 
 
 def test_kimi_print_mode_uses_prompt_stream_json_and_clean_session_resume(
@@ -359,6 +439,25 @@ def test_kimi_print_mode_uses_prompt_stream_json_and_clean_session_resume(
     resume = runner.calls[1]["argv"]
     assert resume[:5] == ["fake-kimi", "-S", "kimi-1", "-p", "Read host/control.json"]
     assert "--auto" not in resume
+
+
+def test_kimi_accepts_final_message_after_nonzero_exit(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"role":"assistant","content":"complete","session_id":"kimi-1"}\n',
+        returncode=1,
+        stderr=b"provider transport closed late",
+    )
+
+    execution = KimiAdapter(binary="fake-kimi", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", None, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.COMPLETED
+    assert execution.candidates[0].text == "complete"
+    assert "--final-message-only" in runner.calls[0]["argv"]
 
 
 def test_direct_authority_enables_only_documented_provider_permission_flags(
@@ -406,3 +505,32 @@ def test_default_registry_has_no_media_delivery_selection_surface() -> None:
     assert registry.names() == ("claude", "codex", "kimi")
     assert not hasattr(registry, "delivery_modes")
     assert not hasattr(registry, "supporting")
+
+
+@pytest.mark.parametrize(
+    ("stderr", "category"),
+    (
+        ("authentication failed", FailureCategory.AUTHENTICATION),
+        ("HTTP 403: forbidden", FailureCategory.AUTHENTICATION),
+        ("quota exceeded", FailureCategory.QUOTA),
+        ("HTTP 429: retry-after: 0.1", FailureCategory.RATE_LIMIT),
+        ("invalid request", FailureCategory.INVALID_REQUEST),
+        ("insufficient evidence in research", FailureCategory.TRANSPORT),
+        ("schema analysis completed", FailureCategory.TRANSPORT),
+        ("author biography unavailable", FailureCategory.TRANSPORT),
+    ),
+)
+def test_cli_failure_classification_uses_explicit_provider_diagnostics(
+    stderr: str,
+    category: FailureCategory,
+) -> None:
+    assert classify_cli_failure(stderr).category is category
+
+
+def test_retry_after_is_clamped_for_operational_cooldown() -> None:
+    assert classify_cli_failure(
+        "HTTP 429; retry-after: 0.1"
+    ).retry_after_seconds == 1
+    assert classify_cli_failure(
+        "HTTP 429; retry-after: 99999"
+    ).retry_after_seconds == 3600

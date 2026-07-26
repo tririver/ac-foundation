@@ -29,6 +29,7 @@ from .errors import (
     ArcLLMError,
     CandidateConflictError,
     CorruptTaskStateError,
+    ExecutionMismatchError,
     FailureCategory,
     IdempotencyConflictError,
     InvalidRequestError,
@@ -73,7 +74,7 @@ from .output import (
     select_output,
     validate_value,
 )
-from .progress import DurableProviderObserver
+from .progress import DurableProviderObserver, message_preview
 from .providers import (
     NativeResumeHandle,
     ProviderExecution,
@@ -118,6 +119,16 @@ from .schema_formatter import (
     formatter_prompt,
     formatter_task_id,
     select_formatting_source,
+)
+
+
+PROVIDER_INSTRUCTION_POLICY = (
+    "Use arc.llm.host_turn.v1. Request host interaction only when its expected "
+    "result has a concrete contribution to completing the original task. State "
+    "that desired contribution in the request. Do not continue merely because "
+    "more turns remain. After a refused request, retry only when the declared "
+    "retry_condition has changed. When no host operation has a concrete "
+    "expected contribution, return the best supported final result."
 )
 
 HANDLER_NAME = "arc.llm.task.v4"
@@ -622,6 +633,14 @@ class LLMTaskExecutor:
         self, context: Any, request: LLMRequest, state: LLMTaskState, store: Any, adapter: Any, options: LLMExecutionOptions
     ) -> ProviderExecution:
         observer = self._observer(context, state, store)
+        observer.progress(
+            "llm_message",
+            {
+                "direction": "request",
+                "message_kind": "task_prompt",
+                **message_preview(request.prompt),
+            },
+        )
         workspace = self._prepare_workspace(context, request, state, options=options)
         gate = self._provider_gate(context, options)
         with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
@@ -676,6 +695,17 @@ class LLMTaskExecutor:
         if handle is None:
             raise InvalidRequestError("Native continuation has no saved handle.")
         observer = self._observer(context, state, store)
+        logical_prompt = request.prompt if prompt is None else prompt
+        observer.progress(
+            "llm_message",
+            {
+                "direction": "request",
+                "message_kind": (
+                    "task_prompt" if prompt is None else "continuation"
+                ),
+                **message_preview(logical_prompt),
+            },
+        )
         workspace = self._prepare_workspace(
             context,
             request,
@@ -718,6 +748,10 @@ class LLMTaskExecutor:
         return DurableProviderObserver(
             context=context,
             on_handle=save_handle,
+            task_id=state.task_id,
+            provider=state.resolved_provider or "",
+            generation=state.current.generation,
+            host_turn_round=state.host_turn_round,
         )
 
     @staticmethod
@@ -1345,6 +1379,8 @@ class LLMTaskExecutor:
             )
         if failure.category is FailureCategory.STOPPED:
             return LLMStopped()
+        if provider_failure is not None:
+            failure.details["provider_failure"] = dict(provider_failure)
         return LLMFailed(failure)
 
     def _publish_provider_failure_diagnostic(
@@ -1388,7 +1424,7 @@ class LLMTaskExecutor:
             return value
 
         document: dict[str, Any] = {
-            "schema_version": "arc.llm.provider_failure.v1",
+            "schema_version": "arc.llm.provider_failure.v2",
             "provider": state.resolved_provider,
             "generation": state.current.generation,
             "host_turn_round": state.host_turn_round,
@@ -1401,6 +1437,24 @@ class LLMTaskExecutor:
             "retry_after_seconds": failure.retry_after_seconds,
             "fresh_retry_available": fresh_retry_available,
             "terminal_event_types": safe_terminal_types,
+            "last_terminal_evidence": diagnostics.get(
+                "last_terminal_evidence"
+            ),
+            "event_count": diagnostics.get("event_count"),
+            "raw_events": diagnostics.get("raw_events", []),
+            "raw_events_truncated": bool(
+                diagnostics.get("raw_events_truncated")
+            ),
+            "stdout_bytes": diagnostics.get("stdout_bytes"),
+            "stderr_bytes": diagnostics.get("stderr_bytes"),
+            "stdout_truncated": bool(diagnostics.get("stdout_truncated")),
+            "stderr_truncated": bool(diagnostics.get("stderr_truncated")),
+            "stderr_tail": diagnostics.get("stderr_tail"),
+            "last_activity_at": diagnostics.get("last_activity_at"),
+            "termination_reason": diagnostics.get("termination_reason"),
+            "observation_errors": diagnostics.get(
+                "observation_errors", []
+            ),
         }
         digest = document_sha256(document)
         artifact_id = (
@@ -1429,7 +1483,7 @@ class LLMTaskExecutor:
                 document,
             )
         except Exception:
-            return summary
+            return {**summary, "diagnostic_persistence_failed": True}
         return {**summary, "diagnostic_artifact_id": ref.artifact_id}
 
     def _fresh_after_crash(
@@ -1702,23 +1756,6 @@ class LLMTaskExecutor:
             pause.response_contract,
         )
 
-    def _initial_provider_prompt(
-        self, request: LLMRequest, options: LLMExecutionOptions
-    ) -> str:
-        if self._uses_host_turn(request, options):
-            internet = (
-                "Internet access is requested on a best-effort basis; ask the host "
-                "when it is needed. "
-                if options.internet
-                else "Internet access is not requested for this task. "
-            )
-            return (
-                f"{request.prompt}\n\nUse the arc.llm.host_turn.v1 envelope. "
-                f"{internet}Request the host only when needed. After a refused request, do not "
-                "repeat the same request until its retry_condition has changed."
-            )
-        return request.prompt
-
     def _prepared_host_turn_prompt(
         self,
         context: Any,
@@ -1772,6 +1809,9 @@ class LLMTaskExecutor:
                 "config_isolation": capabilities.config_isolation.value,
                 "tool_isolation": capabilities.tool_isolation.value,
                 "input_transport": "workspace_control.v1",
+                "instruction_policy_sha256": document_sha256(
+                    PROVIDER_INSTRUCTION_POLICY
+                ),
             },
             adapter_compatibility_version=adapter.compatibility_version,
             session_compatibility={},
@@ -1831,16 +1871,21 @@ class LLMTaskExecutor:
                 if options.internet
                 else "Internet access is not requested for this task. "
             )
-            return (
-                "Use arc.llm.host_turn.v1. Request the host only when needed. "
-                f"{internet}"
-                "After a refused host request, do not repeat the same request until "
-                "its retry_condition has changed."
-            )
+            return f"{PROVIDER_INSTRUCTION_POLICY} {internet}"
         return None
 
     def _resolve_model(self, request: LLMRequest) -> Any:
-        return resolve_model_selection(request.model, available=self.registry.names())
+        available = self.registry.names()
+        if request.model.provider == "auto":
+            healthy: list[str] = []
+            for name in available:
+                try:
+                    if self.registry.create(name).doctor().available:
+                        healthy.append(name)
+                except Exception:
+                    continue
+            available = tuple(healthy)
+        return resolve_model_selection(request.model, available=available)
 
     def _canonicalize_inputs(
         self,
@@ -2087,8 +2132,6 @@ class LLMTaskExecutor:
         state: LLMTaskState,
         options: LLMExecutionOptions,
     ) -> None:
-        if request.session is None:
-            return
         adapter = self.registry.create(state.resolved_provider or "")
         execution = execution_fingerprint(
             self._execution_document(
@@ -2098,6 +2141,10 @@ class LLMTaskExecutor:
                 options,
             )
         )
+        if state.current.execution != execution:
+            raise ExecutionMismatchError()
+        if request.session is None:
+            return
         session = self._session_store(
             context, request.session.session_key
         ).read()

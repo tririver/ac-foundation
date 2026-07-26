@@ -188,6 +188,14 @@ def test_cli_stderr_progress_and_stdout_final_result(
     assert progress
     assert all(item["schema_version"] == "arc.progress_event.v1" for item in progress)
     assert any(item["event"] == "provider_phase" for item in progress)
+    request_messages = [
+        item
+        for item in progress
+        if item["event"] == "llm_message"
+        and item["data"]["direction"] == "request"
+    ]
+    assert request_messages[-1]["data"]["preview"] == "Do it."
+    assert request_messages[-1]["data"]["message_kind"] == "task_prompt"
 
 
 def test_cli_usage_error_is_same_envelope_with_exit_two(capsys) -> None:
@@ -338,10 +346,49 @@ def test_process_allows_long_runtime_when_small_chunks_stay_active() -> None:
         on_stderr=stderr_chunks.append,
     )
     assert result.returncode == 0
-    assert result.stdout == b"012345"
+    # A streaming stdout consumer is the sole owner of provider output.
+    assert result.stdout == b""
+    assert result.stdout_bytes == 6
     assert result.stderr == b"......"
     assert len(stdout_chunks) > 1
     assert len(stderr_chunks) > 1
+
+
+def test_process_streams_large_stdout_and_bounds_diagnostic_retention() -> None:
+    stdout_bytes = 0
+
+    def consume(chunk: bytes) -> None:
+        nonlocal stdout_bytes
+        stdout_bytes += len(chunk)
+
+    size = 5 * 1024 * 1024
+    result = ProcessRunner().run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os,sys; size=int(sys.argv[1]); "
+                "sys.stdout.buffer.write(b'x'*size); "
+                "sys.stderr.buffer.write(b'y'*size)"
+            ),
+            str(size),
+        ],
+        stdin=b"",
+        env=None,
+        cwd=Path.cwd(),
+        idle_timeout_seconds=5,
+        stop_check=lambda: None,
+        on_stdout=consume,
+    )
+
+    assert result.returncode == 0
+    assert stdout_bytes == size
+    assert result.stdout == b""
+    assert result.stdout_bytes == size
+    assert result.stdout_truncated
+    assert result.stderr_bytes == size
+    assert len(result.stderr) == 256 * 1024
+    assert result.stderr_truncated
 
 
 def test_process_idle_timeout_covers_blocked_stdin_delivery() -> None:

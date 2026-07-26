@@ -1,78 +1,113 @@
 from __future__ import annotations
 
-import pytest
+from typing import Any
 
 from arc_llm import NativeResumeHandle
-from arc_llm.progress import DurableProviderObserver
+from arc_llm.progress import DurableProviderObserver, message_preview
 
 
-def _context(calls: list[tuple[str, object]]):
+def _context(calls: list[tuple[str, object]], *, fail: bool = False):
     class Events:
         def emit(self, kind: str, data: object) -> None:
+            if fail:
+                raise OSError("event log unavailable")
             calls.append((kind, data))
 
     return type("Context", (), {"events": Events()})()
 
 
-def test_observer_projects_handles_bounded_raw_diagnostics_and_progress() -> None:
+def _observer(
+    calls: list[tuple[str, object]],
+    *,
+    fail: bool = False,
+) -> DurableProviderObserver:
+    return DurableProviderObserver(
+        context=_context(calls, fail=fail),
+        on_handle=lambda _handle: None,
+        task_id="task",
+        provider="codex",
+        generation=2,
+        host_turn_round=1,
+    )
+
+
+def test_observer_projects_handles_metadata_and_arbitrary_progress_body() -> None:
     calls: list[tuple[str, object]] = []
     handles: list[NativeResumeHandle] = []
     observer = DurableProviderObserver(
-        context=_context(calls), on_handle=handles.append, raw_limit_bytes=12
+        context=_context(calls),
+        on_handle=handles.append,
+        task_id="task",
+        provider="codex",
+        generation=2,
+        host_turn_round=1,
     )
 
     handle = NativeResumeHandle("codex", "thread")
     observer.native_handle(handle)
     assert handles == [handle]
-    observer.raw_event("small")
-    observer.raw_event("this diagnostic is too large")
-    assert observer.raw_events == ["small"]
-    assert observer.truncated
+    observer.progress(
+        "phase",
+        {"nested": {"content": "useful body"}, "prompt": "logical prompt"},
+    )
+    assert calls == [
+        (
+            "phase",
+            {
+                "task_id": "task",
+                "provider": "codex",
+                "generation": 2,
+                "host_turn_round": 1,
+                "nested": {"content": "useful body"},
+                "prompt": "logical prompt",
+            },
+        )
+    ]
 
-    observer.progress("phase", {"round": 1, "status": "running"})
-    assert calls == [("phase", {"round": 1, "status": "running"})]
-    with pytest.raises(ValueError):
-        observer.progress("unsafe", {"nested": {"content": "paid output"}})
+
+def test_observer_failure_is_diagnostic_only() -> None:
+    observer = _observer([], fail=True)
+    observer.progress("phase", {"content": "paid output"})
+    assert observer.observation_errors == ["OSError"]
 
 
-def test_provider_stream_emits_body_free_activity_every_ten_events() -> None:
+def test_message_preview_redacts_normalizes_and_counts_unicode_codepoints() -> None:
+    value = "  Bearer secret-token\n" + ("界" * 105)
+    preview = message_preview(value)
+    assert preview["preview"].startswith("Bearer [REDACTED] ")
+    assert len(preview["preview"]) == 100
+    assert preview["truncated"] is True
+
+
+def test_provider_stream_emits_message_without_raw_event_duplication() -> None:
     from arc_llm.providers._cli import EventAccumulator
 
     calls: list[tuple[str, object]] = []
-    observer = DurableProviderObserver(
-        context=_context(calls),
-        on_handle=lambda _handle: None,
-    )
+    observer = _observer(calls)
     accumulator = EventAccumulator(
         "codex",
         observer,
         lambda _event: (None, None, None),
+        extract_message=lambda event: (
+            event.get("body") if isinstance(event.get("body"), str) else None
+        ),
     )
 
-    for index in range(20):
-        accumulator.feed(f'{{"type":"progress","index":{index}}}\n'.encode())
+    accumulator.feed(b'{"type":"progress","body":"assistant answer"}\n')
 
     assert calls == [
-        ("llm_provider_activity", {"event_count": 10}),
-        ("llm_provider_activity", {"event_count": 20}),
+        (
+            "llm_message",
+            {
+                "task_id": "task",
+                "provider": "codex",
+                "generation": 2,
+                "host_turn_round": 1,
+                "direction": "response",
+                "message_kind": "assistant",
+                "preview": "assistant answer",
+                "truncated": False,
+            },
+        )
     ]
-
-
-@pytest.mark.parametrize(
-    "key",
-    ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),
-)
-def test_observer_rejects_nested_progress_body_keys(key: str) -> None:
-    observer = DurableProviderObserver(context=_context([]), on_handle=lambda _handle: None)
-    with pytest.raises(ValueError):
-        observer.progress("unsafe", {"nested": [{key.capitalize(): "body"}]})
-
-
-def test_observer_rejects_stringifiable_progress_body_key() -> None:
-    class BodyKey:
-        def __str__(self) -> str:
-            return "ConTent"
-
-    observer = DurableProviderObserver(context=_context([]), on_handle=lambda _handle: None)
-    with pytest.raises(ValueError):
-        observer.progress("unsafe", {BodyKey(): "body"})
+    assert accumulator.diagnostics()["event_count"] == 1

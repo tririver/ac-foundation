@@ -73,6 +73,34 @@ def _completed(value: object, *, handle: str = "thread-1") -> ProviderExecution:
     )
 
 
+def test_auto_selection_skips_unavailable_provider_before_binding(
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        adapter,
+        "doctor",
+        lambda: ProviderDiagnostic("codex", False, None),
+    )
+
+    class AvailableClaude:
+        name = "claude"
+
+        def doctor(self) -> ProviderDiagnostic:
+            return ProviderDiagnostic("claude", True, "fake-claude")
+
+    registry.register("claude", AvailableClaude)
+    request = replace(
+        _request("auto-provider"),
+        model=ModelSelection("auto"),
+    )
+
+    resolved = LLMTaskExecutor(registry)._resolve_model(request)
+
+    assert resolved.provider == "claude"
+
+
 def _source_input(
     repository: RunRepository,
     *,
@@ -88,7 +116,6 @@ def _source_input(
         repository,
         source_snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     ref = source_context.artifacts.publish_bytes(
         artifact_id,
@@ -182,7 +209,6 @@ def test_replay_returns_the_accepted_artifact_without_a_provider_call(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     service = LLMTaskService(registry=registry)
     first = service.execute(context, _request())
@@ -517,7 +543,7 @@ def test_saved_output_recovery_pauses_without_provider_replay(
 
     repository = RunRepository(tmp_path)
     snapshot = repository.inspect(run_id).snapshot
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context = RunContext(repository, snapshot, resume_input=None)
     state = executor._task_store(context, llm_request.task_id).read()
     assert state is not None
     assert state.current.raw_response is not None
@@ -566,7 +592,6 @@ def test_service_supports_multiple_tasks_in_one_parent_run(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     service = LLMTaskService(registry=registry)
     assert isinstance(service.execute(context, _request("one")), LLMCompleted)
@@ -594,7 +619,7 @@ def test_execute_or_resume_rejects_semantic_conflict_at_no_input_pause(
     parent = repository.create(
         RunSpec("parent", "test.parent", {"case": "no-input-pause-conflict"})
     )
-    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    context = RunContext(repository, parent, resume_input=None)
     request = _request("paused-child")
     service = LLMTaskService(registry=registry)
     options = LLMExecutionOptions(gate=ProviderGateOptions(enabled=False))
@@ -624,7 +649,7 @@ def test_input_artifact_is_verified_and_copied_to_workspace_before_provider_call
     parent = repository.create(
         RunSpec("parent", "test.parent", {"case": "verified-input"})
     )
-    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    context = RunContext(repository, parent, resume_input=None)
     adapter.steps.append(_completed({"answer": 42}))
     request = LLMRequest(
         "input-task",
@@ -1140,7 +1165,6 @@ def test_standalone_resume_recovers_request_locators_before_task_state_exists(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     assert client.service._executor._task_store(context, request.task_id).read() is None
 
@@ -1340,7 +1364,6 @@ def test_standalone_resume_reuses_canonical_input_published_before_task_state(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     assert executor._task_store(context, request.task_id).read() is None
     source_path.write_bytes(b"corrupt upstream source")
@@ -1423,7 +1446,7 @@ def test_corrupt_input_fails_before_provider_invocation(
     parent = repository.create(
         RunSpec("parent", "test.parent", {"case": "corrupt-input"})
     )
-    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    context = RunContext(repository, parent, resume_input=None)
     request = LLMRequest(
         "corrupt-input",
         "Review.",
@@ -1468,7 +1491,7 @@ def test_workspace_transport_copies_research_inputs_with_readable_suffixes(
     parent = repository.create(
         RunSpec("parent", "test.parent", {"case": "readable-research-input"})
     )
-    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    context = RunContext(repository, parent, resume_input=None)
     adapter.steps.append(_completed({"answer": 42}))
     request = LLMRequest(
         "readable-research-input",
@@ -1505,7 +1528,7 @@ def test_workspace_transport_copies_unknown_media_without_provider_filtering(
     parent = repository.create(
         RunSpec("parent", "test.parent", {"case": "unknown-input"})
     )
-    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    context = RunContext(repository, parent, resume_input=None)
     adapter.steps.append(_completed({"answer": 42}))
     request = LLMRequest(
         "unknown-input",
@@ -1538,7 +1561,6 @@ def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     service = LLMTaskService(registry=registry)
     request = _request("shared-task")
@@ -1600,7 +1622,6 @@ def test_same_session_prefix_allows_only_one_concurrent_paid_sibling(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     service = LLMTaskService(registry=registry)
     direct = LLMExecutionOptions(host_authority=HostAuthority.UNRESTRICTED)
@@ -1692,7 +1713,7 @@ def test_local_io_failure_does_not_consume_crash_retry(
     assert adapter.resume_calls == 0
     repository = RunRepository(tmp_path)
     snapshot = repository.inspect(result.snapshot.run_id).snapshot
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context = RunContext(repository, snapshot, resume_input=None)
     state = client.service._executor._task_store(context, request.task_id).read()
     assert state is not None
     assert state.current.generation == 1
@@ -1787,7 +1808,6 @@ def test_validated_artifact_and_session_record_commit_acceptance_before_native_r
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     service = LLMTaskService(registry=registry)
     first = service.execute(context, _request("first"))
@@ -1831,7 +1851,7 @@ def test_session_commit_closes_hard_crash_window_before_task_accepted_cas(
     snapshot = repository.create(
         RunSpec("parent", "test.parent", {"case": "session-repair"})
     )
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context = RunContext(repository, snapshot, resume_input=None)
     service = LLMTaskService(registry=registry)
     executor = service._executor
     root = service.execute(context, _request("root-before-crash"))
@@ -1954,7 +1974,6 @@ def test_two_crashes_pause_without_supervision_input(
         repository,
         repository.inspect(result.snapshot.run_id).snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     state = client.service._executor._task_store(context, "task").read()
     assert state is not None

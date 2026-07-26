@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Mapping
 
-from arc_jobs import validate_progress_data
-
 from .providers.base import NativeResumeHandle
+
+
+def message_preview(value: str) -> dict[str, Any]:
+    """Return a credential-redacted preview of one complete logical message."""
+
+    redacted = re.sub(
+        r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+",
+        r"\1 [REDACTED]",
+        value,
+    )
+    redacted = re.sub(
+        r"\bsk-[A-Za-z0-9_-]{8,}\b",
+        "sk-[REDACTED]",
+        redacted,
+    )
+    normalized = " ".join(redacted.split())
+    return {
+        "preview": normalized[:100],
+        "truncated": len(normalized) > 100,
+    }
 
 
 class DurableProviderObserver:
@@ -17,26 +36,27 @@ class DurableProviderObserver:
         *,
         context: Any,
         on_handle: Callable[[NativeResumeHandle], None],
-        raw_limit_bytes: int = 256 * 1024,
+        task_id: str,
+        provider: str,
+        generation: int,
+        host_turn_round: int,
     ) -> None:
         self.context = context
         self.on_handle = on_handle
-        self.raw_limit_bytes = raw_limit_bytes
-        self.raw_events: list[Mapping[str, Any] | str] = []
-        self.raw_bytes = 0
-        self.truncated = False
+        self.metadata = {
+            "task_id": task_id,
+            "provider": provider,
+            "generation": generation,
+            "host_turn_round": host_turn_round,
+        }
+        self.observation_errors: list[str] = []
 
     def native_handle(self, handle: NativeResumeHandle) -> None:
         self.on_handle(handle)
 
-    def raw_event(self, event: Mapping[str, Any] | str) -> None:
-        size = len(repr(event).encode("utf-8", "replace"))
-        if self.raw_bytes + size > self.raw_limit_bytes:
-            self.truncated = True
-            return
-        self.raw_events.append(event)
-        self.raw_bytes += size
-
     def progress(self, kind: str, data: Mapping[str, Any]) -> None:
-        validate_progress_data(data)
-        self.context.events.emit(kind, dict(data))
+        try:
+            self.context.events.emit(kind, {**dict(data), **self.metadata})
+        except Exception as exc:
+            if len(self.observation_errors) < 8:
+                self.observation_errors.append(type(exc).__name__)

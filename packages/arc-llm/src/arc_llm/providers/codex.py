@@ -28,7 +28,7 @@ from .process import ProcessRunner
 
 class CodexAdapter:
     name = "codex"
-    compatibility_version = "codex-jsonl.v4-workspace"
+    compatibility_version = "codex-jsonl.v5-ordered-terminal"
 
     def __init__(
         self,
@@ -79,7 +79,7 @@ class CodexAdapter:
         argv: list[str],
         prompt: str,
         output_schema: Mapping[str, Any] | None,
-        timeout: float,
+        timeout: float | None,
         workspace: Path,
         environment: Mapping[str, str] | None,
         observer: Any,
@@ -129,6 +129,7 @@ class CodexAdapter:
                 cwd=workspace,
                 validate_terminal=False,
                 extract_failure=_extract_failure,
+                extract_message=_extract_message,
             )
             # Codex JSONL may contain several completed agent-message items.
             # They are progress/diagnostic material rather than an unambiguous
@@ -146,31 +147,17 @@ class CodexAdapter:
                 else (CandidateMaterial(text=final_message[0], terminal=True),)
             )
             if execution.terminal_kind is not ProviderTerminalKind.COMPLETED:
-                terminal_types = execution.diagnostics.get("terminal_event_types", ())
-                returncode = execution.diagnostics.get("returncode")
-                if (
-                    type(returncode) is not int
-                    or returncode == 0
-                    or execution.diagnostics.get("runner_failure") is True
-                    or not _completed_without_late_failure(terminal_types)
-                    or final_message[0] is None
-                ):
-                    return replace(execution, diagnostics=diagnostics)
-                warning = {
-                    "code": "provider_nonzero_exit_with_valid_output",
-                    "message": (
-                        "Codex returned a nonzero exit after writing a completed "
-                        "final response."
-                    ),
-                    "provider": self.name,
-                    "returncode": returncode,
-                }
-                diagnostics["warnings"] = [warning]
+                return replace(execution, diagnostics=diagnostics)
+            if final_message[0] is None:
                 return replace(
                     execution,
-                    terminal_kind=ProviderTerminalKind.COMPLETED,
-                    candidates=candidates,
-                    failure=None,
+                    terminal_kind=ProviderTerminalKind.FAILED,
+                    candidates=(),
+                    failure=ProviderFailure(
+                        "Codex completed without a fresh final-message file.",
+                        category=FailureCategory.TRANSPORT,
+                        details={"code": "incomplete_terminal_closure"},
+                    ),
                     diagnostics=diagnostics,
                 )
             return replace(execution, candidates=candidates, diagnostics=diagnostics)
@@ -223,20 +210,14 @@ def _parse_event(
     return None, handle if isinstance(handle, str) else None, usage
 
 
-def _completed_without_late_failure(value: Any) -> bool:
-    if not isinstance(value, (list, tuple)):
-        return False
-    completed_indexes = [
-        index for index, event_type in enumerate(value)
-        if event_type == "turn.completed"
-    ]
-    if not completed_indexes:
-        return False
-    last_completed = completed_indexes[-1]
-    return not any(
-        event_type in {"error", "turn.failed"}
-        for event_type in value[last_completed + 1 :]
-    )
+def _extract_message(event: Mapping[str, Any]) -> str | None:
+    if event.get("type") != "item.completed":
+        return None
+    item = event.get("item")
+    if not isinstance(item, Mapping) or item.get("type") != "agent_message":
+        return None
+    text = item.get("text")
+    return text if isinstance(text, str) and text else None
 
 
 def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:

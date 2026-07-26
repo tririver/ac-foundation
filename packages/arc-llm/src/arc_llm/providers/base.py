@@ -79,7 +79,7 @@ class ProviderRequest:
     model: str
     output_schema: Mapping[str, Any] | None
     capabilities: Mapping[str, Any]
-    idle_timeout_seconds: float
+    idle_timeout_seconds: float | None
     workspace: Path
     environment: Mapping[str, str] | None = None
 
@@ -89,7 +89,7 @@ class ProviderResumeRequest:
     prompt: str
     output_schema: Mapping[str, Any] | None
     capabilities: Mapping[str, Any]
-    idle_timeout_seconds: float
+    idle_timeout_seconds: float | None
     workspace: Path
     environment: Mapping[str, str] | None = None
 
@@ -112,8 +112,6 @@ class ProviderExecution:
 
 class ProviderObserver(Protocol):
     def native_handle(self, handle: NativeResumeHandle) -> None: ...
-
-    def raw_event(self, event: Mapping[str, Any] | str) -> None: ...
 
     def progress(self, kind: str, data: Mapping[str, Any]) -> None: ...
 

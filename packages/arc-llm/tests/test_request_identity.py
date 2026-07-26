@@ -243,7 +243,6 @@ def test_semantic_execution_and_operational_identity_matrix() -> None:
     base_semantic = semantic_key(request)
     assert semantic_key(replace(request, prompt="changed")) != base_semantic
     assert semantic_key(request) == base_semantic
-
     recipe = execution_document(
         provider="codex",
         model="model-a",
@@ -273,3 +272,10 @@ def test_semantic_execution_and_operational_identity_matrix() -> None:
     )
     assert changed_policy != options
     assert semantic_key(request) == base_semantic
+
+
+def test_idle_timeout_is_opt_in_and_remains_operational_policy() -> None:
+    assert ExecutionLimits().idle_timeout_seconds is None
+    assert ExecutionLimits(idle_timeout_seconds=1).idle_timeout_seconds == 1
+    with pytest.raises(InvalidRequestError):
+        ExecutionLimits(idle_timeout_seconds=0)

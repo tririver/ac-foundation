@@ -28,7 +28,7 @@ from .process import ProcessRunner
 
 class KimiAdapter:
     name = "kimi"
-    compatibility_version = "kimi-print-stream-json.v1-workspace"
+    compatibility_version = "kimi-print-stream-json.v2-ordered-terminal"
 
     def __init__(
         self,
@@ -120,7 +120,7 @@ class KimiAdapter:
     def _run(
         self,
         argv: list[str],
-        timeout: float,
+        timeout: float | None,
         workspace: Path,
         environment: Mapping[str, str] | None,
         observer: Any,
@@ -139,6 +139,7 @@ class KimiAdapter:
             runner=self.runner,
             env=environment if environment is not None else self.env,
             cwd=workspace,
+            extract_message=_extract_message,
         )
 
 
@@ -168,5 +169,16 @@ def _integer(value: Any) -> int | None:
     return (
         value
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else None
+    )
+
+
+def _extract_message(event: Mapping[str, Any]) -> str | None:
+    content = event.get("content")
+    return (
+        content
+        if event.get("role") == "assistant"
+        and isinstance(content, str)
+        and content
         else None
     )

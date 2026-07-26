@@ -74,6 +74,33 @@ def test_rate_limit_opens_durable_circuit_and_allows_one_half_open_probe(
         permit.record_success()
 
 
+def test_rate_limit_retry_after_controls_and_clamps_circuit_cooldown(
+    tmp_path: Path,
+) -> None:
+    now = [100.0]
+    gate = ProviderCallGate(
+        tmp_path / "operational" / "llm",
+        ProviderGateOptions(circuit_cooldown_seconds=900),
+        clock=lambda: now[0],
+    )
+    with gate.acquire("codex", checkpoint=_checkpoint) as permit:
+        permit.record_failure(
+            ProviderFailure(
+                "limited",
+                category=FailureCategory.RATE_LIMIT,
+                retry_after_seconds=2,
+            )
+        )
+
+    with pytest.raises(ProviderFailure) as opened:
+        gate.acquire("codex", checkpoint=_checkpoint)
+    assert opened.value.details["retry_after_seconds"] == 2
+
+    now[0] = 102.1
+    with gate.acquire("codex", checkpoint=_checkpoint) as permit:
+        permit.record_success()
+
+
 def test_non_circuit_half_open_failure_releases_probe(tmp_path: Path) -> None:
     now = [0.0]
     gate = ProviderCallGate(
@@ -361,7 +388,7 @@ def test_gate_uses_repository_operational_root_at_provider_boundary(
     snapshot = repository.create(
         RunSpec("parent", "test.parent", {"case": "provider-gate"})
     )
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
+    context = RunContext(repository, snapshot, resume_input=None)
     outcome = LLMTaskService(registry=registry).execute(
         context,
         LLMRequest(
@@ -411,7 +438,6 @@ def test_gate_state_write_warning_is_bounded_and_does_not_replace_success(
         repository,
         snapshot,
         resume_input=None,
-        execution_slice=None,
     )
     outcome = LLMTaskService(registry=registry).execute(
         context,

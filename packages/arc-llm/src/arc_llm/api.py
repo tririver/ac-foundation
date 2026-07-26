@@ -530,7 +530,6 @@ class LLMClient:
                 repository,
                 snapshot,
                 resume_input=None,
-                execution_slice=None,
             )
             try:
                 invocation = handler._load_durable_invocation(context)
@@ -656,7 +655,6 @@ class LLMClient:
             repository,
             snapshot,
             resume_input=None,
-            execution_slice=None,
         )
         return self.service.execute(context, request, options=options)
 

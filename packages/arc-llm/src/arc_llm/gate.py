@@ -291,8 +291,18 @@ class ProviderCallGate:
                 or failures >= self.options.circuit_failure_threshold
             )
             now = float(self._clock())
+            retry_after = (
+                None
+                if failure.retry_after_seconds is None
+                else min(3600.0, max(1.0, failure.retry_after_seconds))
+            )
             opened_until = (
-                now + self.options.circuit_cooldown_seconds
+                now
+                + (
+                    self.options.circuit_cooldown_seconds
+                    if retry_after is None
+                    else retry_after
+                )
                 if should_open
                 else None if state is None else state.opened_until
             )
