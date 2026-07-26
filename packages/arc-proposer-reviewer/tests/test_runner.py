@@ -105,6 +105,52 @@ def test_prepare_materializes_whole_input_and_persists_verified_reference(
     assert content.content == b"# Domain\n"
 
 
+def test_prepare_publishes_all_inputs_before_committing_the_durable_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = BatchRunner()
+    repository = RunRepository(tmp_path)
+    original_publish = ImmutableArtifactStore.publish_bytes
+    publication_count = 0
+
+    def fail_second_publication(self, *args, **kwargs):
+        nonlocal publication_count
+        publication_count += 1
+        if publication_count == 2:
+            raise OSError("simulated input publication interruption")
+        return original_publish(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        ImmutableArtifactStore,
+        "publish_bytes",
+        fail_second_publication,
+    )
+    payloads = (
+        BatchInputPayload("domain-markdown-001", "text/markdown", b"# First\n"),
+        BatchInputPayload("domain-markdown-002", "text/markdown", b"# Second\n"),
+    )
+
+    with pytest.raises(OSError, match="publication interruption"):
+        runner.prepare(_request(), repository, "run-a", input_payloads=payloads)
+
+    run_directory = repository.run_directory("run-a")
+    assert not (run_directory / "spec.json").exists()
+    assert not (run_directory / "snapshot.json").exists()
+    store = ImmutableArtifactStore(run_directory, repository_root=repository.root)
+    assert store.find("proposer-reviewer/inputs/source/0000-domain-markdown-001")
+    assert store.find("proposer-reviewer/inputs/source/0001-domain-markdown-002") is None
+
+    monkeypatch.setattr(ImmutableArtifactStore, "publish_bytes", original_publish)
+    snapshot = runner.prepare(_request(), repository, "run-a", input_payloads=payloads)
+
+    assert snapshot.status is RunStatus.PENDING
+    persisted = runner.read_request(repository, "run-a")
+    assert [
+        store.read_source(item.source).content for item in persisted.inputs
+    ] == [b"# First\n", b"# Second\n"]
+
+
 def test_run_and_resume_keep_operational_options_out_of_semantic_input(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -62,9 +62,8 @@ class BatchRunner:
             run_id=resolved_run_id,
             payloads=input_payloads,
         )
-        snapshot = repository.create(_run_spec(materialized, resolved_run_id))
         _publish_inputs(repository, resolved_run_id, materialized, input_payloads)
-        return snapshot
+        return repository.create(_run_spec(materialized, resolved_run_id))
 
     def run(
         self,
@@ -195,27 +194,44 @@ def _publish_inputs(
     request: BatchRequest,
     payloads: Sequence[BatchInputPayload],
 ) -> None:
-    if not payloads:
-        return
-    if len(payloads) != len(request.inputs):
-        raise ValueError("batch input payload count differs from persisted inputs")
     store = ImmutableArtifactStore(
         repository.root / "runs" / run_id,
         repository_root=repository.root,
     )
-    for index, (payload, item) in enumerate(zip(payloads, request.inputs, strict=True)):
-        ref = store.publish_bytes(
-            _input_artifact_id(index, payload.input_id),
-            payload.content,
-            media_type=payload.media_type,
-        )
-        if (
-            ref.digest != item.source.expected_digest
-            or ref.media_type != item.media_type
-            or ref.artifact_id != item.source.source_artifact_id
-            or item.source.source_run_id != run_id
+    if payloads:
+        if len(payloads) != len(request.inputs):
+            raise ValueError("batch input payload count differs from persisted inputs")
+        for index, (payload, item) in enumerate(
+            zip(payloads, request.inputs, strict=True)
         ):
-            raise ValueError("materialized batch input differs from its persisted reference")
+            ref = store.publish_bytes(
+                _input_artifact_id(index, payload.input_id),
+                payload.content,
+                media_type=payload.media_type,
+            )
+            if (
+                ref.digest != item.source.expected_digest
+                or ref.media_type != item.media_type
+                or ref.artifact_id != item.source.source_artifact_id
+                or item.source.source_run_id != run_id
+            ):
+                raise ValueError(
+                    "materialized batch input differs from its persisted reference"
+                )
+    _verify_inputs(store, request.inputs)
+
+
+def _verify_inputs(
+    store: ImmutableArtifactStore,
+    inputs: tuple[LLMInputArtifact, ...],
+) -> None:
+    for item in inputs:
+        verified = store.read_source(item.source)
+        if (
+            verified.digest != item.source.expected_digest
+            or verified.media_type != item.media_type
+        ):
+            raise ValueError("verified batch input differs from its durable reference")
 
 
 def _input_artifact_id(index: int, input_id: str) -> str:

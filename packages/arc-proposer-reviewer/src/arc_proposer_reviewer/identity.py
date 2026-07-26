@@ -8,8 +8,8 @@ from arc_llm import LLMInputArtifact
 from .models import LoopSpec, WorkerSpec
 
 
-WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v5"
-LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v5"
+WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v6"
+LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v6"
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
@@ -31,11 +31,12 @@ def input_artifact_documents(
     return [
         {
             "input_id": item.input_id,
-            "source_run_id": item.source.source_run_id,
-            "source_artifact_id": item.source.source_artifact_id,
-            "sha256": item.source.expected_digest.value,
-            "size_bytes": item.source.expected_digest.size_bytes,
             "media_type": item.media_type,
+            "digest": {
+                "algorithm": item.source.expected_digest.algorithm,
+                "value": item.source.expected_digest.value,
+                "size_bytes": item.source.expected_digest.size_bytes,
+            },
         }
         for item in inputs
     ]

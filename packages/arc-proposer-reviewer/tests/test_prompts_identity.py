@@ -5,8 +5,10 @@ from dataclasses import replace
 from arc_proposer_reviewer.identity import (
     LOOP_SEMANTIC_KEY_SCHEMA,
     WORKER_SEMANTIC_KEY_SCHEMA,
+    loop_semantic_projection,
     worker_contract_document,
     worker_semantic_key,
+    worker_task_id,
 )
 from arc_jobs import ArtifactDigest, ArtifactSourceRef
 from arc_llm import LLMInputArtifact
@@ -79,8 +81,8 @@ def test_delta_and_reviewer_prompts_keep_only_business_context() -> None:
 
 
 def test_worker_identity_covers_only_current_worker_contract() -> None:
-    assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v5")
-    assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v5")
+    assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v6")
+    assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v6")
     value = loop()
     worker = value.proposers[0]
     base = worker_semantic_key(
@@ -105,6 +107,48 @@ def test_worker_identity_covers_only_current_worker_contract() -> None:
         worker=worker,
         upstream_digests={},
         inputs=(workspace_input,),
+    )
+    relocated_workspace_input = LLMInputArtifact(
+        "domain-markdown-001",
+        ArtifactSourceRef(
+            "run-b",
+            "another-batch/input/domain-markdown-001",
+            ArtifactDigest("sha256", "a" * 64, 8),
+        ),
+        "text/markdown",
+    )
+    assert loop_semantic_projection(
+        value, inputs=(workspace_input,)
+    ) == loop_semantic_projection(value, inputs=(relocated_workspace_input,))
+    assert worker_semantic_key(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=worker,
+        upstream_digests={},
+        inputs=(workspace_input,),
+    ) == worker_semantic_key(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=worker,
+        upstream_digests={},
+        inputs=(relocated_workspace_input,),
+    )
+    assert worker_task_id(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=worker,
+        upstream_digests={},
+        inputs=(workspace_input,),
+    ) == worker_task_id(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=worker,
+        upstream_digests={},
+        inputs=(relocated_workspace_input,),
     )
     assert base != worker_semantic_key(
         role="proposer",

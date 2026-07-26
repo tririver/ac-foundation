@@ -314,6 +314,52 @@ def test_workers_receive_json_output_and_the_same_runtime_options(
     )
 
 
+def test_batch_inputs_reach_all_proposers_reviewers_and_rounds(
+    tmp_path: Path,
+) -> None:
+    class RecordingFake(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.requests = []
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.requests.append(request)
+            return _completed(request)
+
+    fake = RecordingFake()
+    workspace_input = LLMInputArtifact(
+        "domain-markdown-001",
+        ArtifactSourceRef(
+            "run-a",
+            "proposer-reviewer/inputs/source/0000-domain-markdown-001",
+            ArtifactDigest("sha256", "a" * 64, 8),
+        ),
+        "text/markdown",
+    )
+    loop = _loop(
+        proposers=(_worker("first"), _worker("second")),
+        max_rounds=2,
+        allow_early_stop=False,
+    )
+    base_request = _request(loop)
+    request = BatchRequest(
+        base_request.schema_version,
+        base_request.batch_id,
+        base_request.loops,
+        base_request.failure_policy,
+        (workspace_input,),
+    )
+
+    _repository, _handler, snapshot = _run(tmp_path, request, fake)
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    assert len(fake.requests) == 6
+    assert sum(_is_proposer(request) for request in fake.requests) == 4
+    assert sum(not _is_proposer(request) for request in fake.requests) == 2
+    assert all(request.inputs == (workspace_input,) for request in fake.requests)
+
+
 def test_stop_is_recorded_but_ignored_when_early_stop_is_disabled(
     tmp_path: Path,
 ) -> None:
