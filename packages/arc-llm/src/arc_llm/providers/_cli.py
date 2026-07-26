@@ -474,12 +474,19 @@ def executable_diagnostic(provider: str, binary: str) -> tuple[bool, str | None]
     return path is not None, path
 
 
-def classify_cli_failure(stderr: str) -> ProviderFailure:
-    lowered = stderr.lower()
+def classify_provider_failure_evidence(
+    evidence: str,
+    *,
+    message: str = "Provider command failed.",
+) -> ProviderFailure:
+    """Classify bounded provider-owned error evidence with anchored patterns."""
+
+    lowered = evidence.lower()
     if re.search(
         r"(?:^|\n)\s*(?:401|403)(?:\b|:)"
         r"|\bhttp(?:/\d(?:\.\d)?)?\s*(?:401|403)(?:\b|:)"
-        r"|\bunauthori[sz]ed\b|\bauthentication\s+(?:failed|required|error)\b",
+        r"|\bunauthori[sz]ed\b"
+        r"|\bauthentication(?:[_ -]+(?:failed|required|error))\b",
         lowered,
     ):
         category = FailureCategory.AUTHENTICATION
@@ -490,28 +497,32 @@ def classify_cli_failure(stderr: str) -> ProviderFailure:
         category = FailureCategory.QUOTA
     elif re.search(
         r"(?:^|\b)(?:http(?:/\d(?:\.\d)?)?\s*)?429(?:\b|:)"
-        r"|\brate[- ]limit(?:ed|ing)?\b",
+        r"|\brate[_ -]limit(?:ed|ing|[_ -]exceeded)?\b",
         lowered,
     ):
         category = FailureCategory.RATE_LIMIT
-    elif re.search(r"\binvalid[- ]request\b", lowered):
+    elif re.search(r"\binvalid[_ -]request\b", lowered):
         category = FailureCategory.INVALID_REQUEST
     else:
         category = FailureCategory.TRANSPORT
     retry_after = None
     match = re.search(
         r"(?i)retry[- ]after\s*[:=]?\s*(\d+(?:\.\d+)?)",
-        stderr,
+        evidence,
     )
     if match is not None:
         retry_after = min(3600.0, max(1.0, float(match.group(1))))
     return ProviderFailure(
-        "Provider command failed.",
+        message,
         category=category,
         retryable=category in {FailureCategory.RATE_LIMIT, FailureCategory.TRANSPORT},
         retry_after_seconds=retry_after,
-        details={"diagnostic": redact_text(stderr[:4096])},
+        details={"diagnostic": redact_text(evidence[:4096])},
     )
+
+
+def classify_cli_failure(stderr: str) -> ProviderFailure:
+    return classify_provider_failure_evidence(stderr)
 
 
 def _completion_warning(
@@ -538,6 +549,7 @@ def _process_failure_diagnostics(failure: ProviderFailure) -> dict[str, Any]:
     diagnostics = {
         key: failure.details[key]
         for key in (
+            "returncode",
             "stdout_bytes",
             "stderr_bytes",
             "stdout_truncated",
@@ -572,7 +584,7 @@ def _process_result_diagnostics(result: Any) -> dict[str, Any]:
             result.stderr.decode("utf-8", "replace")
         ),
         "last_activity_at": result.last_activity_at,
-        "termination_reason": None,
+        "termination_reason": "exited",
     }
 
 

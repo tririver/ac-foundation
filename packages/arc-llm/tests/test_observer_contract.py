@@ -71,6 +71,24 @@ def test_observer_failure_is_diagnostic_only() -> None:
     assert observer.observation_errors == ["OSError"]
 
 
+def test_native_handle_observer_failure_is_diagnostic_only() -> None:
+    def fail_handle(_handle: NativeResumeHandle) -> None:
+        raise OSError("state temporarily unavailable")
+
+    observer = DurableProviderObserver(
+        context=_context([]),
+        on_handle=fail_handle,
+        task_id="task",
+        provider="codex",
+        generation=2,
+        host_turn_round=1,
+    )
+
+    observer.native_handle(NativeResumeHandle("codex", "thread"))
+
+    assert observer.observation_errors == ["OSError"]
+
+
 def test_message_preview_redacts_normalizes_and_counts_unicode_codepoints() -> None:
     value = (
         "  Bearer secret-token\n"
@@ -142,3 +160,24 @@ def test_provider_raw_diagnostics_redact_secret_keys_and_embedded_credentials() 
     assert raw_event["message"] == (
         "Cookie: [REDACTED] password=[REDACTED]"
     )
+
+
+def test_free_text_redaction_covers_quoted_env_and_basic_credentials() -> None:
+    from arc_llm.diagnostics import redact_text
+
+    value = (
+        '{"api_key":"json-secret"} '
+        "OPENAI_API_KEY=environment-secret "
+        "Authorization: Basic Zm9vOmJhcg== "
+        "'refresh_token': 'quoted secret'"
+    )
+
+    redacted = redact_text(value)
+
+    for secret in (
+        "json-secret",
+        "environment-secret",
+        "Zm9vOmJhcg==",
+        "quoted secret",
+    ):
+        assert secret not in redacted

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from arc_jobs import RunContext, RunRepository
+from arc_jobs import RunContext, RunRepository, decode_artifact_ref
 from arc_llm import (
     FailureCategory,
     HostAuthority,
@@ -94,7 +94,7 @@ def test_second_crash_pauses_then_explicit_resume_gets_fresh_allowance(
     assert provider_failure["category"] == "timeout"
     assert provider_failure["arc_error_code"] == "provider_timeout"
     assert provider_failure["fresh_retry_available"] is False
-    assert "diagnostic_artifact_id" in provider_failure
+    assert "diagnostic_artifact_ref" in provider_failure
     assert not first.outcome.input_required
     assert adapter.start_calls == 2
 
@@ -112,10 +112,9 @@ def test_second_crash_pauses_then_explicit_resume_gets_fresh_allowance(
     assert paused_state is not None
     assert paused_state.pause is not None
     assert paused_state.pause.details["provider_failure"] == provider_failure
-    diagnostic_ref = paused_context.artifacts.find(
-        provider_failure["diagnostic_artifact_id"]
+    diagnostic_ref = decode_artifact_ref(
+        provider_failure["diagnostic_artifact_ref"]
     )
-    assert diagnostic_ref is not None
     diagnostic = json.loads(
         paused_context.artifacts.read_bytes(diagnostic_ref).decode("utf-8")
     )
@@ -343,7 +342,7 @@ def test_non_crash_provider_categories_do_not_consume_the_retry(
         assert isinstance(result.outcome, LLMFailed)
         provider_failure = result.outcome.error.details["provider_failure"]
     assert provider_failure["category"] == category.value
-    assert "diagnostic_artifact_id" in provider_failure
+    assert "diagnostic_artifact_ref" in provider_failure
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 0
     assert len(adapter.steps) == 1
@@ -378,7 +377,7 @@ def test_unserializable_failure_diagnostics_do_not_mask_provider_failure(
     assert result.outcome.error.code.value == "provider_invalid_request"
     provider_failure = result.outcome.error.details["provider_failure"]
     assert provider_failure["diagnostic_persistence_failed"] is True
-    assert "diagnostic_artifact_id" not in provider_failure
+    assert "diagnostic_artifact_ref" not in provider_failure
 
 
 def test_gate_backoff_does_not_consume_the_retry(
@@ -398,6 +397,9 @@ def test_gate_backoff_does_not_consume_the_retry(
 
     assert isinstance(result.outcome, LLMPaused)
     assert result.outcome.reason is ResumeReason.EXTERNAL_CONDITION
+    provider_failure = result.outcome.details["provider_failure"]
+    assert provider_failure["detail_code"] == "provider_circuit_open"
+    decode_artifact_ref(provider_failure["diagnostic_artifact_ref"])
     assert adapter.start_calls == 0
 
 

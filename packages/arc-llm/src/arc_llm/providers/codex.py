@@ -11,7 +11,11 @@ from typing import Any, Mapping
 from ..errors import FailureCategory, ProviderFailure
 from ..output import CandidateMaterial
 from ..diagnostics import redact_text
-from ._cli import executable_diagnostic, run_cli
+from ._cli import (
+    classify_provider_failure_evidence,
+    executable_diagnostic,
+    run_cli,
+)
 from .base import (
     IsolationMode,
     ProviderCapabilities,
@@ -241,15 +245,24 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
     diagnostic = " ".join(value for value in (code, message) if value)
     if not diagnostic:
         diagnostic = "Codex returned a terminal error event."
-    if _is_invalid_request(code, message):
+    classified = classify_provider_failure_evidence(
+        diagnostic,
+        message="Codex reported a failed turn.",
+    )
+    if (
+        classified.category is FailureCategory.TRANSPORT
+        and _is_invalid_request(code, message)
+    ):
         category = FailureCategory.INVALID_REQUEST
         retryable = False
+        retry_after_seconds = None
         failure_message = "Codex rejected the request."
     else:
-        category = FailureCategory.TRANSPORT
-        retryable = True
-        failure_message = "Codex reported a failed turn."
-    details: dict[str, Any] = {"diagnostic": redact_text(diagnostic[:4096])}
+        category = classified.category
+        retryable = classified.retryable
+        retry_after_seconds = classified.retry_after_seconds
+        failure_message = str(classified)
+    details: dict[str, Any] = dict(classified.details)
     if code:
         details["provider_code"] = redact_text(code[:256])
     if parameter:
@@ -258,6 +271,7 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
         failure_message,
         category=category,
         retryable=retryable,
+        retry_after_seconds=retry_after_seconds,
         details=details,
     )
 

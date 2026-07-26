@@ -20,22 +20,33 @@ _SECRET_KEY_NAMES = {
     "xapikey",
     "accesstoken",
 }
+_SECRET_KEY_PATTERN = (
+    r"(?:[a-z][a-z0-9]*_)*"
+    r"(?:api[-_]?key|authorization|cookie|credential|password|passwd|"
+    r"refresh[-_]?token|secret|set-cookie|token|x-api-key|access[-_]?token)"
+)
+_QUOTED_SECRET_VALUE = re.compile(
+    rf"(?i)((?:[\"'])?{_SECRET_KEY_PATTERN}(?:[\"'])?"
+    rf"\s*[:=]\s*)(?P<quote>[\"'])(?:[^\r\n]*?)(?P=quote)"
+)
 _KEY_VALUE_SECRET = re.compile(
-    r"(?i)\b("
-    r"api[-_]?key|authorization|cookie|credential|password|passwd|"
-    r"refresh[-_]?token|secret|set-cookie|token|x-api-key|access[-_]?token"
-    r")(\s*[:=]\s*)([^\s,;]+)"
+    rf"(?i)((?:[\"'])?{_SECRET_KEY_PATTERN}(?:[\"'])?"
+    r"\s*[:=]\s*)([^\s,;}]+)"
 )
 
 
 def redact_text(value: str) -> str:
     value = re.sub(
-        r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+",
+        r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]+",
         r"\1 [REDACTED]",
         value,
     )
+    value = _QUOTED_SECRET_VALUE.sub(
+        lambda match: f"{match.group(1)}[REDACTED]",
+        value,
+    )
     value = _KEY_VALUE_SECRET.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
+        lambda match: f"{match.group(1)}[REDACTED]",
         value,
     )
     patterns = (

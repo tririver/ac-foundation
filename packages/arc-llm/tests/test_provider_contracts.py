@@ -17,9 +17,15 @@ from arc_llm import (
 )
 from arc_llm.output import select_output
 from arc_llm.request import JsonOutput
-from arc_llm.providers.claude import ClaudeAdapter
+from arc_llm.providers.claude import (
+    ClaudeAdapter,
+    _extract_failure as extract_claude_failure,
+)
 from arc_llm.providers._cli import classify_cli_failure
-from arc_llm.providers.codex import CodexAdapter
+from arc_llm.providers.codex import (
+    CodexAdapter,
+    _extract_failure as extract_codex_failure,
+)
 from arc_llm.providers.kimi import KimiAdapter
 from arc_llm.providers.process import ProcessResult
 from arc_llm.providers.registry import default_registry
@@ -612,3 +618,56 @@ def test_retry_after_is_clamped_for_operational_cooldown() -> None:
     assert classify_cli_failure(
         "HTTP 429; retry-after: 99999"
     ).retry_after_seconds == 3600
+
+
+@pytest.mark.parametrize(
+    ("code", "message", "category"),
+    (
+        (
+            "authentication_error",
+            "HTTP 401 authentication failed",
+            FailureCategory.AUTHENTICATION,
+        ),
+        (
+            "insufficient_quota",
+            "quota exceeded",
+            FailureCategory.QUOTA,
+        ),
+        (
+            "rate_limit_exceeded",
+            "HTTP 429 retry-after: 61",
+            FailureCategory.RATE_LIMIT,
+        ),
+    ),
+)
+def test_codex_structured_failures_preserve_typed_category(
+    code: str,
+    message: str,
+    category: FailureCategory,
+) -> None:
+    failure = extract_codex_failure(
+        {
+            "type": "turn.failed",
+            "error": {"code": code, "message": message},
+        }
+    )
+
+    assert failure is not None
+    assert failure.category is category
+    if category is FailureCategory.RATE_LIMIT:
+        assert failure.retry_after_seconds == 61
+
+
+def test_claude_structured_failure_preserves_rate_limit_retry_after() -> None:
+    failure = extract_claude_failure(
+        {
+            "type": "result",
+            "is_error": True,
+            "subtype": "error_during_execution",
+            "result": "HTTP 429 rate_limit_exceeded; retry-after: 45",
+        }
+    )
+
+    assert failure is not None
+    assert failure.category is FailureCategory.RATE_LIMIT
+    assert failure.retry_after_seconds == 45

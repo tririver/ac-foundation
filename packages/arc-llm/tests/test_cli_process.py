@@ -321,6 +321,8 @@ def test_process_idle_timeout_terminates_and_reaps_provider() -> None:
         )
     except ProviderFailure as failure:
         assert failure.category is FailureCategory.TIMEOUT
+        assert type(failure.details["returncode"]) is int
+        assert failure.details["termination_reason"] == "timeout"
     else:
         raise AssertionError("idle provider was not terminated")
 

@@ -42,11 +42,17 @@ class DurableProviderObserver:
         self.observation_errors: list[str] = []
 
     def native_handle(self, handle: NativeResumeHandle) -> None:
-        self.on_handle(handle)
+        try:
+            self.on_handle(handle)
+        except Exception as exc:
+            self._record_observation_error(exc)
 
     def progress(self, kind: str, data: Mapping[str, Any]) -> None:
         try:
             self.context.events.emit(kind, {**dict(data), **self.metadata})
         except Exception as exc:
-            if len(self.observation_errors) < 8:
-                self.observation_errors.append(type(exc).__name__)
+            self._record_observation_error(exc)
+
+    def _record_observation_error(self, exc: Exception) -> None:
+        if len(self.observation_errors) < 8:
+            self.observation_errors.append(type(exc).__name__)

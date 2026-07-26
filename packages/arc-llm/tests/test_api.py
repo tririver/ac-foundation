@@ -12,6 +12,7 @@ import arc_llm.api as api_module
 from arc_jobs import (
     ArtifactDigest,
     ArtifactSourceRef,
+    decode_artifact_ref,
     RunContext,
     RunEngine,
     RunRepository,
@@ -128,6 +129,11 @@ def test_auto_selection_with_no_healthy_provider_creates_resumable_pause(
     assert isinstance(paused.outcome, LLMPaused)
     assert paused.outcome.reason is ResumeReason.EXTERNAL_CONDITION
     assert paused.outcome.details["code"] == "provider_unavailable"
+    provider_failure = paused.outcome.details["provider_failure"]
+    diagnostic_ref = decode_artifact_ref(
+        provider_failure["diagnostic_artifact_ref"]
+    )
+    assert diagnostic_ref.digest.value
 
     available = True
     adapter.steps.append(_completed({"answer": 1}))
@@ -136,6 +142,49 @@ def test_auto_selection_with_no_healthy_provider_creates_resumable_pause(
         run_id=paused.snapshot.run_id,
     )
     assert isinstance(resumed.outcome, LLMCompleted)
+
+
+def test_execute_validates_paused_generation_execution_fingerprint(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (
+                CandidateMaterial(value={"answer": 1}, terminal=True),
+                CandidateMaterial(value={"answer": 2}, terminal=True),
+            ),
+        )
+    )
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("paused-fingerprint", "test.parent", {"case": "fingerprint"})
+    )
+    context = RunContext(repository, snapshot, resume_input=None)
+    service = LLMTaskService(registry=registry)
+    request = _request("paused-fingerprint")
+
+    paused = service.execute(
+        context,
+        request,
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority.RESTRICTED
+        ),
+    )
+    mismatched = service.execute(
+        context,
+        request,
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority.UNRESTRICTED
+        ),
+    )
+
+    assert isinstance(paused, LLMPaused)
+    assert isinstance(mismatched, LLMFailed)
+    assert mismatched.error.code.value == "execution_mismatch"
+    assert adapter.start_calls == 1
 
 
 def test_replace_allows_changed_execution_options_for_new_generation(

@@ -6,9 +6,13 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from ..errors import FailureCategory, ProviderFailure
+from ..errors import ProviderFailure
 from ..output import CandidateMaterial
-from ._cli import executable_diagnostic, run_cli
+from ._cli import (
+    classify_provider_failure_evidence,
+    executable_diagnostic,
+    run_cli,
+)
 from .base import (
     IsolationMode,
     ProviderCapabilities,
@@ -189,16 +193,37 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
     subtype = event.get("subtype")
     if event.get("is_error") is not True and subtype in {None, "success"}:
         return None
+    evidence_parts = [subtype] if isinstance(subtype, str) else []
+    for key in ("result", "error", "message"):
+        value = event.get(key)
+        if isinstance(value, str):
+            evidence_parts.append(value)
+        elif isinstance(value, Mapping):
+            evidence_parts.append(
+                json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+    classified = classify_provider_failure_evidence(
+        " ".join(evidence_parts),
+        message="Claude reported an unsuccessful terminal result.",
+    )
+    details = {
+        **classified.details,
+        "code": "claude_unsuccessful_result",
+        "provider_subtype": (
+            subtype[:256] if isinstance(subtype, str) else None
+        ),
+    }
     return ProviderFailure(
         "Claude reported an unsuccessful terminal result.",
-        category=FailureCategory.TRANSPORT,
-        retryable=True,
-        details={
-            "code": "claude_unsuccessful_result",
-            "provider_subtype": (
-                subtype[:256] if isinstance(subtype, str) else None
-            ),
-        },
+        category=classified.category,
+        retryable=classified.retryable,
+        retry_after_seconds=classified.retry_after_seconds,
+        details=details,
     )
 
 

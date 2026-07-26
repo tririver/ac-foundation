@@ -152,8 +152,6 @@ class LLMTaskExecutor:
                 return LLMFailed(IdempotencyConflictError())
             if state.accepted is not None:
                 return self._replay(context, request, state, options)
-            if state.pause is not None:
-                return self._paused_outcome(state.pause)
         session_key = (
             state.session_key
             if state is not None and state.session_key is not None
@@ -194,8 +192,6 @@ class LLMTaskExecutor:
                 return LLMFailed(IdempotencyConflictError())
             if state.accepted is not None:
                 return self._replay(context, request, state, options)
-            if state.pause is not None:
-                return self._paused_outcome(state.pause)
             try:
                 durable_request = self._load_request(context, state)
                 self._validate_session_lineage(
@@ -203,6 +199,8 @@ class LLMTaskExecutor:
                 )
             except ArcLLMError as exc:
                 return LLMFailed(exc)
+            if state.pause is not None:
+                return self._paused_outcome(state.pause)
             if state.pending_host_turn is not None:
                 try:
                     return self._resolve_pending_host_turn(
@@ -536,12 +534,28 @@ class LLMTaskExecutor:
                 adapter = self.registry.create(state.resolved_provider or "")
                 diagnostic = adapter.doctor()
                 if not diagnostic.available:
+                    failure = ProviderFailure(
+                        "The selected provider is unavailable.",
+                        category=FailureCategory.UNAVAILABLE,
+                        retryable=True,
+                        details={"code": "provider_unavailable"},
+                    )
+                    provider_failure = (
+                        self._publish_provider_failure_diagnostic(
+                            context,
+                            state,
+                            failure,
+                            execution=None,
+                            fresh_retry_available=crash_retry_available,
+                        )
+                    )
                     return self._pause(
                         store,
                         state,
                         ResumeReason.EXTERNAL_CONDITION,
                         "provider_unavailable",
                         input_required=False,
+                        provider_failure=provider_failure,
                     )
                 continuation_prompt = self._prepared_host_turn_prompt(context, state)
                 if continuation_prompt is not None or (
@@ -608,16 +622,12 @@ class LLMTaskExecutor:
                     return outcome
             except ProviderFailure as failure:
                 active_state = store.read() or state
-                provider_failure = (
-                    self._publish_provider_failure_diagnostic(
-                        context,
-                        active_state,
-                        failure,
-                        execution=None,
-                        fresh_retry_available=crash_retry_available,
-                    )
-                    if active_state.current.attempt_started
-                    else None
+                provider_failure = self._publish_provider_failure_diagnostic(
+                    context,
+                    active_state,
+                    failure,
+                    execution=None,
+                    fresh_retry_available=crash_retry_available,
                 )
                 if self._is_crash_failure(failure):
                     if not crash_retry_available:
@@ -1505,9 +1515,13 @@ class LLMTaskExecutor:
                 artifact_id,
                 document,
             )
+            encoded_ref = encode_artifact_ref(ref)
         except Exception:
             return {**summary, "diagnostic_persistence_failed": True}
-        return {**summary, "diagnostic_artifact_id": ref.artifact_id}
+        return {
+            **summary,
+            "diagnostic_artifact_ref": encoded_ref,
+        }
 
     def _fresh_after_crash(
         self,
