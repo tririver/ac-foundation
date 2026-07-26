@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from arc_jobs import (
     ArcJobsError,
@@ -15,7 +15,7 @@ from arc_jobs import (
     CommandWarning,
     CommandRun,
     CommandStatus,
-    EventWriter,
+    EventSink,
     InvalidRunIdError,
     ProgressEvent,
     RunRepository,
@@ -147,6 +147,7 @@ def _dispatch(
     *,
     client: LLMClient,
     registry: ProviderRegistry,
+    event_sink: EventSink | None,
 ) -> CommandResult:
     if args.command == "generate":
         request = decode_request(_read_object(args.request))
@@ -158,6 +159,7 @@ def _dispatch(
             run_root=args.run_root,
             run_id=args.run_id,
             options=options,
+            event_sink=event_sink,
         )
         if isinstance(result.outcome, LLMFailed):
             return CommandResult(
@@ -185,6 +187,7 @@ def _dispatch(
             options=LLMExecutionOptions(
                 host_authority=HostAuthority(args.host_authority)
             ),
+            event_sink=event_sink,
         )
         if isinstance(result.outcome, LLMFailed):
             return CommandResult(
@@ -328,30 +331,8 @@ def main(
             args,
             client=client or LLMClient(registry=providers),
             registry=providers,
+            event_sink=_stderr_event_sink,
         )
-        if args.command in {"generate", "resume"} and result.run is not None:
-            repository = RunRepository(args.run_root)
-            events = EventWriter(
-                repository.run_directory(result.run.id) / "events.jsonl",
-                run_id=result.run.id,
-            ).tail()
-            for event in events:
-                progress = ProgressEvent(
-                    result.run.id,
-                    int(event["sequence"]),
-                    str(event["event"]),
-                    dict(event["data"]),
-                    str(event["emitted_at"]),
-                )
-                sys.stderr.write(
-                    json.dumps(
-                        encode_progress_event(progress),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    )
-                    + "\n"
-                )
         exit_code = 1 if result.status is CommandStatus.FAILED else 0
     except _HelpRequested:
         return 0
@@ -363,6 +344,26 @@ def main(
         exit_code = 1
     sys.stdout.write(command_result_json(result) + "\n")
     return exit_code
+
+
+def _stderr_event_sink(document: Mapping[str, Any]) -> None:
+    progress = ProgressEvent(
+        str(document["run_id"]),
+        int(document["sequence"]),
+        str(document["event"]),
+        dict(document["data"]),
+        str(document["emitted_at"]),
+    )
+    sys.stderr.write(
+        json.dumps(
+            encode_progress_event(progress),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    )
+    sys.stderr.flush()
 
 
 if __name__ == "__main__":  # pragma: no cover

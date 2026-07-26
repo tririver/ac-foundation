@@ -17,6 +17,7 @@ from arc_jobs import (
     Failed,
     IdempotencyConflictError as JobsIdempotencyConflictError,
     JsonValue,
+    EventSink,
     Paused,
     RunContext,
     RunEngine,
@@ -489,6 +490,7 @@ class LLMClient:
         run_root: Path,
         run_id: str | None = None,
         options: LLMExecutionOptions = LLMExecutionOptions(),
+        event_sink: EventSink | None = None,
     ) -> LLMRunResult:
         resolved_run_id = run_id or derive_run_id(HANDLER_NAME, request.task_id)
         return self._invoke(
@@ -496,6 +498,7 @@ class LLMClient:
             resolved_run_id,
             _StandaloneInvocation(0, "generate", request, None),
             options=options,
+            event_sink=event_sink,
         )
 
     def resume(
@@ -505,6 +508,7 @@ class LLMClient:
         run_id: str,
         input: ResumeInput | None = None,
         options: LLMExecutionOptions = LLMExecutionOptions(),
+        event_sink: EventSink | None = None,
     ) -> LLMRunResult:
         repository = RunRepository(run_root)
         handler = _StandaloneHandler(self.service, options=options)
@@ -513,6 +517,7 @@ class LLMClient:
                 run_id,
                 handler,
                 input=None if input is None else resume_input_to_document(input),
+                event_sink=event_sink,
             )
         except JobsResumeInputConflictError:
             return LLMRunResult(
@@ -558,6 +563,7 @@ class LLMClient:
         run_id: str | None = None,
         authorization: AdoptionAuthorization | None = None,
         options: LLMExecutionOptions = LLMExecutionOptions(),
+        event_sink: EventSink | None = None,
     ) -> LLMRunResult:
         resolved_run_id = run_id or derive_run_id(HANDLER_NAME, request.task_id)
         return self._invoke(
@@ -570,6 +576,7 @@ class LLMClient:
                 _StandaloneAdoption(source, authorization),
             ),
             options=options,
+            event_sink=event_sink,
         )
 
     def _invoke(
@@ -579,6 +586,7 @@ class LLMClient:
         invocation: _StandaloneInvocation,
         *,
         options: LLMExecutionOptions,
+        event_sink: EventSink | None,
     ) -> LLMRunResult:
         try:
             durable = _reserve_standalone_invocation(
@@ -623,6 +631,7 @@ class LLMClient:
                     semantic_document(invocation.request),
                 ),
                 handler,
+                event_sink=event_sink,
             )
         except JobsIdempotencyConflictError:
             snapshot = repository.inspect(run_id).snapshot

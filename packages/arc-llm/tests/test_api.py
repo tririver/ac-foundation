@@ -101,6 +101,51 @@ def test_auto_selection_skips_unavailable_provider_before_binding(
     assert resolved.provider == "claude"
 
 
+def test_event_sink_is_live_and_does_not_replay_historical_events(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    live_events: list[dict[str, object]] = []
+    original_start = adapter.start
+
+    def assert_live_before_provider(request, observer, stop):
+        assert any(
+            event["event"] == "llm_message"
+            and event["data"]["direction"] == "request"
+            for event in live_events
+        )
+        return original_start(request, observer, stop)
+
+    monkeypatch.setattr(adapter, "start", assert_live_before_provider)
+    adapter.steps.append(_completed({"answer": 1}))
+    client = LLMClient(registry=registry)
+    request = _request("live-event-sink")
+
+    first = client.generate(
+        request,
+        run_root=tmp_path,
+        run_id="live-event-sink-run",
+        event_sink=lambda event: live_events.append(dict(event)),
+    )
+
+    assert isinstance(first.outcome, LLMCompleted)
+    assert [int(event["sequence"]) for event in live_events] == list(
+        range(1, len(live_events) + 1)
+    )
+
+    replayed: list[dict[str, object]] = []
+    second = client.generate(
+        request,
+        run_root=tmp_path,
+        run_id="live-event-sink-run",
+        event_sink=lambda event: replayed.append(dict(event)),
+    )
+    assert isinstance(second.outcome, LLMCompleted)
+    assert replayed == []
+
+
 def _source_input(
     repository: RunRepository,
     *,
