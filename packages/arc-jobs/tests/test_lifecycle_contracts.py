@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 from dataclasses import replace
 
@@ -817,6 +818,28 @@ def test_failed_run_resumes_only_explicitly_into_new_recovery_epoch(tmp_path):
         / "working"
         / "semantic-input.json"
     ).exists()
+
+
+def test_legacy_v2_failed_run_lazy_materializes_working_state_on_resume(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = FailOnceHandler()
+    failed = engine.execute(
+        RunSpec("run-1", handler.name, {"value": 1}), handler
+    )
+    assert failed.status is RunStatus.FAILED
+    snapshot_path = repository.run_directory("run-1") / "snapshot.json"
+    document = json.loads(snapshot_path.read_text())
+    document["schema_version"] = "arc.jobs.run_snapshot.v2"
+    document.pop("recovery_epoch")
+    snapshot_path.write_text(json.dumps(document))
+    shutil.rmtree(repository.working_state("run-1").root)
+
+    recovered = engine.resume("run-1", handler)
+
+    assert recovered.status is RunStatus.SUCCEEDED
+    assert recovered.recovery_epoch == 1
+    assert repository.working_state("run-1").semantic_input_path.is_file()
 
 
 def test_new_recovery_epoch_reuses_successful_group_units_and_retries_failed(tmp_path):

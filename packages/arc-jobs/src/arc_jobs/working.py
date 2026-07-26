@@ -234,9 +234,15 @@ class EditableArtifactStore:
         self.recovery_epoch = recovery_epoch
         self.prefix = prefix
 
-    def scoped(self, prefix: str) -> "EditableArtifactStore":
+    def scoped(
+        self, prefix: str
+    ) -> "EditableArtifactStore | ImmutableArtifactStore":
         validate_artifact_id(prefix)
         combined = prefix if self.prefix is None else f"{self.prefix}/{prefix}"
+        if combined.startswith("llm/tasks/"):
+            # Provider task protocol records are ARC-managed execution state,
+            # not agent-editable scientific working artifacts.
+            return self.immutable.scoped(combined)
         return EditableArtifactStore(
             self.immutable,
             self.working,
