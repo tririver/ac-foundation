@@ -128,17 +128,17 @@ class ProcessRunner:
         failure: BaseException | None = None
         try:
             while len(closed) < 2 or process.poll() is None:
+                try:
+                    stop_check()
+                except BaseException as exc:
+                    failure = exc
+                    break
                 if errors:
                     failure = ProviderFailure(
                         f"Provider pipe failed: {errors[0]}",
                         category=FailureCategory.TRANSPORT,
                         details={"code": "provider_pipe_failed"},
                     )
-                    break
-                try:
-                    stop_check()
-                except BaseException as exc:
-                    failure = exc
                     break
                 remaining = None
                 if idle_timeout_seconds is not None:
@@ -210,6 +210,12 @@ class ProcessRunner:
                 stderr_tail.append(data)
                 if on_stderr is not None:
                     on_stderr(data)
+        # A stop requested before the provider result is handed back remains
+        # authoritative, including one observed during the final stream drain.
+        try:
+            stop_check()
+        except BaseException as exc:
+            failure = exc
         if failure is not None:
             if isinstance(failure, ProviderFailure):
                 failure.details.update(

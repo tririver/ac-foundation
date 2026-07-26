@@ -10,7 +10,8 @@ from typing import Any, Mapping
 
 from ..errors import FailureCategory, ProviderFailure
 from ..output import CandidateMaterial
-from ._cli import _redact_text, executable_diagnostic, run_cli
+from ..diagnostics import redact_text
+from ._cli import executable_diagnostic, run_cli
 from .base import (
     IsolationMode,
     ProviderCapabilities,
@@ -248,11 +249,11 @@ def _extract_failure(event: Mapping[str, Any]) -> ProviderFailure | None:
         category = FailureCategory.TRANSPORT
         retryable = True
         failure_message = "Codex reported a failed turn."
-    details: dict[str, Any] = {"diagnostic": _redact_text(diagnostic[:4096])}
+    details: dict[str, Any] = {"diagnostic": redact_text(diagnostic[:4096])}
     if code:
-        details["provider_code"] = _redact_text(code[:256])
+        details["provider_code"] = redact_text(code[:256])
     if parameter:
-        details["param"] = _redact_text(parameter[:1024])
+        details["param"] = redact_text(parameter[:1024])
     return ProviderFailure(
         failure_message,
         category=category,

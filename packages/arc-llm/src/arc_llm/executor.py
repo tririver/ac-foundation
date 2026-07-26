@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import tempfile
 from dataclasses import replace
@@ -351,7 +352,16 @@ class LLMTaskExecutor:
             return LLMFailed(ResumeKeyMismatchError())
         try:
             request = self._load_request(context, state)
-            self._validate_session_lineage(context, request, state, options)
+            self._validate_session_lineage(
+                context,
+                request,
+                state,
+                options,
+                allow_execution_replace=(
+                    input is not None
+                    and input.action is ResumeAction.REPLACE
+                ),
+            )
         except StoppedError:
             return LLMStopped()
         except ArcLLMError as exc:
@@ -365,10 +375,23 @@ class LLMTaskExecutor:
             execution_doc = self._execution_document(
                 adapter, state.resolved_model or "", request, options
             )
+            session_handle = (
+                state.current.native_handle
+                if request.session is not None
+                else None
+            )
             state = fresh_generation(
                 state,
                 execution=execution_fingerprint(execution_doc),
             )
+            if session_handle is not None:
+                state = replace(
+                    state,
+                    generation=replace(
+                        state.current,
+                        native_handle=session_handle,
+                    ),
+                )
             state = replace(state, pause=None)
             store.compare_and_swap(state.revision - 1, state)
             self._artifacts(context, state.semantic_key).publish_json(
@@ -1423,61 +1446,61 @@ class LLMTaskExecutor:
                 return None
             return value
 
-        document: dict[str, Any] = {
-            "schema_version": "arc.llm.provider_failure.v2",
-            "provider": state.resolved_provider,
-            "generation": state.current.generation,
-            "host_turn_round": state.host_turn_round,
+        retry_after = failure.retry_after_seconds
+        if (
+            isinstance(retry_after, bool)
+            or not isinstance(retry_after, (int, float))
+            or not math.isfinite(retry_after)
+        ):
+            retry_after = None
+        summary = {
             "category": failure.category.value,
             "arc_error_code": failure.code.value,
             "provider_code": safe_code(provider_code),
             "detail_code": safe_code(detail_code),
             "returncode": returncode,
             "retryable": failure.retryable,
-            "retry_after_seconds": failure.retry_after_seconds,
+            "retry_after_seconds": retry_after,
             "fresh_retry_available": fresh_retry_available,
             "terminal_event_types": safe_terminal_types,
-            "last_terminal_evidence": diagnostics.get(
-                "last_terminal_evidence"
-            ),
-            "event_count": diagnostics.get("event_count"),
-            "raw_events": diagnostics.get("raw_events", []),
-            "raw_events_truncated": bool(
-                diagnostics.get("raw_events_truncated")
-            ),
-            "stdout_bytes": diagnostics.get("stdout_bytes"),
-            "stderr_bytes": diagnostics.get("stderr_bytes"),
-            "stdout_truncated": bool(diagnostics.get("stdout_truncated")),
-            "stderr_truncated": bool(diagnostics.get("stderr_truncated")),
-            "stderr_tail": diagnostics.get("stderr_tail"),
-            "last_activity_at": diagnostics.get("last_activity_at"),
-            "termination_reason": diagnostics.get("termination_reason"),
-            "observation_errors": diagnostics.get(
-                "observation_errors", []
-            ),
-        }
-        digest = document_sha256(document)
-        artifact_id = (
-            f"generations/{state.current.generation}/provider-failures/"
-            f"{state.host_turn_round}-{digest}.json"
-        )
-        summary = {
-            key: value
-            for key, value in document.items()
-            if key
-            in {
-                "category",
-                "arc_error_code",
-                "provider_code",
-                "detail_code",
-                "returncode",
-                "retryable",
-                "retry_after_seconds",
-                "fresh_retry_available",
-                "terminal_event_types",
-            }
         }
         try:
+            document: dict[str, Any] = {
+                "schema_version": "arc.llm.provider_failure.v2",
+                "provider": state.resolved_provider,
+                "generation": state.current.generation,
+                "host_turn_round": state.host_turn_round,
+                **summary,
+                "last_terminal_evidence": diagnostics.get(
+                    "last_terminal_evidence"
+                ),
+                "event_count": diagnostics.get("event_count"),
+                "raw_events": diagnostics.get("raw_events", []),
+                "raw_events_truncated": bool(
+                    diagnostics.get("raw_events_truncated")
+                ),
+                "stdout_bytes": diagnostics.get("stdout_bytes"),
+                "stderr_bytes": diagnostics.get("stderr_bytes"),
+                "stdout_truncated": bool(
+                    diagnostics.get("stdout_truncated")
+                ),
+                "stderr_truncated": bool(
+                    diagnostics.get("stderr_truncated")
+                ),
+                "stderr_tail": diagnostics.get("stderr_tail"),
+                "last_activity_at": diagnostics.get("last_activity_at"),
+                "termination_reason": diagnostics.get(
+                    "termination_reason"
+                ),
+                "observation_errors": diagnostics.get(
+                    "observation_errors", []
+                ),
+            }
+            digest = document_sha256(document)
+            artifact_id = (
+                f"generations/{state.current.generation}/provider-failures/"
+                f"{state.host_turn_round}-{digest}.json"
+            )
             ref = self._artifacts(context, state.semantic_key).publish_json(
                 artifact_id,
                 document,
@@ -1884,7 +1907,8 @@ class LLMTaskExecutor:
                         healthy.append(name)
                 except Exception:
                     continue
-            available = tuple(healthy)
+            if healthy:
+                available = tuple(healthy)
         return resolve_model_selection(request.model, available=available)
 
     def _canonicalize_inputs(
@@ -2131,6 +2155,8 @@ class LLMTaskExecutor:
         request: LLMRequest,
         state: LLMTaskState,
         options: LLMExecutionOptions,
+        *,
+        allow_execution_replace: bool = False,
     ) -> None:
         adapter = self.registry.create(state.resolved_provider or "")
         execution = execution_fingerprint(
@@ -2141,7 +2167,10 @@ class LLMTaskExecutor:
                 options,
             )
         )
-        if state.current.execution != execution:
+        if (
+            state.current.execution != execution
+            and not allow_execution_replace
+        ):
             raise ExecutionMismatchError()
         if request.session is None:
             return
@@ -2153,7 +2182,11 @@ class LLMTaskExecutor:
         if (
             session.provider != (state.resolved_provider or "")
             or session.model != (state.resolved_model or "")
-            or session.session_compatibility != execution
+        ):
+            raise InvalidRequestError("The requested session is execution-incompatible.")
+        if (
+            session.session_compatibility != execution
+            and not allow_execution_replace
         ):
             raise InvalidRequestError("The requested session is execution-incompatible.")
         if session.accepted_prefix_sha256 == request.session.accepted_prefix_sha256:
@@ -2265,6 +2298,7 @@ class LLMTaskExecutor:
                 current,
                 revision=current.revision + 1,
                 generation=state.current.generation,
+                session_compatibility=state.current.execution,
                 native_handle=state.current.native_handle,
                 accepted_turns=current.accepted_turns + 1,
                 accepted_prefix_sha256=next_prefix,

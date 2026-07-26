@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from arc_jobs import StoppedError
 from arc_llm import (
     FailureCategory,
     LLMRequest,
@@ -429,6 +430,29 @@ def test_process_stop_remains_active_after_delivery() -> None:
         )
     assert caught.value.category is FailureCategory.STOPPED
     assert checks >= 2
+
+
+def test_stop_requested_during_final_drain_outranks_completed_process() -> None:
+    stopped = False
+
+    def receive(_chunk: bytes) -> None:
+        nonlocal stopped
+        stopped = True
+
+    def stop() -> None:
+        if stopped:
+            raise StoppedError("user requested stop")
+
+    with pytest.raises(StoppedError):
+        ProcessRunner().run(
+            [sys.executable, "-c", "print('complete', flush=True)"],
+            stdin=b"",
+            env=None,
+            cwd=Path.cwd(),
+            idle_timeout_seconds=5,
+            stop_check=stop,
+            on_stdout=receive,
+        )
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")

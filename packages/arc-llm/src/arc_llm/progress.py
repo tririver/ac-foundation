@@ -2,26 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Callable, Mapping
 
+from .diagnostics import redact_text
 from .providers.base import NativeResumeHandle
 
 
 def message_preview(value: str) -> dict[str, Any]:
     """Return a credential-redacted preview of one complete logical message."""
 
-    redacted = re.sub(
-        r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+",
-        r"\1 [REDACTED]",
-        value,
-    )
-    redacted = re.sub(
-        r"\bsk-[A-Za-z0-9_-]{8,}\b",
-        "sk-[REDACTED]",
-        redacted,
-    )
-    normalized = " ".join(redacted.split())
+    normalized = " ".join(redact_text(value).split())
     return {
         "preview": normalized[:100],
         "truncated": len(normalized) > 100,

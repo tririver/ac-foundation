@@ -101,6 +101,193 @@ def test_auto_selection_skips_unavailable_provider_before_binding(
     assert resolved.provider == "claude"
 
 
+def test_auto_selection_with_no_healthy_provider_creates_resumable_pause(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    available = False
+    monkeypatch.setattr(
+        adapter,
+        "doctor",
+        lambda: ProviderDiagnostic(
+            "codex",
+            available,
+            "fake-codex" if available else None,
+        ),
+    )
+    request = replace(
+        _request("auto-provider-unavailable"),
+        model=ModelSelection("auto"),
+    )
+    client = LLMClient(registry=registry)
+
+    paused = client.generate(request, run_root=tmp_path)
+
+    assert isinstance(paused.outcome, LLMPaused)
+    assert paused.outcome.reason is ResumeReason.EXTERNAL_CONDITION
+    assert paused.outcome.details["code"] == "provider_unavailable"
+
+    available = True
+    adapter.steps.append(_completed({"answer": 1}))
+    resumed = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+    )
+    assert isinstance(resumed.outcome, LLMCompleted)
+
+
+def test_replace_allows_changed_execution_options_for_new_generation(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.extend(
+        (
+            ProviderExecution(
+                ProviderTerminalKind.COMPLETED,
+                (
+                    CandidateMaterial(value={"answer": 1}, terminal=True),
+                    CandidateMaterial(value={"answer": 2}, terminal=True),
+                ),
+                NativeResumeHandle("codex", "conflict"),
+            ),
+            _completed({"answer": 3}, handle="replacement"),
+        )
+    )
+    client = LLMClient(registry=registry)
+    paused = client.generate(
+        _request("replace-execution-options"),
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority.RESTRICTED
+        ),
+    )
+    assert isinstance(paused.outcome, LLMPaused)
+    assert paused.outcome.details["code"] == "candidate_selection_required"
+
+    completed = client.resume(
+        run_root=tmp_path,
+        run_id=paused.snapshot.run_id,
+        input=ResumeInput(
+            paused.outcome.resume_key,
+            ResumeAction.REPLACE,
+            reason="run the replacement with direct authority",
+        ),
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority.UNRESTRICTED
+        ),
+    )
+
+    assert isinstance(completed.outcome, LLMCompleted)
+    assert completed.outcome.value == {"answer": 3}
+    assert adapter.requests[-1].capabilities["effective_host_mode"] == "direct"
+
+
+def test_replace_rebinds_existing_session_to_changed_execution_options(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.extend(
+        (
+            _completed({"answer": 1}, handle="session-thread"),
+            ProviderExecution(
+                ProviderTerminalKind.COMPLETED,
+                (
+                    CandidateMaterial(value={"answer": 2}, terminal=True),
+                    CandidateMaterial(value={"answer": 3}, terminal=True),
+                ),
+                NativeResumeHandle("codex", "session-thread"),
+            ),
+            _completed({"answer": 4}, handle="session-thread"),
+            _completed({"answer": 5}, handle="session-thread"),
+        )
+    )
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("parent", "test.parent", {"case": "session-replace"})
+    )
+    context = RunContext(repository, snapshot, resume_input=None)
+    service = LLMTaskService(registry=registry)
+    restricted = LLMExecutionOptions(
+        host_authority=HostAuthority.RESTRICTED
+    )
+    root = service.execute(
+        context,
+        _request("session-replace-root"),
+        options=restricted,
+    )
+    assert isinstance(root, LLMCompleted)
+    assert root.session is not None
+    child_request = replace(
+        _request("session-replace-child"),
+        session=root.session,
+    )
+    paused = service.execute(context, child_request, options=restricted)
+    assert isinstance(paused, LLMPaused)
+
+    rejected = service.resume(
+        context,
+        child_request.task_id,
+        input=ResumeInput(
+            paused.resume_key,
+            ResumeAction.CONTINUE,
+        ),
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority.UNRESTRICTED
+        ),
+    )
+    assert isinstance(rejected, LLMFailed)
+    assert rejected.error.code.value == "execution_mismatch"
+
+    completed = service.resume(
+        context,
+        child_request.task_id,
+        input=ResumeInput(
+            paused.resume_key,
+            ResumeAction.REPLACE,
+            reason="allow direct execution for the replacement",
+        ),
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority.UNRESTRICTED
+        ),
+    )
+
+    assert isinstance(completed, LLMCompleted)
+    assert completed.value == {"answer": 4}
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 2
+    session = service._executor._session_store(
+        context,
+        root.session.session_key,
+    ).read()
+    assert session is not None
+    child_state = service._executor._task_store(
+        context,
+        child_request.task_id,
+    ).read()
+    assert child_state is not None
+    assert session.session_compatibility == child_state.current.execution
+    assert completed.session is not None
+
+    next_turn = service.execute(
+        context,
+        replace(
+            _request("session-replace-next"),
+            session=completed.session,
+        ),
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority.UNRESTRICTED
+        ),
+    )
+    assert isinstance(next_turn, LLMCompleted)
+    assert next_turn.value == {"answer": 5}
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 3
+
+
 def test_event_sink_is_live_and_does_not_replay_historical_events(
     tmp_path: Path,
     adapter,

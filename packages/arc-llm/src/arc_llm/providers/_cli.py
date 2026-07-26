@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from ..diagnostics import redact_text, redact_value
 from ..errors import FailureCategory, ProviderFailure
 from ..output import CandidateMaterial
 from .base import (
@@ -75,7 +76,10 @@ class EventAccumulator:
 
     @property
     def has_success_evidence(self) -> bool:
-        return self.last_terminal_evidence == "success"
+        return (
+            self.last_terminal_evidence == "success"
+            and self.failure is None
+        )
 
     def _line(self, raw: bytes) -> None:
         text = raw.decode("utf-8", "replace").strip()
@@ -114,20 +118,25 @@ class EventAccumulator:
             self.candidates.append(candidate)
             if candidate.terminal:
                 self.last_terminal_evidence = "success"
-                self.failure = None
+                if _is_transient_failure(self.failure):
+                    self.failure = None
         if usage is not None:
             self.usage = usage
         event_type = event.get("type")
         if event_type == "turn.completed":
             self.last_terminal_evidence = "success"
-            self.failure = None
+            if _is_transient_failure(self.failure):
+                self.failure = None
         event_failure = (
             None
             if self.extract_failure is None
             else self.extract_failure(event)
         )
         if event_failure is not None:
-            self.failure = event_failure
+            self.failure = _prefer_definitive_failure(
+                self.failure,
+                event_failure,
+            )
             self.last_terminal_evidence = "failure"
         if self.extract_message is not None:
             message = self.extract_message(event)
@@ -143,7 +152,7 @@ class EventAccumulator:
                 )
 
     def _record_raw(self, event: Mapping[str, Any] | str) -> None:
-        safe_event = _redact_value(event)
+        safe_event = redact_value(event)
         self.event_count += 1
         if isinstance(event, Mapping):
             event_type = event.get("type")
@@ -420,17 +429,44 @@ def _prefer_definitive_failure(
     current: ProviderFailure | None,
     candidate: ProviderFailure | None,
 ) -> ProviderFailure | None:
-    """Replace a generic transport failure only with definitive evidence."""
+    """Keep the strongest ordered provider or process failure evidence."""
 
     if current is None:
         return candidate
-    if (
-        candidate is not None
-        and current.category is FailureCategory.TRANSPORT
-        and candidate.category is not FailureCategory.TRANSPORT
-    ):
+    if candidate is not None and _failure_rank(candidate) > _failure_rank(current):
         return candidate
     return current
+
+
+def _failure_rank(failure: ProviderFailure) -> int:
+    if failure.category is FailureCategory.STOPPED:
+        return 3
+    if failure.category in {
+        FailureCategory.AUTHENTICATION,
+        FailureCategory.QUOTA,
+        FailureCategory.RATE_LIMIT,
+        FailureCategory.UNAVAILABLE,
+        FailureCategory.INVALID_REQUEST,
+        FailureCategory.SCHEMA,
+        FailureCategory.LOCAL_IO,
+    }:
+        return 2
+    if failure.category in {
+        FailureCategory.TIMEOUT,
+        FailureCategory.INTERNAL,
+    }:
+        return 1
+    return 0
+
+
+def _is_transient_failure(failure: ProviderFailure | None) -> bool:
+    return failure is None or failure.category in {
+        FailureCategory.TRANSPORT,
+        FailureCategory.TIMEOUT,
+        FailureCategory.INTERNAL,
+        FailureCategory.RATE_LIMIT,
+        FailureCategory.UNAVAILABLE,
+    }
 
 
 def executable_diagnostic(provider: str, binary: str) -> tuple[bool, str | None]:
@@ -474,7 +510,7 @@ def classify_cli_failure(stderr: str) -> ProviderFailure:
         category=category,
         retryable=category in {FailureCategory.RATE_LIMIT, FailureCategory.TRANSPORT},
         retry_after_seconds=retry_after,
-        details={"diagnostic": _redact_text(stderr[:4096])},
+        details={"diagnostic": redact_text(stderr[:4096])},
     )
 
 
@@ -514,7 +550,7 @@ def _process_failure_diagnostics(failure: ProviderFailure) -> dict[str, Any]:
     }
     stderr_tail = diagnostics.get("stderr_tail")
     if isinstance(stderr_tail, str):
-        diagnostics["stderr_tail"] = _redact_text(stderr_tail)
+        diagnostics["stderr_tail"] = redact_text(stderr_tail)
     return diagnostics
 
 
@@ -532,7 +568,7 @@ def _process_result_diagnostics(result: Any) -> dict[str, Any]:
         ),
         "stdout_truncated": bool(result.stdout_truncated),
         "stderr_truncated": bool(result.stderr_truncated),
-        "stderr_tail": _redact_text(
+        "stderr_tail": redact_text(
             result.stderr.decode("utf-8", "replace")
         ),
         "last_activity_at": result.last_activity_at,
@@ -541,7 +577,7 @@ def _process_result_diagnostics(result: Any) -> dict[str, Any]:
 
 
 def _preview_document(value: str) -> dict[str, Any]:
-    normalized = " ".join(_redact_text(value).split())
+    normalized = " ".join(redact_text(value).split())
     return {
         "preview": normalized[:100],
         "truncated": len(normalized) > 100,
@@ -558,40 +594,3 @@ def _safe_progress(
     except Exception:
         # Observation must never abort an already-running paid provider call.
         return
-
-
-_SECRET_KEYS = {
-    "api_key",
-    "apikey",
-    "authorization",
-    "credential",
-    "password",
-    "secret",
-}
-
-
-def _redact_value(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            str(key): (
-                "[REDACTED]"
-                if str(key).lower() in _SECRET_KEYS
-                else _redact_value(child)
-            )
-            for key, child in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_value(child) for child in value]
-    if isinstance(value, str):
-        return _redact_text(value)
-    return value
-
-
-def _redact_text(value: str) -> str:
-    value = re.sub(
-        r"(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]+",
-        r"\1 [REDACTED]",
-        value,
-    )
-    value = re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", "sk-[REDACTED]", value)
-    return value

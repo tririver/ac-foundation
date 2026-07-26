@@ -72,9 +72,17 @@ def test_observer_failure_is_diagnostic_only() -> None:
 
 
 def test_message_preview_redacts_normalizes_and_counts_unicode_codepoints() -> None:
-    value = "  Bearer secret-token\n" + ("界" * 105)
+    value = (
+        "  Bearer secret-token\n"
+        "password=hunter2 x-api-key: private-key "
+        "github_pat_abcdefghijklmnopqrstuvwxyz "
+        + ("界" * 105)
+    )
     preview = message_preview(value)
     assert preview["preview"].startswith("Bearer [REDACTED] ")
+    assert "hunter2" not in preview["preview"]
+    assert "private-key" not in preview["preview"]
+    assert "github_pat_" not in preview["preview"]
     assert len(preview["preview"]) == 100
     assert preview["truncated"] is True
 
@@ -111,3 +119,26 @@ def test_provider_stream_emits_message_without_raw_event_duplication() -> None:
         )
     ]
     assert accumulator.diagnostics()["event_count"] == 1
+
+
+def test_provider_raw_diagnostics_redact_secret_keys_and_embedded_credentials() -> None:
+    from arc_llm.providers._cli import EventAccumulator
+
+    accumulator = EventAccumulator(
+        "codex",
+        _observer([]),
+        lambda _event: (None, None, None),
+    )
+
+    accumulator.feed(
+        b'{"type":"error","access_token":"private-token",'
+        b'"message":"Cookie: session-secret password=hunter2"}\n'
+    )
+
+    raw_event = accumulator.diagnostics()["raw_events"][0]
+    assert raw_event["access_token"] == "[REDACTED]"
+    assert "session-secret" not in raw_event["message"]
+    assert "hunter2" not in raw_event["message"]
+    assert raw_event["message"] == (
+        "Cookie: [REDACTED] password=[REDACTED]"
+    )

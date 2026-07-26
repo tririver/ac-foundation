@@ -287,6 +287,84 @@ def test_codex_accepts_completion_after_an_earlier_error(tmp_path: Path) -> None
     assert execution.failure is None
 
 
+@pytest.mark.parametrize(
+    "category",
+    [FailureCategory.RATE_LIMIT, FailureCategory.UNAVAILABLE],
+)
+def test_later_success_clears_retryable_provider_failure(
+    category: FailureCategory,
+) -> None:
+    from arc_llm.providers._cli import EventAccumulator
+
+    accumulator = EventAccumulator(
+        "test",
+        Observer(),
+        lambda event: (
+            None,
+            None,
+            None,
+        ),
+        extract_failure=lambda event: (
+            ProviderFailure("retryable", category=category, retryable=True)
+            if event["type"] == "error"
+            else None
+        ),
+    )
+
+    accumulator.feed(
+        b'{"type":"error"}\n{"type":"turn.completed"}\n'
+    )
+
+    assert accumulator.has_success_evidence
+    assert accumulator.failure is None
+
+
+def test_codex_definitive_error_is_not_cleared_by_later_completion(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"error","error":{"code":"invalid_request","message":"bad input"}}\n'
+        b'{"type":"turn.completed"}\n',
+        last_message=b'{"ok":true}',
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.INVALID_REQUEST
+
+
+def test_typed_provider_failure_outranks_runner_timeout(tmp_path: Path) -> None:
+    workspace = _workspace(tmp_path)
+
+    class TimeoutRunner(FakeRunner):
+        def run(self, argv: Any, **kwargs: Any) -> ProcessResult:
+            super().run(argv, **kwargs)
+            raise ProviderFailure(
+                "idle timeout",
+                category=FailureCategory.TIMEOUT,
+            )
+
+    runner = TimeoutRunner(
+        b'{"type":"error","error":{"code":"invalid_request","message":"bad input"}}\n'
+    )
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("prompt", "model", {"type": "object"}, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.INVALID_REQUEST
+
+
 def test_codex_accepts_configured_timeout_after_completed_file(
     tmp_path: Path,
 ) -> None:

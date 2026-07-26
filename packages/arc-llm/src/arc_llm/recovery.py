@@ -284,9 +284,10 @@ class SessionStateContract:
         if previous.accepted_turns > 0 and (
             next.provider != previous.provider
             or next.model != previous.model
-            or next.session_compatibility != previous.session_compatibility
         ):
-            raise ValueError("An accepted session cannot be rebound.")
+            raise ValueError(
+                "An accepted session cannot change provider or model."
+            )
 
 
 def _accepted_session_turn(value: JsonValue) -> AcceptedSessionTurn:

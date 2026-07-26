@@ -13,6 +13,7 @@ from arc_llm import (
     LLMClient,
     LLMCompleted,
     LLMExecutionOptions,
+    LLMFailed,
     LLMPaused,
     LLMStopped,
     LLMRequest,
@@ -346,6 +347,38 @@ def test_non_crash_provider_categories_do_not_consume_the_retry(
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 0
     assert len(adapter.steps) == 1
+
+
+def test_unserializable_failure_diagnostics_do_not_mask_provider_failure(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(
+        ProviderExecution(
+            ProviderTerminalKind.FAILED,
+            failure=ProviderFailure(
+                "bad request",
+                category=FailureCategory.INVALID_REQUEST,
+            ),
+            diagnostics={
+                "raw_events": [{"non_finite": float("nan")}],
+                "terminal_event_types": ["error"],
+            },
+        )
+    )
+
+    result = LLMClient(registry=registry).generate(
+        _request("diagnostic-best-effort"),
+        run_root=tmp_path,
+        options=_direct(),
+    )
+
+    assert isinstance(result.outcome, LLMFailed)
+    assert result.outcome.error.code.value == "provider_invalid_request"
+    provider_failure = result.outcome.error.details["provider_failure"]
+    assert provider_failure["diagnostic_persistence_failed"] is True
+    assert "diagnostic_artifact_id" not in provider_failure
 
 
 def test_gate_backoff_does_not_consume_the_retry(
