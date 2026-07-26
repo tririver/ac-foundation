@@ -13,11 +13,15 @@ Run one typed request in an explicit durable root:
 arc-llm generate \
   --request local/example/request.json \
   --run-root local/example/.arc/llm \
-  --host-authority unknown
+  --host-authority <host-authority>
 ```
 
 Use `arc-llm --help` and `arc-llm generate --help` for the request contract,
 run controls, provider diagnostic, and current options.
+
+Set `<host-authority>` once per run: use `unrestricted` only when the host
+explicitly reports unrestricted authority; otherwise use `unknown`. Reuse the
+identical value when resuming that run.
 
 ## Python API
 
