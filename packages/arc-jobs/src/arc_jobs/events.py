@@ -211,7 +211,6 @@ class EventWriter:
                             "source_event": event,
                             "source_sequence": document["sequence"],
                             "error_type": type(exc).__name__,
-                            "message": str(exc)[:300],
                         },
                     )
                 except Exception:
