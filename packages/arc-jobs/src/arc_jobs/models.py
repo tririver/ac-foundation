@@ -18,7 +18,6 @@ class RunStatus(StrEnum):
 class ResumeReason(StrEnum):
     INTERACTION_REQUIRED = "interaction_required"
     SUPERVISION_REQUIRED = "supervision_required"
-    EXECUTION_BUDGET_EXHAUSTED = "execution_budget_exhausted"
     EXTERNAL_CONDITION = "external_condition"
     EXECUTION_INTERRUPTED = "execution_interrupted"
     EXECUTION_STOPPED = "execution_stopped"
@@ -148,11 +147,6 @@ class ValidationReport:
     @property
     def ok(self) -> bool:
         return not self.issues
-
-
-@dataclass(frozen=True)
-class ExecutionSlice:
-    monotonic_deadline: float | None = None
 
 
 class FailureMode(StrEnum):

@@ -27,7 +27,7 @@ from .errors import (
     UnsupportedSchemaError,
 )
 from .stopping import StopToken
-from .events import EventWriter
+from .events import EventSink, EventWriter
 from .lease import FileLease, file_lease
 from .lease_pool import BoundedLease, BoundedLeasePool
 from .identity import (
@@ -42,7 +42,6 @@ from .models import (
     ArtifactSourceRef,
     Awaiting,
     ExecutionFingerprint,
-    ExecutionSlice,
     Failed,
     FailureMode,
     GroupExecutionResult,
@@ -86,7 +85,6 @@ from .protocol import (
     snapshot_data,
     validate_command_result,
 )
-from .progress import validate_progress_data
 from .storage import (
     AtomicStateStore,
     ImmutableArtifactStore,
@@ -113,9 +111,9 @@ __all__ = [
     "CommandStatus",
     "CommandWarning",
     "CorruptStateError",
+    "EventSink",
     "EventWriter",
     "ExecutionFingerprint",
-    "ExecutionSlice",
     "Failed",
     "FileLease",
     "FailureMode",
@@ -181,6 +179,5 @@ __all__ = [
     "snapshot_data",
     "validate_artifact_id",
     "validate_command_result",
-    "validate_progress_data",
     "validate_simple_id",
 ]

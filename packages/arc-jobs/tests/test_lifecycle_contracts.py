@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import threading
 from dataclasses import replace
@@ -34,7 +33,6 @@ from arc_jobs import (
     UnitResult,
     UnsupportedSchemaError,
     WorkUnit,
-    canonical_json_bytes,
     validate_artifact_id,
     validate_simple_id,
 )
@@ -119,7 +117,7 @@ def test_inspect_is_a_pure_read(tmp_path):
 
 def test_event_limits_and_incomplete_tail(tmp_path):
     writer = EventWriter(tmp_path / "events.jsonl", run_id="run-1")
-    writer.emit("step", {"summary": "safe"})
+    writer.emit("step", {"summary": "safe", "content": "body"})
     with pytest.raises(ValueError):
         writer.emit("step", {"summary": "x" * (256 * 1024)})
     with (tmp_path / "events.jsonl").open("ab") as handle:
@@ -129,37 +127,66 @@ def test_event_limits_and_incomplete_tail(tmp_path):
     writer.emit("next_step", {"summary": "recovered"})
     writer.validate()
     assert [item["sequence"] for item in writer.tail()] == [1, 2]
-    with pytest.raises(ValueError):
-        writer.emit("unsafe", {"nested": {"content": "body"}})
+    assert writer.tail()[-1]["data"]["summary"] == "recovered"
 
 
-@pytest.mark.parametrize(
-    "key",
-    ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),
-)
-def test_event_writer_rejects_all_progress_body_keys_on_emit_and_read(tmp_path, key):
+def test_event_writer_roundtrips_arbitrary_progress_bodies(tmp_path):
     writer = EventWriter(tmp_path / "events.jsonl", run_id="run-1")
-    body_data = {"nested": [{key.upper(): "body"}]}
-
-    with pytest.raises(ValueError):
-        writer.emit("progress", body_data)
-
-    stable = {
-        "run_id": "run-1",
-        "sequence": 1,
-        "event": "progress",
-        "data": body_data,
+    body_data = {
+        "prompt": "task body",
+        "nested": [{"content": "assistant body", "result": [1, 2, 3]}],
     }
-    document = {
-        "schema_version": "arc.jobs.event.v1",
-        **stable,
-        "event_id": hashlib.sha256(canonical_json_bytes(stable)).hexdigest(),
-        "emitted_at": "2026-01-01T00:00:00.000000Z",
-    }
-    writer.path.write_text(json.dumps(document) + "\n")
-    assert writer.tail() == ()
-    with pytest.raises(CorruptStateError):
-        writer.validate()
+
+    writer.emit("progress", body_data)
+
+    assert writer.tail()[0]["data"] == body_data
+    writer.validate()
+
+
+def test_event_sink_observes_fsynced_event_after_lock_release(tmp_path):
+    path = tmp_path / "events.jsonl"
+    observed = []
+
+    def sink(document):
+        lease = FileLease(path.with_suffix(".lock")).acquire()
+        lease.release()
+        assert json.loads(path.read_text().splitlines()[-1]) == document
+        observed.append(document)
+
+    writer = EventWriter(path, run_id="run-1", event_sink=sink)
+    writer.emit("progress", {"content": "visible body"})
+
+    assert len(observed) == 1
+    assert observed[0]["event"] == "progress"
+    assert observed[0]["data"] == {"content": "visible body"}
+
+
+def test_event_sink_failure_is_isolated_and_reported_once_per_writer(tmp_path):
+    calls = []
+
+    def fail(document):
+        calls.append(document["event"])
+        raise RuntimeError("presentation unavailable")
+
+    writer = EventWriter(
+        tmp_path / "events.jsonl",
+        run_id="run-1",
+        event_sink=fail,
+    )
+    writer.emit("first_step", {"index": 1})
+    writer.emit("second_step", {"index": 2})
+
+    assert calls == ["first_step", "second_step"]
+    events = writer.tail()
+    assert [event["event"] for event in events] == [
+        "first_step",
+        "progress_sink_failed",
+        "second_step",
+    ]
+    diagnostic = events[1]["data"]
+    assert diagnostic["source_event"] == "first_step"
+    assert diagnostic["error_type"] == "RuntimeError"
+    writer.validate()
 
 
 def test_event_validation_rejects_tampered_identity(tmp_path):

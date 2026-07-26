@@ -23,7 +23,6 @@ from arc_jobs import (
     decode_progress_event,
     encode_command_result,
     encode_progress_event,
-    validate_progress_data,
 )
 from arc_jobs.cli import main
 
@@ -96,8 +95,12 @@ def test_command_codec_is_closed_and_enforces_invariants():
         )
 
 
-def test_progress_rejects_partial_output_and_runless_events():
-    encoded = encode_progress_event(ProgressEvent("run-1", 1, "step"))
+def test_progress_accepts_arbitrary_json_bodies_and_rejects_runless_events():
+    data = {
+        "prompt": "full task prompt",
+        "nested": [{"content": "assistant body", "result": {"ok": True}}],
+    }
+    encoded = encode_progress_event(ProgressEvent("run-1", 1, "step", data))
     assert set(encoded) == {
         "schema_version",
         "run_id",
@@ -110,31 +113,25 @@ def test_progress_rejects_partial_output_and_runless_events():
         "run-1",
         1,
         "step",
+        data,
         at=encoded["at"],
     )
     with pytest.raises(ValueError):
         encode_progress_event(ProgressEvent("", 1, "step"))
-    with pytest.raises(ValueError):
-        encode_progress_event(
-            ProgressEvent("run-1", 1, "step", {"nested": {"delta": "secret"}})
-        )
 
 
 @pytest.mark.parametrize(
-    "key",
-    ("text", "token", "content", "output", "delta", "prompt", "candidate", "result"),
+    "data",
+    (
+        {"bytes": b"not-json"},
+        {"tuple": ("not", "a", "json-array")},
+        {"number": float("nan")},
+        {1: "non-string-key"},
+    ),
 )
-def test_progress_codec_and_public_validator_reject_all_body_keys(key):
-    data = {"nested": [{key.swapcase(): "secret"}]}
-    with pytest.raises(ValueError):
-        validate_progress_data(data)
+def test_progress_rejects_values_outside_the_exact_json_model(data):
     with pytest.raises(ValueError):
         encode_progress_event(ProgressEvent("run-1", 1, "step", data))
-
-    document = encode_progress_event(ProgressEvent("run-1", 1, "step"))
-    document["data"] = data
-    with pytest.raises(CorruptStateError):
-        decode_progress_event(document)
 
 
 def test_cli_status_and_usage_emit_one_shared_envelope(tmp_path, capsys):

@@ -24,14 +24,13 @@ from .errors import (
     StoppedError,
     UnsupportedSchemaError,
 )
-from .events import EventWriter
+from .events import EventSink, EventWriter
 from .groups import WorkGroupRunner, inspect_group
 from .identity import canonical_json_bytes, semantic_key, validate_simple_id
 from .lease import FileLease
 from .models import (
     ArtifactRef,
     Awaiting,
-    ExecutionSlice,
     Failed,
     FailureMode,
     GroupExecutionResult,
@@ -72,10 +71,6 @@ class RunHandler(Protocol):
     name: str
 
     def execute(self, context: "RunContext") -> RunOutcome: ...
-
-
-class _SliceExpired(Exception):
-    pass
 
 
 def _stop_details(snapshot: RunSnapshot, request: StopRequest | None) -> dict[str, JsonValue]:
@@ -627,7 +622,7 @@ class RunContext:
         snapshot: RunSnapshot,
         *,
         resume_input: Mapping[str, JsonValue] | None,
-        execution_slice: ExecutionSlice | None,
+        event_sink: EventSink | None = None,
     ):
         self.repository = repository
         self.run_id = snapshot.run_id
@@ -635,14 +630,15 @@ class RunContext:
         self.spec = repository.read_spec(snapshot.run_id)
         self.semantic_input = self.spec.semantic_input
         self.resume_input = resume_input
-        self.execution_slice = execution_slice
         self.run_directory = repository.run_directory(self.run_id)
         self.stop = StopToken(
             self.run_directory / "stop-requests" / f"{self.attempt}.json",
             target_attempt=self.attempt,
         )
         self.events = EventWriter(
-            self.run_directory / "events.jsonl", run_id=self.run_id
+            self.run_directory / "events.jsonl",
+            run_id=self.run_id,
+            event_sink=event_sink,
         )
         self.artifacts = ImmutableArtifactStore(
             self.run_directory, repository_root=repository.root
@@ -658,12 +654,6 @@ class RunContext:
 
     def checkpoint(self) -> None:
         self.stop.raise_if_requested()
-        if (
-            self.execution_slice is not None
-            and self.execution_slice.monotonic_deadline is not None
-            and time.monotonic() >= self.execution_slice.monotonic_deadline
-        ):
-            raise _SliceExpired
 
     def run_group(
         self,
@@ -702,7 +692,7 @@ class RunEngine:
         spec: RunSpec,
         handler: RunHandler,
         *,
-        execution_slice: ExecutionSlice | None = None,
+        event_sink: EventSink | None = None,
     ) -> RunSnapshot:
         if handler.name != spec.handler:
             raise ResumeMismatchError("handler name does not match RunSpec.handler")
@@ -713,7 +703,7 @@ class RunEngine:
             spec.run_id,
             handler,
             resume_input=None,
-            execution_slice=execution_slice,
+            event_sink=event_sink,
         )
 
     def resume(
@@ -722,7 +712,7 @@ class RunEngine:
         handler: RunHandler,
         *,
         input: Mapping[str, JsonValue] | None = None,
-        execution_slice: ExecutionSlice | None = None,
+        event_sink: EventSink | None = None,
     ) -> RunSnapshot:
         spec = self.repository.read_spec(run_id)
         if handler.name != spec.handler:
@@ -731,7 +721,7 @@ class RunEngine:
             run_id,
             handler,
             resume_input=input,
-            execution_slice=execution_slice,
+            event_sink=event_sink,
         )
 
     def _persist_resume_input(
@@ -792,12 +782,16 @@ class RunEngine:
         handler: RunHandler,
         *,
         resume_input: Mapping[str, JsonValue] | None,
-        execution_slice: ExecutionSlice | None,
+        event_sink: EventSink | None,
     ) -> RunSnapshot:
         run_directory = self.repository.run_directory(run_id)
         lease = FileLease(run_directory / "lease.lock").acquire()
         store = self.repository._snapshot_store(run_id)
-        events = EventWriter(run_directory / "events.jsonl", run_id=run_id)
+        events = EventWriter(
+            run_directory / "events.jsonl",
+            run_id=run_id,
+            event_sink=event_sink,
+        )
         try:
             snapshot = store.read()
             if snapshot.status in _TERMINAL:
@@ -873,7 +867,7 @@ class RunEngine:
                 self.repository,
                 snapshot,
                 resume_input=resume_input,
-                execution_slice=execution_slice,
+                event_sink=event_sink,
             )
             try:
                 context.checkpoint()
@@ -917,19 +911,6 @@ class RunEngine:
                     snapshot,
                     updated_at=utc_now(),
                     request=context.stop.read(),
-                )
-            except _SliceExpired:
-                next_snapshot = replace(
-                    snapshot,
-                    revision=snapshot.revision + 1,
-                    status=RunStatus.PAUSED,
-                    updated_at=utc_now(),
-                    awaiting=Awaiting(
-                        ResumeReason.EXECUTION_BUDGET_EXHAUSTED,
-                        f"slice-{snapshot.attempt}",
-                        False,
-                        details={"code": "execution_slice_expired"},
-                    ),
                 )
             except Exception as exc:
                 next_snapshot = replace(

@@ -169,6 +169,67 @@ def test_terminal_event_precedes_terminal_snapshot_commit(
     assert observed == [expected_status.value]
 
 
+def test_run_engine_streams_only_newly_persisted_events(tmp_path):
+    class ProgressHandler:
+        name = "test-progress.v1"
+
+        def execute(self, context):
+            context.events.emit("scientific_progress", {"content": "new result"})
+            return Succeeded()
+
+    repository = RunRepository(tmp_path)
+    handler = ProgressHandler()
+    first_events = []
+    snapshot = RunEngine(repository).execute(
+        RunSpec("run-1", handler.name, {}),
+        handler,
+        event_sink=first_events.append,
+    )
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    assert [event["event"] for event in first_events] == [
+        "scientific_progress",
+        "run_terminal",
+    ]
+    assert first_events[0]["data"]["content"] == "new result"
+
+    replay_events = []
+    replay = RunEngine(repository).resume(
+        "run-1",
+        handler,
+        event_sink=replay_events.append,
+    )
+    assert replay == snapshot
+    assert replay_events == []
+
+
+def test_run_engine_ignores_event_sink_failures(tmp_path):
+    class ProgressHandler:
+        name = "test-progress.v1"
+
+        def execute(self, context):
+            context.events.emit("scientific_progress", {"content": "new result"})
+            return Succeeded()
+
+    def fail(_document):
+        raise RuntimeError("presentation unavailable")
+
+    repository = RunRepository(tmp_path)
+    snapshot = RunEngine(repository).execute(
+        RunSpec("run-1", ProgressHandler.name, {}),
+        ProgressHandler(),
+        event_sink=fail,
+    )
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    events = EventWriter(
+        repository.run_directory("run-1") / "events.jsonl",
+        run_id="run-1",
+    ).tail()
+    assert "progress_sink_failed" in [event["event"] for event in events]
+    assert repository.validate("run-1").ok
+
+
 def test_stop_terminal_run_is_idempotent_and_does_not_replace_success(tmp_path):
     repository = RunRepository(tmp_path)
     succeeded = RunEngine(repository).execute(

@@ -30,6 +30,13 @@ print(view.snapshot.status.value)
 Higher-level packages create and resume their own runs; use their public
 handlers or facades instead of constructing package-internal run specs.
 
+`RunEngine.execute` and `RunEngine.resume` accept an optional runtime-only
+`event_sink`. The sink receives each newly fsynced `arc.jobs.event.v1`
+document and never receives historical replay. Sink failures are isolated from
+the durable run and recorded best-effort as `progress_sink_failed` events.
+Progress event data may contain any valid JSON body; individual durable events
+remain limited to 256 KiB.
+
 ## Tests
 
 From the repository root:

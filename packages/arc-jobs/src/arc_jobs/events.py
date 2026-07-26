@@ -4,21 +4,34 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Mapping
+import threading
+from typing import Callable, Mapping, TypeAlias
 
 from .errors import CorruptStateError
 from .identity import canonical_json_bytes, validate_simple_id
+from .json_data import validate_json_value
 from .lease import FileLease
 from .models import JsonValue
-from .progress import validate_progress_data
 from .storage import _ensure_directory, _fsync_directory, utc_now
 
 MAX_EVENT_BYTES = 256 * 1024
 MAX_TAIL_BYTES = 1024 * 1024
+EventSink: TypeAlias = Callable[[Mapping[str, JsonValue]], None]
+
+
 class EventWriter:
-    def __init__(self, path: Path, *, run_id: str):
+    def __init__(
+        self,
+        path: Path,
+        *,
+        run_id: str,
+        event_sink: EventSink | None = None,
+    ):
         self.path = path
         self.run_id = validate_simple_id(run_id, label="run id")
+        self._event_sink = event_sink
+        self._sink_failure_lock = threading.Lock()
+        self._sink_failure_reported = False
         self._last_sequence: int | None = None
         self._last_size: int | None = None
 
@@ -57,7 +70,7 @@ class EventWriter:
         if value["event_id"] != expected_id:
             raise CorruptStateError("event_id does not match event content")
         try:
-            validate_progress_data(value["data"])
+            validate_json_value(value["data"])
         except ValueError as exc:
             raise CorruptStateError(str(exc)) from exc
 
@@ -137,9 +150,11 @@ class EventWriter:
         self._last_size = size
         return sequence
 
-    def emit(self, event: str, data: Mapping[str, JsonValue]) -> None:
+    def _append(
+        self, event: str, data: Mapping[str, JsonValue]
+    ) -> dict[str, JsonValue]:
         validate_simple_id(event, label="event")
-        validate_progress_data(dict(data))
+        validate_json_value(dict(data))
         lock = FileLease(self.path.with_suffix(".lock")).acquire(blocking=True)
         try:
             size = self._truncate_incomplete_tail()
@@ -172,8 +187,35 @@ class EventWriter:
             _fsync_directory(self.path.parent)
             self._last_sequence = sequence
             self._last_size = size + len(encoded)
+            return document
         finally:
             lock.release()
+
+    def emit(self, event: str, data: Mapping[str, JsonValue]) -> None:
+        document = self._append(event, data)
+        if self._event_sink is None:
+            return
+        try:
+            self._event_sink(document)
+        except Exception as exc:
+            report_failure = False
+            with self._sink_failure_lock:
+                if not self._sink_failure_reported:
+                    self._sink_failure_reported = True
+                    report_failure = True
+            if report_failure:
+                try:
+                    self._append(
+                        "progress_sink_failed",
+                        {
+                            "source_event": event,
+                            "source_sequence": document["sequence"],
+                            "error_type": type(exc).__name__,
+                            "message": str(exc)[:300],
+                        },
+                    )
+                except Exception:
+                    pass
 
     def tail(self) -> tuple[dict[str, JsonValue], ...]:
         if not self.path.exists():
@@ -193,11 +235,10 @@ class EventWriter:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
             if isinstance(value, dict):
-                if "data" in value:
-                    try:
-                        validate_progress_data(value["data"])
-                    except ValueError:
-                        continue
+                try:
+                    validate_json_value(value)
+                except ValueError:
+                    continue
                 documents.append(value)
         return tuple(documents)
 

@@ -6,8 +6,8 @@ from enum import StrEnum
 from typing import Mapping
 
 from .errors import CorruptStateError
+from .json_data import validate_json_value
 from .models import Awaiting, JsonValue, ResumeReason, RunSnapshot, RunStatus
-from .progress import validate_progress_data
 from .storage import require_fields, utc_now
 
 
@@ -310,7 +310,7 @@ def encode_progress_event(value: ProgressEvent) -> dict[str, JsonValue]:
         raise ValueError("run-less commands must not emit progress")
     if value.sequence < 1:
         raise ValueError("progress sequence must be positive")
-    validate_progress_data(dict(value.data))
+    validate_json_value(dict(value.data))
     return {
         "schema_version": "arc.progress_event.v1",
         "run_id": value.run_id,
