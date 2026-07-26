@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arc_jobs import InvalidRunIdError, JsonValue, validate_simple_id
-from arc_llm import ArcLLMError, JsonOutput, LLMExecutionOptions
+from arc_llm import ArcLLMError, JsonOutput, LLMExecutionOptions, LLMInputArtifact
 
 from .models import (
     BATCH_SCHEMA_VERSION,
@@ -41,6 +41,13 @@ def validate_batch_request(request: BatchRequest) -> None:
         raise RequestValidationError("must contain at least one loop", ("loops",))
     if not isinstance(request.failure_policy, BatchFailurePolicy):
         raise RequestValidationError("unknown failure policy", ("failure_policy",))
+    seen_inputs: set[str] = set()
+    for index, item in enumerate(request.inputs):
+        if not isinstance(item, LLMInputArtifact):
+            raise RequestValidationError("must be an LLMInputArtifact", ("inputs", index))
+        if item.input_id in seen_inputs:
+            raise RequestValidationError("input_id must be unique", ("inputs", index, "input_id"))
+        seen_inputs.add(item.input_id)
 
     seen_loops: set[str] = set()
     for loop_index, loop in enumerate(request.loops):

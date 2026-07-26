@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import hashlib
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from arc_jobs import (
+    ArtifactDigest,
+    ArtifactSourceRef,
+    ImmutableArtifactStore,
     JsonValue,
     RunEngine,
     RunRepository,
@@ -13,7 +18,7 @@ from arc_jobs import (
     RunSpec,
     RunView,
 )
-from arc_llm import LLMTaskService
+from arc_llm import LLMInputArtifact, LLMTaskService
 
 from .handler import ProposerReviewerHandler
 from .identity import derive_batch_run_id
@@ -27,6 +32,15 @@ from .validation import validate_execution_options
 _RunRoot = RunRepository | str | Path
 
 
+@dataclass(frozen=True)
+class BatchInputPayload:
+    """One whole-file input to materialize inside a batch run before execution."""
+
+    input_id: str
+    media_type: str
+    content: bytes
+
+
 class BatchRunner:
     """Prepare, execute, resume, and inspect one durable batch lineage."""
 
@@ -38,9 +52,19 @@ class BatchRunner:
         request: BatchRequest,
         run_root: _RunRoot,
         run_id: str | None = None,
+        *,
+        input_payloads: Sequence[BatchInputPayload] = (),
     ) -> RunSnapshot:
         repository = _repository(run_root)
-        return repository.create(_run_spec(request, run_id))
+        resolved_run_id = run_id or derive_batch_run_id(request.batch_id)
+        materialized = _materialize_inputs(
+            request,
+            run_id=resolved_run_id,
+            payloads=input_payloads,
+        )
+        snapshot = repository.create(_run_spec(materialized, resolved_run_id))
+        _publish_inputs(repository, resolved_run_id, materialized, input_payloads)
+        return snapshot
 
     def run(
         self,
@@ -48,11 +72,18 @@ class BatchRunner:
         run_root: _RunRoot,
         run_id: str | None = None,
         options: ExecutionOptions = ExecutionOptions(),
+        *,
+        input_payloads: Sequence[BatchInputPayload] = (),
     ) -> RunSnapshot:
         validate_execution_options(options)
         repository = _repository(run_root)
-        spec = _run_spec(request, run_id)
-        repository.create(spec)
+        snapshot = self.prepare(
+            request,
+            repository,
+            run_id,
+            input_payloads=input_payloads,
+        )
+        spec = repository.read_spec(snapshot.run_id)
         return RunEngine(repository).execute(spec, self._handler(options))
 
     def resume(
@@ -121,6 +152,76 @@ def _run_spec(request: BatchRequest, run_id: str | None) -> RunSpec:
     )
 
 
+def _materialize_inputs(
+    request: BatchRequest,
+    *,
+    run_id: str,
+    payloads: Sequence[BatchInputPayload],
+) -> BatchRequest:
+    if not payloads:
+        return request
+    if request.inputs:
+        raise ValueError("input payloads cannot be combined with persisted batch inputs")
+    inputs: list[LLMInputArtifact] = []
+    for index, payload in enumerate(payloads):
+        if not isinstance(payload, BatchInputPayload):
+            raise TypeError("input_payloads must contain BatchInputPayload values")
+        if not isinstance(payload.content, bytes):
+            raise TypeError("batch input content must be bytes")
+        digest = ArtifactDigest(
+            "sha256",
+            hashlib.sha256(payload.content).hexdigest(),
+            len(payload.content),
+        )
+        inputs.append(
+            LLMInputArtifact(
+                payload.input_id,
+                ArtifactSourceRef(
+                    run_id,
+                    _input_artifact_id(index, payload.input_id),
+                    digest,
+                ),
+                payload.media_type,
+            )
+        )
+    if len({item.input_id for item in inputs}) != len(inputs):
+        raise ValueError("batch input IDs must be unique")
+    return replace(request, inputs=tuple(inputs))
+
+
+def _publish_inputs(
+    repository: RunRepository,
+    run_id: str,
+    request: BatchRequest,
+    payloads: Sequence[BatchInputPayload],
+) -> None:
+    if not payloads:
+        return
+    if len(payloads) != len(request.inputs):
+        raise ValueError("batch input payload count differs from persisted inputs")
+    store = ImmutableArtifactStore(
+        repository.root / "runs" / run_id,
+        repository_root=repository.root,
+    )
+    for index, (payload, item) in enumerate(zip(payloads, request.inputs, strict=True)):
+        ref = store.publish_bytes(
+            _input_artifact_id(index, payload.input_id),
+            payload.content,
+            media_type=payload.media_type,
+        )
+        if (
+            ref.digest != item.source.expected_digest
+            or ref.media_type != item.media_type
+            or ref.artifact_id != item.source.source_artifact_id
+            or item.source.source_run_id != run_id
+        ):
+            raise ValueError("materialized batch input differs from its persisted reference")
+
+
+def _input_artifact_id(index: int, input_id: str) -> str:
+    return f"proposer-reviewer/inputs/source/{index:04d}-{input_id}"
+
+
 def _read_request(repository: RunRepository, run_id: str) -> BatchRequest:
     spec = repository.read_spec(run_id)
     if spec.handler != ProposerReviewerHandler.name:
@@ -128,4 +229,4 @@ def _read_request(repository: RunRepository, run_id: str) -> BatchRequest:
     return decode_batch_request(spec.semantic_input)
 
 
-__all__ = ["BatchRunner"]
+__all__ = ["BatchInputPayload", "BatchRunner"]

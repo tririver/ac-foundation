@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 
 from arc_jobs import (
+    ArtifactDigest,
+    ArtifactSourceRef,
     EventWriter,
     ImmutableArtifactStore,
     RunContext,
@@ -20,6 +22,7 @@ from arc_llm import (
     JsonOutput,
     LLMCompleted,
     LLMFailed,
+    LLMInputArtifact,
     LLMPaused,
     ModelSelection,
     ResumeReason,
@@ -279,13 +282,31 @@ def test_workers_receive_json_output_and_the_same_runtime_options(
 
     fake = RecordingFake()
     configured = ExecutionOptions()
+    workspace_input = LLMInputArtifact(
+        "domain-markdown-001",
+        ArtifactSourceRef(
+            "run-a",
+            "proposer-reviewer/inputs/source/0000-domain-markdown-001",
+            ArtifactDigest("sha256", "a" * 64, 8),
+        ),
+        "text/markdown",
+    )
+    base_request = _request(_loop())
+    request = BatchRequest(
+        base_request.schema_version,
+        base_request.batch_id,
+        base_request.loops,
+        base_request.failure_policy,
+        (workspace_input,),
+    )
     _repository, _handler, snapshot = _run(
-        tmp_path, _request(_loop()), fake, options=configured
+        tmp_path, request, fake, options=configured
     )
 
     assert snapshot.status is RunStatus.SUCCEEDED
     assert all(isinstance(request.output, JsonOutput) for request in fake.requests)
     assert all(options is configured.llm for options in fake.options)
+    assert all(request.inputs == (workspace_input,) for request in fake.requests)
     assert fake.requests[0].output.schema == PROPOSAL_SCHEMA
     assert fake.requests[1].output.schema == reviewer_envelope_schema(
         payload_schema=REVIEW_PAYLOAD_SCHEMA,

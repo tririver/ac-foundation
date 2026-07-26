@@ -4,7 +4,8 @@ import copy
 
 import pytest
 
-from arc_llm import ModelSelection
+from arc_jobs import ArtifactDigest, ArtifactSourceRef
+from arc_llm import LLMInputArtifact, ModelSelection
 from arc_proposer_reviewer.models import (
     BATCH_SCHEMA_VERSION,
     BatchFailurePolicy,
@@ -56,6 +57,34 @@ def test_batch_request_round_trips_with_closed_worker_shape() -> None:
     encoded = encode_batch_request(original)
     proposer = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
     assert set(proposer) == {"worker_id", "instructions", "output_schema", "model"}
+    assert decode_batch_request(encoded) == original
+
+
+def test_batch_request_round_trips_verified_input_references_without_content() -> None:
+    original = request()
+    input_artifact = LLMInputArtifact(
+        "domain-markdown-001",
+        ArtifactSourceRef("batch-1", "proposer-reviewer/inputs/source/0000-domain-markdown-001", ArtifactDigest("sha256", "a" * 64, 12)),
+        "text/markdown",
+    )
+    original = BatchRequest(
+        original.schema_version,
+        original.batch_id,
+        original.loops,
+        original.failure_policy,
+        (input_artifact,),
+    )
+    encoded = encode_batch_request(original)
+    assert encoded["inputs"] == [{
+        "input_id": "domain-markdown-001",
+        "source": {
+            "source_run_id": "batch-1",
+            "source_artifact_id": "proposer-reviewer/inputs/source/0000-domain-markdown-001",
+            "expected_digest": {"algorithm": "sha256", "value": "a" * 64, "size_bytes": 12},
+        },
+        "media_type": "text/markdown",
+    }]
+    assert "content" not in str(encoded)
     assert decode_batch_request(encoded) == original
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
 
-from arc_jobs import JsonValue, RunRepository, RunSpec, RunStatus
+from arc_jobs import ImmutableArtifactStore, JsonValue, RunRepository, RunSpec, RunStatus
 from arc_proposer_reviewer.handler import ProposerReviewerHandler
 from arc_proposer_reviewer.identity import derive_batch_run_id
 from arc_proposer_reviewer.models import (
@@ -15,7 +16,7 @@ from arc_proposer_reviewer.models import (
     WorkerSpec,
 )
 from arc_proposer_reviewer.protocol import encode_batch_request
-from arc_proposer_reviewer.runner import BatchRunner
+from arc_proposer_reviewer.runner import BatchInputPayload, BatchRunner
 from arc_proposer_reviewer.validation import RequestValidationError
 
 
@@ -41,8 +42,8 @@ def _request() -> BatchRequest:
 def test_prepare_derives_run_id_and_read_request_validates_closed_spec(
     tmp_path: Path,
 ) -> None:
-    assert BATCH_SCHEMA_VERSION == "arc.proposer_reviewer.batch.v3"
-    assert ProposerReviewerHandler.name == "arc.proposer_reviewer.batch.v3"
+    assert BATCH_SCHEMA_VERSION == "arc.proposer_reviewer.batch.v4"
+    assert ProposerReviewerHandler.name == "arc.proposer_reviewer.batch.v4"
     runner = BatchRunner()
     request = _request()
 
@@ -79,6 +80,31 @@ def test_prepare_derives_run_id_and_read_request_validates_closed_spec(
         runner.read_request(tmp_path, "open-request")
 
 
+def test_prepare_materializes_whole_input_and_persists_verified_reference(
+    tmp_path: Path,
+) -> None:
+    runner = BatchRunner()
+    snapshot = runner.prepare(
+        _request(),
+        tmp_path,
+        input_payloads=(
+            BatchInputPayload("domain-markdown-001", "text/markdown", b"# Domain\n"),
+        ),
+    )
+
+    persisted = runner.read_request(tmp_path, snapshot.run_id)
+    assert len(persisted.inputs) == 1
+    item = persisted.inputs[0]
+    assert item.source.source_run_id == snapshot.run_id
+    assert item.source.source_artifact_id == "proposer-reviewer/inputs/source/0000-domain-markdown-001"
+    assert item.source.expected_digest.value == hashlib.sha256(b"# Domain\n").hexdigest()
+    content = ImmutableArtifactStore(
+        RunRepository(tmp_path).run_directory(snapshot.run_id),
+        repository_root=RunRepository(tmp_path).root,
+    ).read_source(item.source)
+    assert content.content == b"# Domain\n"
+
+
 def test_run_and_resume_keep_operational_options_out_of_semantic_input(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -109,7 +135,13 @@ def test_run_and_resume_keep_operational_options_out_of_semantic_input(
     monkeypatch.setattr(runner_module.RunEngine, "execute", execute)
     monkeypatch.setattr(runner_module.RunEngine, "resume", resume)
 
-    first = runner.run(request, tmp_path, "run-a", run_options)
+    first = runner.run(
+        request,
+        tmp_path,
+        "run-a",
+        run_options,
+        input_payloads=(BatchInputPayload("domain-markdown-001", "text/markdown", b"# Domain\n"),),
+    )
     resume_input: dict[str, JsonValue] = {
         "resume_key": "resume-a",
         "action": "continue",
@@ -123,7 +155,9 @@ def test_run_and_resume_keep_operational_options_out_of_semantic_input(
 
     assert first.run_id == second.run_id == "run-a"
     spec = RunRepository(tmp_path).read_spec("run-a")
-    assert spec.semantic_input == encode_batch_request(request)
+    assert spec.semantic_input == encode_batch_request(
+        runner.read_request(tmp_path, "run-a")
+    )
     assert "max_concurrent_loops" not in spec.semantic_input
     assert "max_concurrent_workers" not in spec.semantic_input
     run_handler = calls[0][2]
@@ -133,6 +167,12 @@ def test_run_and_resume_keep_operational_options_out_of_semantic_input(
     assert run_handler.service.llm is task_service  # type: ignore[attr-defined]
     assert resume_handler.service.llm is task_service  # type: ignore[attr-defined]
     assert calls[1][1] == resume_input
+    resumed_request = runner.read_request(tmp_path, "run-a")
+    assert resumed_request.inputs[0].source.source_run_id == "run-a"
+    assert ImmutableArtifactStore(
+        RunRepository(tmp_path).run_directory("run-a"),
+        repository_root=RunRepository(tmp_path).root,
+    ).read_source(resumed_request.inputs[0].source).content == b"# Domain\n"
 
 
 def test_inspect_stop_and_projection_are_read_only_of_llm_configuration(

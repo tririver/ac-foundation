@@ -8,7 +8,7 @@ from .service import ProposerReviewerService
 
 
 class ProposerReviewerHandler:
-    name = "arc.proposer_reviewer.batch.v3"
+    name = "arc.proposer_reviewer.batch.v4"
 
     def __init__(
         self,

@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Literal, Mapping
 
 from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
+from arc_llm import LLMInputArtifact
 
 from .models import LoopSpec, WorkerSpec
 
 
-WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v4"
-LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v4"
+WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v5"
+LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v5"
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
@@ -24,11 +25,32 @@ def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
     }
 
 
-def loop_semantic_projection(loop: LoopSpec) -> dict[str, JsonValue]:
+def input_artifact_documents(
+    inputs: tuple[LLMInputArtifact, ...],
+) -> list[dict[str, JsonValue]]:
+    return [
+        {
+            "input_id": item.input_id,
+            "source_run_id": item.source.source_run_id,
+            "source_artifact_id": item.source.source_artifact_id,
+            "sha256": item.source.expected_digest.value,
+            "size_bytes": item.source.expected_digest.size_bytes,
+            "media_type": item.media_type,
+        }
+        for item in inputs
+    ]
+
+
+def loop_semantic_projection(
+    loop: LoopSpec,
+    *,
+    inputs: tuple[LLMInputArtifact, ...] = (),
+) -> dict[str, JsonValue]:
     return {
         "semantic_key_schema": LOOP_SEMANTIC_KEY_SCHEMA,
         "loop_id": loop.loop_id,
         "context": dict(loop.context),
+        "inputs": input_artifact_documents(inputs),
         "proposers": [
             worker_contract_document(worker) for worker in loop.proposers
         ],
@@ -46,6 +68,7 @@ def worker_semantic_projection(
     round_number: int,
     worker: WorkerSpec,
     upstream_digests: Mapping[str, str],
+    inputs: tuple[LLMInputArtifact, ...] = (),
 ) -> dict[str, JsonValue]:
     return {
         "semantic_key_schema": WORKER_SEMANTIC_KEY_SCHEMA,
@@ -55,6 +78,7 @@ def worker_semantic_projection(
         "worker_id": worker.worker_id,
         "worker_contract": worker_contract_document(worker),
         "loop_context": dict(loop.context),
+        "inputs": input_artifact_documents(inputs),
         "upstream_content_digests": dict(sorted(upstream_digests.items())),
     }
 
@@ -66,6 +90,7 @@ def worker_semantic_key(
     round_number: int,
     worker: WorkerSpec,
     upstream_digests: Mapping[str, str],
+    inputs: tuple[LLMInputArtifact, ...] = (),
 ) -> SemanticKeyDigest:
     return semantic_key(
         worker_semantic_projection(
@@ -74,6 +99,7 @@ def worker_semantic_key(
             round_number=round_number,
             worker=worker,
             upstream_digests=upstream_digests,
+            inputs=inputs,
         )
     )
 
@@ -85,6 +111,7 @@ def worker_task_id(
     round_number: int,
     worker: WorkerSpec,
     upstream_digests: Mapping[str, str],
+    inputs: tuple[LLMInputArtifact, ...] = (),
 ) -> str:
     digest = worker_semantic_key(
         role=role,
@@ -92,6 +119,7 @@ def worker_task_id(
         round_number=round_number,
         worker=worker,
         upstream_digests=upstream_digests,
+        inputs=inputs,
     )
     return f"pr-{role}-{digest.sha256}"
 
@@ -100,7 +128,7 @@ def derive_batch_run_id(batch_id: str) -> str:
     digest = semantic_key(
         {
             "semantic_key_schema": "arc.proposer_reviewer.run_id.v1",
-            "handler": "arc.proposer_reviewer.batch.v3",
+            "handler": "arc.proposer_reviewer.batch.v4",
             "batch_id": batch_id,
         }
     )

@@ -13,7 +13,7 @@ from .models import (
     WorkerSpec,
 )
 from .service import ProposerReviewerService
-from .runner import BatchRunner
+from .runner import BatchInputPayload, BatchRunner
 from .projection import (
     BatchInspection,
     BatchProjection,
@@ -30,6 +30,7 @@ __version__ = "1.0.1"
 
 __all__ = [
     "BatchFailurePolicy",
+    "BatchInputPayload",
     "BatchInspection",
     "BatchProjection",
     "BatchProjectionIntegrityError",

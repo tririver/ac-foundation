@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from arc_jobs import JsonValue
-from arc_llm import ModelSelection
+from arc_jobs import ArtifactSourceRef, JsonValue, decode_artifact_digest, encode_artifact_digest
+from arc_llm import LLMInputArtifact, ModelSelection
 
 from .identity import worker_contract_document
 from .models import (
@@ -23,7 +23,7 @@ from .validation import RequestValidationError, validate_batch_request
 
 
 def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
-    _exact(document, {"schema_version", "batch_id", "loops", "failure_policy"}, ())
+    _exact(document, {"schema_version", "batch_id", "loops", "inputs", "failure_policy"}, ())
     schema_version = _required_text(document, "schema_version", ())
     if schema_version != BATCH_SCHEMA_VERSION:
         raise RequestValidationError(
@@ -33,6 +33,9 @@ def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
     raw_loops = document["loops"]
     if not isinstance(raw_loops, list):
         raise RequestValidationError("must be an array", ("loops",))
+    raw_inputs = document["inputs"]
+    if not isinstance(raw_inputs, list):
+        raise RequestValidationError("must be an array", ("inputs",))
     loops = tuple(_decode_loop(value, ("loops", index)) for index, value in enumerate(raw_loops))
     failure_policy = _enum(
         BatchFailurePolicy,
@@ -43,6 +46,10 @@ def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
         schema_version=BATCH_SCHEMA_VERSION,
         batch_id=batch_id,
         loops=loops,
+        inputs=tuple(
+            _decode_input(value, ("inputs", index))
+            for index, value in enumerate(raw_inputs)
+        ),
         failure_policy=failure_policy,
     )
     validate_batch_request(request)
@@ -55,6 +62,7 @@ def encode_batch_request(request: BatchRequest) -> dict[str, JsonValue]:
         "schema_version": request.schema_version,
         "batch_id": request.batch_id,
         "loops": [_encode_loop(loop) for loop in request.loops],
+        "inputs": [_encode_input(item) for item in request.inputs],
         "failure_policy": request.failure_policy.value,
     }
 
@@ -163,6 +171,30 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
     )
 
 
+def _decode_input(value: JsonValue, path: tuple[str | int, ...]) -> LLMInputArtifact:
+    document = _object(value, path)
+    _exact(document, {"input_id", "source", "media_type"}, path)
+    source_document = _object(document["source"], path + ("source",))
+    _exact(
+        source_document,
+        {"source_run_id", "source_artifact_id", "expected_digest"},
+        path + ("source",),
+    )
+    try:
+        digest = decode_artifact_digest(source_document["expected_digest"])
+        return LLMInputArtifact(
+            _required_text(document, "input_id", path),
+            ArtifactSourceRef(
+                _required_text(source_document, "source_run_id", path + ("source",)),
+                _required_text(source_document, "source_artifact_id", path + ("source",)),
+                digest,
+            ),
+            _required_text(document, "media_type", path),
+        )
+    except Exception as exc:
+        raise RequestValidationError(str(exc), path) from exc
+
+
 def _encode_loop(loop: LoopSpec) -> dict[str, JsonValue]:
     return {
         "loop_id": loop.loop_id,
@@ -177,6 +209,18 @@ def _encode_loop(loop: LoopSpec) -> dict[str, JsonValue]:
 
 def _encode_worker(worker: WorkerSpec) -> dict[str, JsonValue]:
     return worker_contract_document(worker)
+
+
+def _encode_input(item: LLMInputArtifact) -> dict[str, JsonValue]:
+    return {
+        "input_id": item.input_id,
+        "source": {
+            "source_run_id": item.source.source_run_id,
+            "source_artifact_id": item.source.source_artifact_id,
+            "expected_digest": encode_artifact_digest(item.source.expected_digest),
+        },
+        "media_type": item.media_type,
+    }
 
 
 def _encode_loop_result(result: LoopResult) -> dict[str, JsonValue]:

@@ -8,6 +8,8 @@ from arc_proposer_reviewer.identity import (
     worker_contract_document,
     worker_semantic_key,
 )
+from arc_jobs import ArtifactDigest, ArtifactSourceRef
+from arc_llm import LLMInputArtifact
 from arc_proposer_reviewer.models import LoopSpec, WorkerSpec
 from arc_proposer_reviewer.prompts import (
     render_delta_proposer_prompt,
@@ -77,8 +79,8 @@ def test_delta_and_reviewer_prompts_keep_only_business_context() -> None:
 
 
 def test_worker_identity_covers_only_current_worker_contract() -> None:
-    assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v4")
-    assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v4")
+    assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v5")
+    assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v5")
     value = loop()
     worker = value.proposers[0]
     base = worker_semantic_key(
@@ -90,6 +92,19 @@ def test_worker_identity_covers_only_current_worker_contract() -> None:
         round_number=1,
         worker=worker,
         upstream_digests={},
+    )
+    workspace_input = LLMInputArtifact(
+        "domain-markdown-001",
+        ArtifactSourceRef("run-a", "proposer-reviewer/inputs/source/0000-domain-markdown-001", ArtifactDigest("sha256", "a" * 64, 8)),
+        "text/markdown",
+    )
+    assert base != worker_semantic_key(
+        role="proposer",
+        loop=value,
+        round_number=1,
+        worker=worker,
+        upstream_digests={},
+        inputs=(workspace_input,),
     )
     assert base != worker_semantic_key(
         role="proposer",

@@ -17,6 +17,14 @@ Independently review all current proposals. Return only the closed review envelo
 schema_version, action, reason, feedback, and payload. Feedback must contain exactly
 one non-empty entry for each active proposer."""
 
+_WORKSPACE_INPUT_PROTOCOL = (
+    "When host/control.json declares workspace inputs, read the complete verified "
+    "files at those relative paths before answering."
+)
+
+_PROPOSER_PROTOCOL = f"{_PROPOSER_PROTOCOL}\n{_WORKSPACE_INPUT_PROTOCOL}"
+_REVIEWER_PROTOCOL = f"{_REVIEWER_PROTOCOL}\n{_WORKSPACE_INPUT_PROTOCOL}"
+
 
 def render_initial_proposer_prompt(
     *, loop: LoopSpec, worker: WorkerSpec, round_number: int

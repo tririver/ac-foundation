@@ -24,6 +24,7 @@ from arc_llm import (
     LLMStopped,
     LLMCompleted,
     LLMFailed,
+    LLMInputArtifact,
     LLMPaused,
     LLMRequest,
     LLMTaskService,
@@ -118,7 +119,10 @@ class ProposerReviewerService:
         artifacts.publish_json(request_artifact_id(), encode_batch_request(request))
 
         units = tuple(
-            WorkUnit(loop.loop_id, loop_semantic_projection(loop))
+            WorkUnit(
+                loop.loop_id,
+                loop_semantic_projection(loop, inputs=request.inputs),
+            )
             for loop in request.loops
         )
         loop_by_id = {loop.loop_id: loop for loop in request.loops}
@@ -136,6 +140,7 @@ class ProposerReviewerService:
                     artifacts,
                     loop,
                     options=options,
+                    inputs=request.inputs,
                 )
             except StoppedError:
                 _emit_progress(
@@ -252,6 +257,7 @@ class ProposerReviewerService:
         loop: LoopSpec,
         *,
         options: ExecutionOptions,
+        inputs: tuple[LLMInputArtifact, ...] = (),
     ) -> LoopResult | Paused:
         store = context.state(state_namespace(loop.loop_id), _LoopStateContract())
         state = store.read()
@@ -330,6 +336,7 @@ class ProposerReviewerService:
                             round_number=round_number,
                             worker=worker,
                             upstream_digests=upstream,
+                            inputs=inputs,
                         ),
                     )
                 )
@@ -374,6 +381,7 @@ class ProposerReviewerService:
                     round_number=round_number,
                     worker=worker,
                     upstream_digests=upstream,
+                    inputs=inputs,
                 )
                 if round_number == 1 or worker.worker_id not in previous_proposals:
                     prompt = render_initial_proposer_prompt(
@@ -403,6 +411,7 @@ class ProposerReviewerService:
                     output=_worker_output(worker.output_schema),
                     model=worker.model,
                     session=state.proposer_sessions.get(worker.worker_id),
+                    inputs=inputs,
                 )
                 pause_key = _pause_key("proposer", worker.worker_id)
                 outcome = self._observed_worker_call(
@@ -549,6 +558,7 @@ class ProposerReviewerService:
                 round_number=round_number,
                 worker=loop.reviewer,
                 upstream_digests=review_upstream,
+                inputs=inputs,
             )
             reviewer_request = LLMRequest(
                 task_id=reviewer_task_id,
@@ -568,6 +578,7 @@ class ProposerReviewerService:
                 ),
                 model=loop.reviewer.model,
                 session=state.reviewer_session,
+                inputs=inputs,
             )
             reviewer_pause_key = _pause_key("reviewer", loop.reviewer.worker_id)
             latest_state = store.read()
