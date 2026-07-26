@@ -1440,24 +1440,38 @@ def test_corrupt_input_fails_before_provider_invocation(
     assert adapter.start_calls == 0
 
 
-def test_workspace_transport_copies_unknown_media_without_provider_filtering(
+@pytest.mark.parametrize(
+    ("media_type", "content", "filename"),
+    (
+        ("application/pdf", b"%PDF-1.7\\n", "0000-paper.pdf"),
+        ("text/html", b"<article>paper</article>\\n", "0000-paper.html"),
+        ("text/plain", b"plain research note\\n", "0000-paper.txt"),
+        ("text/plain;charset=utf-8", b"UTF-8 research note\\n", "0000-paper.txt"),
+        ("text/x-tex", b"\\section{Paper}\\n", "0000-paper.tex"),
+        ("application/x-tex", b"\\begin{document}\\n", "0000-paper.tex"),
+    ),
+)
+def test_workspace_transport_copies_research_inputs_with_readable_suffixes(
     tmp_path: Path,
     adapter,
     registry,
+    media_type: str,
+    content: bytes,
+    filename: str,
 ) -> None:
     repository = RunRepository(tmp_path)
     input_artifact, _ = _source_input(
         repository,
-        content=b"%PDF",
-        media_type="application/pdf",
+        content=content,
+        media_type=media_type,
     )
     parent = repository.create(
-        RunSpec("parent", "test.parent", {"case": "unsupported-input"})
+        RunSpec("parent", "test.parent", {"case": "readable-research-input"})
     )
     context = RunContext(repository, parent, resume_input=None, execution_slice=None)
     adapter.steps.append(_completed({"answer": 42}))
     request = LLMRequest(
-        "unsupported-input",
+        "readable-research-input",
         "Review.",
         _request().output,
         ModelSelection("codex"),
@@ -1471,8 +1485,44 @@ def test_workspace_transport_copies_unknown_media_without_provider_filtering(
     control = json.loads(
         (adapter.requests[0].workspace / "host" / "control.json").read_text()
     )
+    relative_path = f"inputs/{filename}"
+    assert control["inputs"][0]["path"] == relative_path
+    assert not Path(relative_path).is_absolute()
+    assert (adapter.requests[0].workspace / relative_path).read_bytes() == content
+
+
+def test_workspace_transport_copies_unknown_media_without_provider_filtering(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, _ = _source_input(
+        repository,
+        content=b"unknown input",
+        media_type="application/x-unknown",
+    )
+    parent = repository.create(
+        RunSpec("parent", "test.parent", {"case": "unknown-input"})
+    )
+    context = RunContext(repository, parent, resume_input=None, execution_slice=None)
+    adapter.steps.append(_completed({"answer": 42}))
+    request = LLMRequest(
+        "unknown-input",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+
+    outcome = LLMTaskService(registry=registry).execute(context, request)
+
+    assert isinstance(outcome, LLMCompleted)
+    assert adapter.start_calls == 1
+    workspace = adapter.requests[0].workspace
+    control = json.loads((workspace / "host" / "control.json").read_text())
     assert control["inputs"][0]["path"] == "inputs/0000-paper.bin"
-    assert (adapter.requests[0].workspace / "inputs" / "0000-paper.bin").read_bytes() == b"%PDF"
+    assert (workspace / "inputs" / "0000-paper.bin").read_bytes() == b"unknown input"
 
 
 def test_same_semantic_task_is_single_flight_and_replays_to_concurrent_caller(

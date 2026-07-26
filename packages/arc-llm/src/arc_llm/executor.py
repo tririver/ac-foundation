@@ -1844,12 +1844,20 @@ class LLMTaskExecutor:
 
     @staticmethod
     def _input_suffix(media_type: str) -> str:
+        base_media_type = media_type.split(";", 1)[0]
         return {
             "image/png": ".png",
             "image/jpeg": ".jpg",
             "text/markdown": ".md",
             "application/json": ".json",
-        }.get(media_type, ".bin")
+            "application/pdf": ".pdf",
+            "text/html": ".html",
+            "text/plain": ".txt",
+            "text/x-tex": ".tex",
+            "application/x-tex": ".tex",
+            "application/tex": ".tex",
+            "application/x-latex": ".tex",
+        }.get(base_media_type, ".bin")
 
     @staticmethod
     def _publish_workspace_file(path: Path, content: bytes) -> None:
