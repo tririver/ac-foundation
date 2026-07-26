@@ -14,15 +14,12 @@ import arc_jobs.lease as lease_module
 from arc_jobs import (
     Awaiting,
     CorruptStateError,
-    EffectRequestDigest,
-    EffectStage,
     EventWriter,
     Failed,
     FileLease,
     FailureMode,
     InvalidTransitionError,
     Paused,
-    RecoveryDecision,
     ResumeReason,
     RunBusyError,
     RunEngine,
@@ -35,7 +32,6 @@ from arc_jobs import (
     StoppedError,
     Succeeded,
     UnitResult,
-    UnsafeEffectRecoveryError,
     UnsupportedSchemaError,
     WorkUnit,
     canonical_json_bytes,
@@ -707,210 +703,3 @@ def test_fail_fast_resume_does_not_schedule_after_durable_failure(tmp_path):
     ).status is RunStatus.PAUSED
     assert engine.resume("run-1", handler).status is RunStatus.SUCCEEDED
     assert handler.called == ["a"]
-
-
-class UnsafeEffectHandler:
-    name = "unsafe-effect.v1"
-
-    def execute(self, context):
-        context.effects.prepare(
-            "call", effect_request_digest=EffectRequestDigest("a" * 64)
-        )
-        context.effects.mark_may_have_run("call")
-        context.effects.recover("call")
-        return Succeeded()
-
-
-def test_uncertain_effect_pauses_for_supervision_without_retry(tmp_path):
-    snapshot = RunEngine(RunRepository(tmp_path)).execute(
-        RunSpec("run-1", "unsafe-effect.v1", {}), UnsafeEffectHandler()
-    )
-    assert snapshot.status is RunStatus.PAUSED
-    assert snapshot.awaiting.reason is ResumeReason.SUPERVISION_REQUIRED
-    assert snapshot.awaiting.details == {
-        "code": "unsafe_effect_recovery",
-        "message": "effect 'call' may have run and requires supervision",
-        "effect_id": "call",
-    }
-
-
-class PolicyPauseEffectHandler:
-    name = "policy-pause-effect.v1"
-
-    def execute(self, context):
-        context.effects.prepare(
-            "call", effect_request_digest=EffectRequestDigest("a" * 64)
-        )
-        context.effects.mark_may_have_run("call")
-        context.effects.recover(
-            "call",
-            policy=type(
-                "PausePolicy",
-                (),
-                {"classify": lambda self, record: RecoveryDecision.PAUSE_UNCERTAIN},
-            )(),
-        )
-        return Succeeded()
-
-
-def test_policy_pause_for_uncertain_effect_maps_to_supervision_with_effect_id(tmp_path):
-    snapshot = RunEngine(RunRepository(tmp_path)).execute(
-        RunSpec("run-1", "policy-pause-effect.v1", {}), PolicyPauseEffectHandler()
-    )
-
-    assert snapshot.status is RunStatus.PAUSED
-    assert snapshot.awaiting is not None
-    assert snapshot.awaiting.details == {
-        "code": "unsafe_effect_recovery",
-        "message": (
-            "effect 'call' recovery decision 'pause_uncertain' "
-            "requires supervision"
-        ),
-        "effect_id": "call",
-    }
-
-
-@pytest.mark.parametrize(
-    "decision",
-    (
-        RecoveryDecision.RETRY_VERIFIED_NOT_RUN,
-        RecoveryDecision.RESUME_EXTERNALLY,
-    ),
-)
-def test_may_have_run_recovery_accepts_only_verified_or_external_decisions(
-    tmp_path, decision
-):
-    repository = RunRepository(tmp_path)
-    snapshot = repository.create(RunSpec("run-1", "example.v1", {}))
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
-    context.effects.prepare("call", effect_request_digest=EffectRequestDigest("a" * 64))
-    context.effects.mark_may_have_run("call")
-    policy = type("Policy", (), {"classify": lambda self, record: decision})()
-
-    assert context.effects.recover("call", policy=policy) is decision
-
-
-@pytest.mark.parametrize(
-    "decision",
-    (RecoveryDecision.PAUSE_UNCERTAIN, RecoveryDecision.REPLAY_OUTPUT),
-)
-def test_may_have_run_recovery_rejects_uncertain_or_impossible_decisions(tmp_path, decision):
-    repository = RunRepository(tmp_path)
-    snapshot = repository.create(RunSpec("run-1", "example.v1", {}))
-    context = RunContext(repository, snapshot, resume_input=None, execution_slice=None)
-    context.effects.prepare("call", effect_request_digest=EffectRequestDigest("a" * 64))
-    context.effects.mark_may_have_run("call")
-    policy = type("Policy", (), {"classify": lambda self, record: decision})()
-
-    with pytest.raises(UnsafeEffectRecoveryError) as caught:
-        context.effects.recover("call", policy=policy)
-    assert caught.value.effect_id == "call"
-
-
-def test_effect_recovery_revalidates_saved_artifact(tmp_path):
-    repository = RunRepository(tmp_path)
-    snapshot = repository.create(RunSpec("run-1", "example.v1", {}))
-    context = RunContext(
-        repository,
-        snapshot,
-        resume_input=None,
-        execution_slice=None,
-    )
-    context.effects.prepare(
-        "call", effect_request_digest=EffectRequestDigest("a" * 64)
-    )
-    context.effects.mark_may_have_run("call")
-    output = context.artifacts.publish_bytes(
-        "raw", b"safe", media_type="application/octet-stream"
-    )
-    context.effects.save_output("call", output)
-    object_path = repository.run_directory("run-1") / output.relative_path
-    object_path.write_bytes(b"tampered")
-    with pytest.raises(Exception):
-        context.effects.recover("call")
-
-
-def test_save_output_finishes_after_stop_and_next_checkpoint_stops(tmp_path):
-    repository = RunRepository(tmp_path)
-    snapshot = repository.create(RunSpec("run-1", "example.v1", {}))
-    context = RunContext(
-        repository,
-        snapshot,
-        resume_input=None,
-        execution_slice=None,
-    )
-    context.effects.prepare(
-        "call", effect_request_digest=EffectRequestDigest("a" * 64)
-    )
-    context.effects.mark_may_have_run("call")
-    output = context.artifacts.publish_bytes(
-        "raw", b"paid output", media_type="application/octet-stream"
-    )
-    context.stop.request(reason="stop during external call")
-
-    saved = context.effects.save_output("call", output)
-
-    assert saved.stage is EffectStage.OUTPUT_SAVED
-    assert saved.output_ref == output
-    with pytest.raises(StoppedError, match="stop during external call"):
-        context.checkpoint()
-    with pytest.raises(StoppedError, match="stop during external call"):
-        context.effects.commit("call")
-    assert context.effects.read("call") == saved
-
-
-class StopDuringEffectOutputHandler:
-    name = "stop-during-effect-output.v1"
-
-    def __init__(self):
-        self.external_calls = 0
-
-    def execute(self, context):
-        if context.attempt == 1:
-            self.external_calls += 1
-            context.effects.prepare(
-                "call", effect_request_digest=EffectRequestDigest("a" * 64)
-            )
-            context.effects.mark_may_have_run("call")
-            output = context.artifacts.publish_bytes(
-                "raw", b"paid output", media_type="application/octet-stream"
-            )
-            context.stop.request(reason="stop during external call")
-            context.effects.save_output("call", output)
-            context.checkpoint()
-            raise AssertionError("checkpoint must observe the stop request")
-
-        assert context.effects.recover("call") is RecoveryDecision.REPLAY_OUTPUT
-        record = context.effects.read("call")
-        assert record is not None
-        assert record.output_ref is not None
-        return Succeeded(record.output_ref)
-
-
-def test_stopped_run_replays_output_without_repeating_external_call(tmp_path):
-    repository = RunRepository(tmp_path)
-    engine = RunEngine(repository)
-    handler = StopDuringEffectOutputHandler()
-
-    stopped = engine.execute(
-        RunSpec("run-1", handler.name, {}),
-        handler,
-    )
-
-    assert stopped.status is RunStatus.PAUSED
-    assert stopped.awaiting is not None
-    assert stopped.awaiting.reason is ResumeReason.EXECUTION_STOPPED
-    stopped_context = RunContext(
-        repository,
-        stopped,
-        resume_input=None,
-        execution_slice=None,
-    )
-    record = stopped_context.effects.read("call")
-    assert record is not None
-    assert record.stage is EffectStage.OUTPUT_SAVED
-
-    resumed = engine.resume("run-1", handler)
-
-    assert resumed.status is RunStatus.SUCCEEDED
-    assert handler.external_calls == 1

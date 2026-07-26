@@ -66,11 +66,6 @@ class ExecutionFingerprint:
 
 
 @dataclass(frozen=True)
-class EffectRequestDigest:
-    sha256: str
-
-
-@dataclass(frozen=True)
 class Awaiting:
     reason: ResumeReason
     resume_key: str
@@ -158,31 +153,6 @@ class ValidationReport:
 @dataclass(frozen=True)
 class ExecutionSlice:
     monotonic_deadline: float | None = None
-
-
-class EffectStage(StrEnum):
-    PREPARED = "prepared"
-    MAY_HAVE_RUN = "may_have_run"
-    OUTPUT_SAVED = "output_saved"
-    COMMITTED = "committed"
-
-
-@dataclass(frozen=True)
-class EffectRecord:
-    effect_id: str
-    revision: int
-    effect_request_digest: EffectRequestDigest
-    stage: EffectStage
-    details: Mapping[str, JsonValue] = field(default_factory=dict)
-    external_handle: str | None = None
-    output_ref: ArtifactRef | None = None
-
-
-class RecoveryDecision(StrEnum):
-    REPLAY_OUTPUT = "replay_output"
-    RETRY_VERIFIED_NOT_RUN = "retry_verified_not_run"
-    RESUME_EXTERNALLY = "resume_externally"
-    PAUSE_UNCERTAIN = "pause_uncertain"
 
 
 class FailureMode(StrEnum):

@@ -13,7 +13,6 @@ from .artifacts import (
     encode_artifact_ref,
 )
 from .contracts import StateContract
-from .effects import EffectJournal
 from .errors import (
     CorruptStateError,
     IdempotencyConflictError,
@@ -23,7 +22,6 @@ from .errors import (
     RevisionConflictError,
     RunNotFoundError,
     StoppedError,
-    UnsafeEffectRecoveryError,
     UnsupportedSchemaError,
 )
 from .events import EventWriter
@@ -649,11 +647,6 @@ class RunContext:
         self.artifacts = ImmutableArtifactStore(
             self.run_directory, repository_root=repository.root
         )
-        self.effects = EffectJournal(
-            self.run_directory / "effects",
-            artifacts=self.artifacts,
-            stop=self.stop,
-        )
 
     def state(
         self, namespace: str, contract: StateContract[T]
@@ -936,24 +929,6 @@ class RunEngine:
                         f"slice-{snapshot.attempt}",
                         False,
                         details={"code": "execution_slice_expired"},
-                    ),
-                )
-            except UnsafeEffectRecoveryError as exc:
-                details = {
-                    "code": "unsafe_effect_recovery",
-                    "message": str(exc)[:300],
-                    "effect_id": exc.effect_id,
-                }
-                next_snapshot = replace(
-                    snapshot,
-                    revision=snapshot.revision + 1,
-                    status=RunStatus.PAUSED,
-                    updated_at=utc_now(),
-                    awaiting=Awaiting(
-                        ResumeReason.SUPERVISION_REQUIRED,
-                        f"effect-{snapshot.attempt}",
-                        False,
-                        details=details,
                     ),
                 )
             except Exception as exc:

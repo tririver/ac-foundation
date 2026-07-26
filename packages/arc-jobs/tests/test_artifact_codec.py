@@ -11,7 +11,6 @@ from arc_jobs import (
     encode_artifact_digest,
     encode_artifact_ref,
 )
-from arc_jobs.effects import _decode_ref as decode_effect_ref
 from arc_jobs.engine import _decode_ref as decode_snapshot_ref
 from arc_jobs.groups import _artifact_value
 from arc_jobs.storage import ImmutableArtifactStore
@@ -105,7 +104,7 @@ def test_jobs_durable_consumers_reject_the_same_invalid_digest(digest) -> None:
         "media_type": "application/json",
         "relative_path": "objects/a",
     }
-    for decode in (decode_snapshot_ref, decode_effect_ref):
+    for decode in (decode_snapshot_ref,):
         with pytest.raises(CorruptStateError):
             decode(document)
     with pytest.raises(CorruptStateError):

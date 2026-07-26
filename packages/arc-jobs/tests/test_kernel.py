@@ -9,8 +9,6 @@ from arc_jobs import (
     ArtifactConflictError,
     ArtifactSourceRef,
     Awaiting,
-    EffectRequestDigest,
-    EffectStage,
     Failed,
     FailureMode,
     GroupResult,
@@ -152,32 +150,6 @@ def test_hierarchical_artifacts_and_adoption(tmp_path):
         target.publish_bytes(
             adopted.artifact_id, b"different", media_type="text/plain"
         )
-
-
-class EffectHandler:
-    name = "effect.v1"
-
-    def execute(self, context):
-        record = context.effects.prepare(
-            "provider-call",
-            effect_request_digest=EffectRequestDigest("a" * 64),
-        )
-        assert record.stage is EffectStage.PREPARED
-        record = context.effects.mark_may_have_run("provider-call")
-        assert record.stage is EffectStage.MAY_HAVE_RUN
-        output = context.artifacts.publish_bytes(
-            "provider/raw", b"{}", media_type="application/json"
-        )
-        context.effects.save_output("provider-call", output)
-        context.effects.commit("provider-call")
-        return Succeeded(output)
-
-
-def test_effect_journal_commits_in_order(tmp_path):
-    snapshot = RunEngine(RunRepository(tmp_path)).execute(
-        RunSpec("run-1", "effect.v1", {}), EffectHandler()
-    )
-    assert snapshot.status is RunStatus.SUCCEEDED
 
 
 class GroupHandler:
