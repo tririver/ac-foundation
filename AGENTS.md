@@ -57,6 +57,17 @@ Packages:
 - Preserve provenance, assumptions, approximation regimes, and uncertainty.
   Treat model agreement as evidence, not proof; verify scientific claims and
   calculations in proportion to their risk.
+- ARC harnesses serve model reasoning with richer context, evidence,
+  recoverability, and reliable publication; they do not exist to narrow model
+  creativity. Prompts and schemas may constrain identities, evidence, anchors,
+  machine-checkable coverage, publication, and recovery, but must not prescribe
+  one interpretive, creative, or pedagogical form. Treat enumerated forms and
+  dimensions as optional, non-exhaustive possibilities, never as a quota,
+  required taxonomy, or default template.
+- Author names are publication identity managed by ARC, not an interpretive or
+  creative constraint. Automatically parsed author candidates require model
+  verification against the frozen source; publish an attribution only at high
+  confidence, otherwise retain an explicitly empty authorship result.
 
 ## Local Robustness
 
