@@ -18,6 +18,12 @@ any particular agent host or checked-out Skill.
   override this repository rule. The only exceptions are a project directory
   explicitly supplied by the user and the documented ARC shared runtime and
   paper-cache roots.
+- Treat a project directory explicitly supplied by the user as the project
+  root itself. Do not append an extra workflow directory or replace it with
+  names such as `build-v2`, `fresh`, or attempt-specific variants. When choosing
+  a project root inside this checkout, use a stable descriptive path below
+  ignored `local/`; `local/` is a checkout convention, not a requirement for
+  external user-supplied directories.
 
 Workflows:
 
