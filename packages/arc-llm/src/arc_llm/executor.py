@@ -7,7 +7,7 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -133,9 +133,25 @@ PROVIDER_INSTRUCTION_POLICY = (
 )
 
 HANDLER_NAME = "arc.llm.task.v4"
+
+_OUTPUT_RETRY_ARTIFACT = "recovery/output-retry.json"
+
+
+@dataclass(frozen=True)
+class _FormattingFailure:
+    reason: str
+    record_ref: ArtifactRef | None = None
+
+
 class LLMTaskExecutor:
-    def __init__(self, registry: ProviderRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: ProviderRegistry | None = None,
+        *,
+        automatic_output_retry: bool = True,
+    ) -> None:
         self.registry = registry or default_registry()
+        self._automatic_output_retry = automatic_output_retry
 
     def execute(
         self,
@@ -932,8 +948,33 @@ class LLMTaskExecutor:
                 input_required=True,
                 request_ref=candidate_ref,
             )
-        except OutputInvalidError:
-            if isinstance(request.output, JsonOutput) and request.output.repair == "format":
+        except OutputInvalidError as exc:
+            retry_record = self._output_retry_record(context, current)
+            if retry_record is not None:
+                if current.current.generation == retry_record["from_generation"]:
+                    return self._start_output_retry(
+                        context,
+                        request,
+                        current,
+                        store,
+                        options,
+                        code=str(retry_record["code"]),
+                        message=str(retry_record["message"]),
+                        formatting_record_ref=None,
+                        retry_record=retry_record,
+                    )
+                return self._pause_after_output_retry(
+                    context,
+                    current,
+                    store,
+                    code="output_invalid",
+                    message=str(exc),
+                )
+            formatting_failure: _FormattingFailure | None = None
+            if (
+                isinstance(request.output, JsonOutput)
+                and request.output.repair == "format"
+            ):
                 formatted = self._format_invalid_output(
                     context,
                     request,
@@ -954,15 +995,40 @@ class LLMTaskExecutor:
                             options,
                         )
                     # The formatter found that required content is absent.
+                    formatting_failure = _FormattingFailure(formatted.reason)
+                elif isinstance(formatted, _FormattingFailure):
+                    formatting_failure = formatted
                 elif formatted is not None:
                     return formatted
-            return self._pause(
-                store,
+            if (
+                self._automatic_output_retry
+                and isinstance(request.output, JsonOutput)
+                and request.output.repair == "format"
+            ):
+                return self._start_output_retry(
+                    context,
+                    request,
+                    store.read() or current,
+                    store,
+                    options,
+                    code="output_invalid",
+                    message=(
+                        formatting_failure.reason
+                        if formatting_failure is not None
+                        else str(exc)
+                    ),
+                    formatting_record_ref=(
+                        None
+                        if formatting_failure is None
+                        else formatting_failure.record_ref
+                    ),
+                )
+            return self._pause_after_output_retry(
+                context,
                 store.read() or current,
-                ResumeReason.SUPERVISION_REQUIRED,
-                "output_invalid",
-                input_required=True,
-                request_ref=self._supervision_artifact(context, current, "output_invalid"),
+                store,
+                code="output_invalid",
+                message=str(exc),
             )
         if self._uses_host_turn(request, options):
             turn = decode_host_turn(
@@ -986,7 +1052,7 @@ class LLMTaskExecutor:
         store: Any,
         execution: ProviderExecution,
         options: LLMExecutionOptions,
-    ) -> FormattingDecision | LLMTaskOutcome | None:
+    ) -> FormattingDecision | _FormattingFailure | LLMTaskOutcome | None:
         assert isinstance(request.output, JsonOutput)
         source = select_formatting_source(execution.candidates)
         if source is None:
@@ -1009,7 +1075,10 @@ class LLMTaskExecutor:
         # The formatter is its own durable task and therefore owns its single
         # automatic crash retry independently from the parent generation.
         formatter_options = options
-        formatter_executor = LLMTaskExecutor(self.registry)
+        formatter_executor = LLMTaskExecutor(
+            self.registry,
+            automatic_output_retry=False,
+        )
         formatter_store = formatter_executor._task_store(context, task_id)
         child_state = formatter_store.read()
         if (
@@ -1071,13 +1140,9 @@ class LLMTaskExecutor:
                     child_revision=child_revision,
                     formatter_usage=formatter_usage,
                 )
-                return self._pause(
-                    store,
-                    store.read() or current,
-                    ResumeReason.SUPERVISION_REQUIRED,
-                    "output_formatting_failed",
-                    input_required=True,
-                    request_ref=record_ref,
+                return _FormattingFailure(
+                    str(exc),
+                    record_ref,
                 )
             status = "formatted" if decision.action == "format" else "insufficient"
             record_ref = self._publish_formatting_record(
@@ -1123,6 +1188,12 @@ class LLMTaskExecutor:
             child_revision=child_revision,
             formatter_usage=formatter_usage,
         )
+        if (
+            isinstance(outcome, LLMPaused)
+            and str(outcome.details.get("code", ""))
+            in {"output_invalid", "output_formatting_failed"}
+        ):
+            return _FormattingFailure(reason, record_ref)
         return self._pause(
             store,
             store.read() or current,
@@ -1212,6 +1283,183 @@ class LLMTaskExecutor:
             )
         except Exception:
             pass
+
+    def _output_retry_record(
+        self,
+        context: Any,
+        state: LLMTaskState,
+    ) -> Mapping[str, Any] | None:
+        scoped = self._artifacts(context, state.semantic_key)
+        ref = scoped.find(_OUTPUT_RETRY_ARTIFACT)
+        if ref is None:
+            return None
+        try:
+            value = json.loads(scoped.read_bytes(ref).decode("utf-8"))
+        except Exception as exc:
+            raise CorruptTaskStateError(
+                "Output-retry record is unreadable."
+            ) from exc
+        if (
+            not isinstance(value, Mapping)
+            or set(value)
+            != {
+                "schema_version",
+                "from_generation",
+                "to_generation",
+                "code",
+                "message",
+                "formatting_record_ref",
+            }
+            or value.get("schema_version") != "arc.llm.output_retry.v1"
+            or type(value.get("from_generation")) is not int
+            or type(value.get("to_generation")) is not int
+            or value["to_generation"] != value["from_generation"] + 1
+            or not isinstance(value.get("code"), str)
+            or not isinstance(value.get("message"), str)
+        ):
+            raise CorruptTaskStateError("Output-retry record is invalid.")
+        return value
+
+    def _start_output_retry(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        options: LLMExecutionOptions,
+        *,
+        code: str,
+        message: str,
+        formatting_record_ref: ArtifactRef | None,
+        retry_record: Mapping[str, Any] | None = None,
+    ) -> LLMTaskOutcome:
+        current = store.read() or state
+        if retry_record is None:
+            retry_record = {
+                "schema_version": "arc.llm.output_retry.v1",
+                "from_generation": current.current.generation,
+                "to_generation": current.current.generation + 1,
+                "code": code,
+                "message": message[:4000],
+                "formatting_record_ref": (
+                    None
+                    if formatting_record_ref is None
+                    else encode_artifact_ref(formatting_record_ref)
+                ),
+            }
+            self._artifacts(context, current.semantic_key).publish_json(
+                _OUTPUT_RETRY_ARTIFACT,
+                retry_record,
+            )
+        from_generation = int(retry_record["from_generation"])
+        to_generation = int(retry_record["to_generation"])
+        if current.current.generation >= to_generation:
+            return self._pause_after_output_retry(
+                context,
+                current,
+                store,
+                code=code,
+                message=message,
+            )
+        if current.current.generation != from_generation:
+            raise CorruptTaskStateError(
+                "Output-retry generation does not match durable task state."
+            )
+        adapter = self.registry.create(current.resolved_provider or "")
+        execution_doc = self._execution_document(
+            adapter,
+            current.resolved_model or "",
+            request,
+            options,
+        )
+        next_state = fresh_generation(
+            current,
+            execution=execution_fingerprint(execution_doc),
+        )
+        if request.session is not None and current.current.native_handle is not None:
+            next_state = replace(
+                next_state,
+                generation=replace(
+                    next_state.current,
+                    native_handle=current.current.native_handle,
+                ),
+            )
+        store.compare_and_swap(current.revision, next_state)
+        scoped = self._artifacts(context, next_state.semantic_key)
+        scoped.publish_json(
+            f"execution/{next_state.current.generation}/recipe.json",
+            execution_doc,
+        )
+        self._publish_policy(
+            scoped,
+            next_state.current.generation,
+            options,
+        )
+        try:
+            context.events.emit(
+                "llm_output_retry_started",
+                {
+                    "code": code,
+                    "from_generation": from_generation,
+                    "to_generation": to_generation,
+                },
+            )
+        except Exception:
+            pass
+        return self._drive(
+            context,
+            request,
+            next_state,
+            store,
+            options,
+            crash_retry_available=True,
+        )
+
+    def _pause_after_output_retry(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        store: Any,
+        *,
+        code: str,
+        message: str,
+    ) -> LLMPaused:
+        current = store.read() or state
+        retry_record_ref = self._artifacts(
+            context, current.semantic_key
+        ).find(_OUTPUT_RETRY_ARTIFACT)
+        request_ref = self._artifacts(
+            context, current.semantic_key
+        ).publish_json(
+            (
+                f"generations/{current.current.generation}/supervision/"
+                "output-retry-exhausted.json"
+            ),
+            {
+                "schema_version": "arc.llm.supervision_request.v1",
+                "code": code,
+                "message": message[:4000],
+                "automatic_retry_exhausted": True,
+                "output_attempts": 2,
+                "retry_record_ref": (
+                    None
+                    if retry_record_ref is None
+                    else encode_artifact_ref(retry_record_ref)
+                ),
+            },
+        )
+        return self._pause(
+            store,
+            current,
+            ResumeReason.SUPERVISION_REQUIRED,
+            code,
+            input_required=True,
+            request_ref=request_ref,
+            details={
+                "automatic_retry_exhausted": True,
+                "output_attempts": 2,
+            },
+        )
 
     def _recover_saved(
         self,
@@ -1760,19 +2008,22 @@ class LLMTaskExecutor:
         input_required: bool,
         request_ref: ArtifactRef | None = None,
         provider_failure: Mapping[str, Any] | None = None,
+        details: Mapping[str, Any] | None = None,
     ) -> LLMPaused:
         response_contract = RESUME_SCHEMA_VERSION if input_required else None
         resume_key = _make_resume_key(state.semantic_key, state.revision + 1)
-        details: dict[str, Any] = {"code": code}
+        pause_details: dict[str, Any] = {"code": code}
         if provider_failure is not None:
-            details["provider_failure"] = dict(provider_failure)
+            pause_details["provider_failure"] = dict(provider_failure)
+        if details is not None:
+            pause_details.update(details)
         pause = TaskPause(
             reason,
             resume_key,
             input_required,
             request_ref,
             response_contract,
-            details,
+            pause_details,
         )
         next_state = replace(
             state,
@@ -2071,7 +2322,11 @@ class LLMTaskExecutor:
         control = {
             "schema_version": "arc.llm.workspace_control.v1",
             "task_id": request.task_id,
-            "prompt": request.prompt,
+            "prompt": self._workspace_task_prompt(
+                context,
+                request,
+                state,
+            ),
             "output_contract": encode_output_contract(
                 self._provider_output_contract(request, options)
             ),
@@ -2086,6 +2341,26 @@ class LLMTaskExecutor:
             canonical_json_bytes(control),
         )
         return workspace
+
+    def _workspace_task_prompt(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+    ) -> str:
+        retry_record = self._output_retry_record(context, state)
+        if (
+            retry_record is None
+            or state.current.generation < int(retry_record["to_generation"])
+        ):
+            return request.prompt
+        return (
+            f"{request.prompt}\n\n"
+            "The previous response could not satisfy the requested output "
+            "contract after format recovery. Produce one complete fresh answer "
+            "to the original task, not a patch or commentary about the error. "
+            f"Validation feedback: {retry_record['message']}"
+        )
 
     @staticmethod
     def _workspace_prompt() -> str:

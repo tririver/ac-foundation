@@ -79,6 +79,7 @@ from .state import (
     state_namespace,
 )
 from .validation import (
+    RequestValidationError,
     decode_review,
     validate_batch_request,
     validate_execution_options,
@@ -504,6 +505,7 @@ class ProposerReviewerService:
                 return _failed_loop(
                     loop,
                     state,
+                    artifacts,
                     "proposer_failed",
                     "one or more proposers failed",
                     failed,
@@ -512,6 +514,7 @@ class ProposerReviewerService:
                 return _failed_loop(
                     loop,
                     state,
+                    artifacts,
                     "all_proposers_failed",
                     "all proposers failed",
                     failed,
@@ -616,6 +619,7 @@ class ProposerReviewerService:
                 return _failed_loop(
                     loop,
                     state,
+                    artifacts,
                     "reviewer_failed",
                     "reviewer failed",
                     (),
@@ -624,11 +628,27 @@ class ProposerReviewerService:
                 )
             assert isinstance(reviewer_outcome, LLMCompleted)
             review_value = cast(JsonValue, reviewer_outcome.value)
-            review = decode_review(
-                review_value,
-                active_proposer_ids=tuple(proposals),
-                validate_payload=lambda value: None,
-            )
+            try:
+                review = decode_review(
+                    review_value,
+                    active_proposer_ids=tuple(proposals),
+                    validate_payload=lambda value: None,
+                )
+            except RequestValidationError as exc:
+                return _failed_loop(
+                    loop,
+                    state,
+                    artifacts,
+                    "reviewer_output_invalid",
+                    "reviewer returned an invalid output",
+                    (),
+                    error=RunError(
+                        "reviewer_output_invalid",
+                        str(exc),
+                        {"round": round_number},
+                    ),
+                    error_worker_id=loop.reviewer.worker_id,
+                )
             review_ref = artifacts.publish_json(
                 review_artifact_id(
                     loop.loop_id, round_number, loop.reviewer.worker_id
@@ -852,6 +872,7 @@ def _worker_outcome_status(outcome: object) -> str:
 def _failed_loop(
     loop: LoopSpec,
     state: _LoopState,
+    artifacts: object,
     code: str,
     message: str,
     failures: tuple[UnitResult, ...] | list[UnitResult],
@@ -890,8 +911,16 @@ def _failed_loop(
         loop_id=loop.loop_id,
         termination=LoopTermination.FAILED,
         rounds_completed=state.rounds_completed,
-        final_proposals={},
-        final_review=None,
+        final_proposals={
+            worker_id: read_json_artifact(artifacts, ref)
+            for worker_id, ref in state.proposal_refs.items()
+            if worker_id in state.current_proposer_ids
+        },
+        final_review=(
+            None
+            if state.review_ref is None
+            else read_json_artifact(artifacts, state.review_ref)
+        ),
         error=RunError(code, message, details),
     )
 

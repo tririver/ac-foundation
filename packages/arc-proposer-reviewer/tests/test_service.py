@@ -784,7 +784,7 @@ def test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage(
     assert proposer_requests[3].session is not None
 
 
-def test_invalid_later_review_cannot_reuse_an_earlier_valid_decision(
+def test_invalid_later_review_preserves_the_last_complete_round(
     tmp_path: Path,
 ) -> None:
     class InvalidSecondReview(FakeLLM):
@@ -830,5 +830,7 @@ def test_invalid_later_review_cannot_reuse_an_earlier_valid_decision(
     result = _result(repository, snapshot).loops[0]
     assert fake.review_calls == 2
     assert result.termination.value == "failed"
-    assert result.final_review is None
+    assert tuple(result.final_proposals) == ("loop-a-p",)
+    assert result.final_review is not None
+    assert result.final_review["payload"] == {"score": 1}
     assert result.error is not None

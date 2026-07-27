@@ -576,7 +576,7 @@ def test_content_rich_invalid_output_uses_formatter_without_worker_replacement(
     }
 
 
-def test_formatter_insufficient_pauses_without_worker_replacement(
+def test_formatter_insufficient_gets_one_full_regeneration(
     tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.extend(
@@ -590,6 +590,7 @@ def test_formatter_insufficient_pauses_without_worker_replacement(
                 },
                 handle="formatter",
             ),
+            _completed({"answer": "fresh complete answer"}, handle="retry"),
         )
     )
 
@@ -598,12 +599,17 @@ def test_formatter_insufficient_pauses_without_worker_replacement(
         run_root=tmp_path,
     )
 
-    assert isinstance(result.outcome, LLMPaused)
-    assert result.outcome.details["code"] == "output_invalid"
-    assert adapter.start_calls == 2
+    assert isinstance(result.outcome, LLMCompleted)
+    assert result.outcome.value == {"answer": "fresh complete answer"}
+    assert adapter.start_calls == 3
+    controls = list(tmp_path.rglob("generation-0002/host/control.json"))
+    assert len(controls) == 1
+    control = json.loads(controls[0].read_text(encoding="utf-8"))
+    assert "previous response could not satisfy" in control["prompt"]
+    assert "required answer is absent" in control["prompt"]
 
 
-def test_invalid_formatter_result_pauses_without_worker_replacement(
+def test_invalid_formatter_result_gets_one_full_regeneration(
     tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.extend(
@@ -617,6 +623,7 @@ def test_invalid_formatter_result_pauses_without_worker_replacement(
                 },
                 handle="formatter",
             ),
+            _completed({"answer": "fresh complete answer"}, handle="retry"),
         )
     )
 
@@ -625,18 +632,19 @@ def test_invalid_formatter_result_pauses_without_worker_replacement(
         run_root=tmp_path,
     )
 
-    assert isinstance(result.outcome, LLMPaused)
-    assert result.outcome.details["code"] == "output_formatting_failed"
-    assert adapter.start_calls == 2
+    assert isinstance(result.outcome, LLMCompleted)
+    assert result.outcome.value == {"answer": "fresh complete answer"}
+    assert adapter.start_calls == 3
 
 
-def test_malformed_formatter_envelope_pauses_without_worker_replacement(
+def test_invalid_regeneration_pauses_without_a_second_formatter(
     tmp_path: Path, adapter, registry
 ) -> None:
     adapter.steps.extend(
         (
             _completed({"answer_text": "the complete answer is present"}),
             _completed({"not_a_formatter_decision": True}, handle="formatter"),
+            _completed({"still_wrong": True}, handle="retry"),
         )
     )
 
@@ -646,8 +654,12 @@ def test_malformed_formatter_envelope_pauses_without_worker_replacement(
     )
 
     assert isinstance(result.outcome, LLMPaused)
-    assert result.outcome.details["code"] == "output_formatting_failed"
-    assert adapter.start_calls == 2
+    assert result.outcome.details == {
+        "code": "output_invalid",
+        "automatic_retry_exhausted": True,
+        "output_attempts": 2,
+    }
+    assert adapter.start_calls == 3
 
 
 def test_formatter_stop_propagates_without_worker_replacement(
