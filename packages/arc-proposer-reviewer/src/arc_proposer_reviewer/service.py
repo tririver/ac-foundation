@@ -18,6 +18,7 @@ from arc_jobs import (
     StoppedError,
     UnitResult,
     WorkUnit,
+    canonical_json_bytes,
 )
 from arc_llm import (
     JsonOutput,
@@ -118,7 +119,16 @@ class ProposerReviewerService:
         validate_batch_request(request)
         validate_execution_options(options)
         artifacts = context.artifacts.scoped("proposer-reviewer")
-        artifacts.publish_json(request_artifact_id(), encode_batch_request(request))
+        request_document = encode_batch_request(request)
+        request_ref = artifacts.find(request_artifact_id())
+        if request_ref is None:
+            artifacts.publish_json(request_artifact_id(), request_document)
+        elif artifacts.read_bytes(request_ref) != (
+            canonical_json_bytes(request_document) + b"\n"
+        ):
+            raise ValueError(
+                "persisted proposer-reviewer request differs from replay"
+            )
 
         units = tuple(
             WorkUnit(
