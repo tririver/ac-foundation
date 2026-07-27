@@ -1,5 +1,9 @@
 # ARC Development Guidance
 
+ARC is a theoretical-physics research toolkit built from reusable Python
+packages and thin agent-facing adapters. Keep package behavior independent of
+any particular agent host or checked-out Skill.
+
 ## Governing Philosophy: Infrastructure for Model-Led Science
 
 **ARC exists to expand the scientific ability and creativity of capable
@@ -32,10 +36,6 @@ logic.**
   system invariant or instead constrains a scientific choice that a capable
   model should make. If the latter, provide information and feedback and trust
   the model.
-
-ARC is a theoretical-physics research toolkit built from reusable Python
-packages and thin agent-facing adapters. Keep package behavior independent of
-any particular agent host or checked-out Skill.
 
 ## Navigation
 
