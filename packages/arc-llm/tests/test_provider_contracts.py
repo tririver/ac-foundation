@@ -119,6 +119,58 @@ def test_codex_uses_workspace_cwd_without_attachments_or_readonly_sandbox(
     assert runner.output_schemas == [{"type": "object"}]
 
 
+def test_codex_direct_start_and_resume_keep_workspace_cwd_but_only_start_uses_cwd_flag(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n',
+        last_message=b'{"ok":true}',
+    )
+    adapter = CodexAdapter(binary="fake-codex", runner=runner, env={})
+    started = adapter.start(
+        ProviderRequest(
+            "Read host/control.json",
+            "model",
+            None,
+            {"effective_host_mode": "direct"},
+            3,
+            workspace,
+        ),
+        Observer(),
+        Stop(),
+    )
+    adapter.resume(
+        started.native_handle,
+        ProviderResumeRequest(
+            "Continue.",
+            None,
+            {"effective_host_mode": "direct"},
+            3,
+            workspace,
+        ),
+        Observer(),
+        Stop(),
+    )
+
+    start = runner.calls[0]
+    assert start["cwd"] == workspace
+    assert "-C" in start["argv"]
+    assert start["argv"][start["argv"].index("-C") + 1] == str(workspace)
+
+    resume = runner.calls[1]
+    assert resume["cwd"] == workspace
+    assert "-C" not in resume["argv"]
+    assert resume["argv"][:5] == [
+        "fake-codex",
+        "exec",
+        "resume",
+        "--json",
+        "--dangerously-bypass-approvals-and-sandbox",
+    ]
+    assert "thread-1" in resume["argv"]
+
+
 def test_codex_projects_native_schema_but_selects_only_last_message(
     tmp_path: Path,
 ) -> None:

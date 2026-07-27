@@ -180,9 +180,11 @@ class CodexAdapter:
     ) -> ProviderExecution:
         argv = [self.binary, "exec", "resume", "--json"]
         if request.capabilities.get("effective_host_mode") == "direct":
-            argv.extend(
-                ["--dangerously-bypass-approvals-and-sandbox", "-C", str(request.workspace)]
-            )
+            # `codex exec resume` does not accept `-C`.  `_run` already
+            # launches the process in the controlled workspace, so the resume
+            # invocation has the same working directory as `start` without
+            # passing an unsupported CLI option.
+            argv.append("--dangerously-bypass-approvals-and-sandbox")
         argv.extend([handle.value, "-"])
         return self._run(
             argv,
