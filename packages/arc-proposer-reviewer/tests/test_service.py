@@ -196,6 +196,19 @@ def _result(repository: RunRepository, snapshot):
     return decode_batch_result(json.loads(content))
 
 
+def _replace_persisted_request(
+    repository: RunRepository,
+    request_document: Mapping[str, object],
+) -> None:
+    artifacts = ImmutableArtifactStore(
+        repository.run_directory("run-a"),
+        repository_root=repository.root,
+    ).scoped("proposer-reviewer")
+    logical_id = artifacts._logical_id("request")  # type: ignore[attr-defined]
+    artifacts._manifest_path(logical_id).unlink()  # type: ignore[attr-defined]
+    artifacts.publish_json("request", request_document)
+
+
 def context_events(repository: RunRepository, run_id: str):
     return EventWriter(
         repository.run_directory(run_id) / "events.jsonl",
@@ -635,6 +648,52 @@ def test_pause_resume_completes_the_paused_worker(tmp_path: Path) -> None:
     resumed = RunEngine(repository).resume("run-a", handler)
     assert resumed.status is RunStatus.SUCCEEDED
     assert _result(repository, resumed).loops[0].rounds_completed == 1
+
+
+def test_paused_v5_request_artifact_resumes_after_schema_upgrade(
+    tmp_path: Path,
+) -> None:
+    fake = FakeLLM(pause_once=True)
+    request = _request(_loop())
+    legacy_request = encode_batch_request(request)
+    legacy_request["schema_version"] = "arc.proposer_reviewer.batch.v5"
+    for loop in legacy_request["loops"]:
+        assert isinstance(loop, dict)
+        loop.pop("revision_context_mode")
+
+    repository, handler, paused = _run(tmp_path, request, fake)
+    assert paused.status is RunStatus.PAUSED
+
+    # Emulate the immutable request artifact written by the v5 service before
+    # this process was upgraded. The protocol tests separately cover decoding
+    # the v5 run spec itself.
+    _replace_persisted_request(repository, legacy_request)
+
+    resumed = RunEngine(repository).resume("run-a", handler)
+    assert resumed.status is RunStatus.SUCCEEDED
+    assert _result(repository, resumed).loops[0].rounds_completed == 1
+
+
+def test_schema_upgrade_still_rejects_a_different_persisted_request(
+    tmp_path: Path,
+) -> None:
+    fake = FakeLLM(pause_once=True)
+    request = _request(_loop())
+    repository, handler, paused = _run(tmp_path, request, fake)
+    assert paused.status is RunStatus.PAUSED
+
+    different = encode_batch_request(request)
+    different["schema_version"] = "arc.proposer_reviewer.batch.v5"
+    different["batch_id"] = "different-batch"
+    for loop in different["loops"]:
+        assert isinstance(loop, dict)
+        loop.pop("revision_context_mode")
+    _replace_persisted_request(repository, different)
+
+    failed = RunEngine(repository).resume("run-a", handler)
+    assert failed.status is RunStatus.FAILED
+    assert failed.error is not None
+    assert "persisted proposer-reviewer request differs" in failed.error.message
 
 
 def test_committed_round_replays_after_outer_unit_interruption(

@@ -69,7 +69,11 @@ from .prompts import (
     render_reviewer_prompt,
     reviewer_envelope_schema,
 )
-from .protocol import encode_batch_request, encode_batch_result
+from .protocol import (
+    decode_batch_request,
+    encode_batch_request,
+    encode_batch_result,
+)
 from .state import (
     _LoopState,
     _LoopStateContract,
@@ -124,12 +128,25 @@ class ProposerReviewerService:
         request_ref = artifacts.find(request_artifact_id())
         if request_ref is None:
             artifacts.publish_json(request_artifact_id(), request_document)
-        elif artifacts.read_bytes(request_ref) != (
-            canonical_json_bytes(request_document) + b"\n"
-        ):
-            raise ValueError(
-                "persisted proposer-reviewer request differs from replay"
-            )
+        else:
+            persisted = artifacts.read_bytes(request_ref)
+            if persisted != canonical_json_bytes(request_document) + b"\n":
+                try:
+                    equivalent_legacy_request = (
+                        decode_batch_request(
+                            cast(
+                                Mapping[str, JsonValue],
+                                read_json_artifact(artifacts, request_ref),
+                            )
+                        )
+                        == request
+                    )
+                except (TypeError, ValueError):
+                    equivalent_legacy_request = False
+                if not equivalent_legacy_request:
+                    raise ValueError(
+                        "persisted proposer-reviewer request differs from replay"
+                    )
 
         units = tuple(
             WorkUnit(
