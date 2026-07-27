@@ -501,19 +501,25 @@ def test_replay_returns_the_accepted_artifact_without_a_provider_call(
     assert adapter.start_calls == 1
 
 
-def test_live_invalid_output_pauses_without_replacing_the_worker(
-    tmp_path: Path, adapter, registry
+@pytest.mark.parametrize("repair", ("strict", "local"))
+def test_live_invalid_output_gets_one_full_regeneration(
+    tmp_path: Path, adapter, registry, repair: str
 ) -> None:
-    adapter.steps.append(_completed({"not_answer": True}))
+    adapter.steps.extend(
+        (
+            _completed({"not_answer": True}),
+            _completed({"answer": 42}, handle="retry"),
+        )
+    )
 
     result = LLMClient(registry=registry).generate(
-        _request("live-invalid", repair="local"),
+        _request(f"live-invalid-{repair}", repair=repair),
         run_root=tmp_path,
     )
 
-    assert isinstance(result.outcome, LLMPaused)
-    assert result.outcome.details["code"] == "output_invalid"
-    assert adapter.start_calls == 1
+    assert isinstance(result.outcome, LLMCompleted)
+    assert result.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 2
 
 
 def test_content_rich_invalid_output_uses_formatter_without_worker_replacement(
@@ -797,13 +803,6 @@ def test_formatter_completion_replays_after_outer_acceptance_crash(
             ResumeReason.SUPERVISION_REQUIRED,
             "candidate_selection_required",
         ),
-        (
-            "invalid",
-            _completed({"not_answer": True}, handle="saved-invalid"),
-            _request("saved-invalid", repair="local"),
-            ResumeReason.SUPERVISION_REQUIRED,
-            "output_invalid",
-        ),
     ),
 )
 def test_saved_output_recovery_pauses_without_provider_replay(
@@ -851,6 +850,38 @@ def test_saved_output_recovery_pauses_without_provider_replay(
     assert recovered.outcome.reason is reason
     assert recovered.outcome.details["code"] == code
     assert adapter.start_calls == 1
+    assert adapter.resume_calls == 0
+
+
+def test_saved_invalid_output_starts_one_regeneration_after_recovery(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    adapter.steps.append(
+        _completed({"not_answer": True}, handle="saved-invalid")
+    )
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_consume_candidates = executor._consume_candidates
+
+    def crash_after_raw_output(*args, **kwargs):
+        raise KeyboardInterrupt("simulated crash after saving raw provider output")
+
+    monkeypatch.setattr(executor, "_consume_candidates", crash_after_raw_output)
+    request = _request("saved-invalid", repair="local")
+    run_id = "saved-output-invalid"
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(request, run_root=tmp_path, run_id=run_id)
+
+    adapter.steps.append(_completed({"answer": 42}, handle="retry"))
+    monkeypatch.setattr(executor, "_consume_candidates", original_consume_candidates)
+    recovered = client.resume(run_root=tmp_path, run_id=run_id)
+
+    assert isinstance(recovered.outcome, LLMCompleted)
+    assert recovered.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 2
     assert adapter.resume_calls == 0
 
 

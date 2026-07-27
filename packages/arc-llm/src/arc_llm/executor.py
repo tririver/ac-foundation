@@ -1003,7 +1003,6 @@ class LLMTaskExecutor:
             if (
                 self._automatic_output_retry
                 and isinstance(request.output, JsonOutput)
-                and request.output.repair == "format"
             ):
                 return self._start_output_retry(
                     context,
