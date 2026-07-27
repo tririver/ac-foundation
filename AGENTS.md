@@ -1,5 +1,38 @@
 # ARC Development Guidance
 
+## Governing Philosophy: Infrastructure for Model-Led Science
+
+**ARC exists to expand the scientific ability and creativity of capable
+models, not to replace their scientific judgment with complicated program
+logic.**
+
+- Give models better information, easier access to evidence, reliable tools,
+  recoverable execution, and clear provenance.
+- Provide simple, repeatedly validated research practices where infrastructure
+  is genuinely useful: independent proposer-reviewer criticism, focused
+  literature and citation searches, reproducible calculations, explicit
+  assumptions and uncertainty, and respectful citation of prior work.
+- Treat citation as scientific context and scholarly courtesy. Help models find
+  and acknowledge predecessors; do not turn a bounded search result into proof
+  of novelty or a qualification gate.
+- Leave scientific questions to model reasoning wherever correction, revision,
+  comparison, or further evidence can resolve them. Scientific merit,
+  relevance, novelty, simplicity, research direction, decomposition, and
+  presentation are not validity conditions for program code.
+- Use prompts, evidence, warnings, confidence, alternatives, and reviewer
+  feedback to improve scientific decisions. Do not encode debatable scientific
+  taste as hard routing, deletion, disqualification, closed taxonomies, or
+  mandatory methodological bureaucracy.
+- Reserve hard program stops for genuine system boundaries: missing authority,
+  corrupt or unreadable durable state, invalid machine contracts that remain
+  unusable after bounded recovery, unsafe destructive actions, or the complete
+  absence of a usable result. Delivery failures must not erase valid scientific
+  work.
+- Before adding complex enforcement code, ask whether it protects a necessary
+  system invariant or instead constrains a scientific choice that a capable
+  model should make. If the latter, provide information and feedback and trust
+  the model.
+
 ARC is a theoretical-physics research toolkit built from reusable Python
 packages and thin agent-facing adapters. Keep package behavior independent of
 any particular agent host or checked-out Skill.
