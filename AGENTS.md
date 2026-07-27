@@ -124,6 +124,11 @@ Packages:
 - ARC is local research software. Handle interrupted writes, accidental
   corruption, malformed provider output, and ordinary cooperating-process
   races.
+- Find the root cause of failures. When a run fails because of a general ARC
+  contract or implementation defect, first fix ARC and add a regression test;
+  do not hide the defect with ad hoc task-script changes or project-local
+  workarounds. Use a local correction only when the cause is genuinely
+  specific to that project's input or configuration.
 - Treat agents, models, users, and the local filesystem as trusted unless the
   user explicitly introduces a hostile boundary. Use simple guardrails against
   accidental deletion, credential disclosure, unsafe provider invocation, and
