@@ -20,6 +20,7 @@ ALLOWED = {
         "arc_jobs",
         "arc_llm",
         "arc_paper",
+        "arc_proposer_reviewer",
         "arc_translate",
     },
 }
