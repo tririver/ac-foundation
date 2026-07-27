@@ -8,7 +8,7 @@ from arc_jobs import JsonValue
 from .models import LoopSpec, WorkerSpec
 
 
-PROMPT_CONTRACT = "arc.proposer_reviewer.prompt.v2"
+PROMPT_CONTRACT = "arc.proposer_reviewer.prompt.v3"
 
 _PROPOSER_PROTOCOL = """You are one proposer in a typed proposer-reviewer round.
 Return one complete JSON value that satisfies the output contract. Do not return
@@ -24,10 +24,11 @@ contribution and the feedback gives each proposer an actionable way to obtain
 it. Choose stop when the objective is satisfied or no concrete improvement path
 remains. Do not continue merely because additional rounds are available."""
 
-_WORKSPACE_INPUT_PROTOCOL = (
-    "When host/control.json declares workspace inputs, read the complete verified "
-    "files at those relative paths before answering."
-)
+_WORKSPACE_INPUT_PROTOCOL = """When host/control.json declares workspace inputs, first inspect its verified
+input manifest. Read the files, sections, or chapters needed for the current
+worker instructions and round task. Read a complete input only when the caller
+explicitly requires a complete or full-document audit; do not assume every
+workspace input must be read in full."""
 
 _PROPOSER_PROTOCOL = f"{_PROPOSER_PROTOCOL}\n{_WORKSPACE_INPUT_PROTOCOL}"
 _REVIEWER_PROTOCOL = f"{_REVIEWER_PROTOCOL}\n{_WORKSPACE_INPUT_PROTOCOL}"

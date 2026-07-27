@@ -85,6 +85,19 @@ def test_delta_and_reviewer_prompts_keep_only_business_context() -> None:
     assert "Do not continue merely because additional rounds are available" in reviewer
 
 
+def test_workspace_input_protocol_reads_only_task_relevant_material() -> None:
+    value = loop()
+    prompt = render_initial_proposer_prompt(
+        loop=value, worker=value.proposers[0], round_number=1
+    )
+
+    assert "first inspect its verified\ninput manifest" in prompt
+    assert "files, sections, or chapters needed for the current" in prompt
+    assert "only when the caller\nexplicitly requires a complete or full-document audit" in prompt
+    assert "do not assume every\nworkspace input must be read in full" in prompt
+    assert "read the complete verified" not in prompt
+
+
 def test_worker_identity_covers_only_current_worker_contract() -> None:
     assert WORKER_SEMANTIC_KEY_SCHEMA.endswith("v7")
     assert LOOP_SEMANTIC_KEY_SCHEMA.endswith("v7")
@@ -165,6 +178,7 @@ def test_worker_identity_covers_only_current_worker_contract() -> None:
     assert set(worker_contract_document(worker)) == {
         "worker_id", "instructions", "output_schema", "model"
     }
+    assert PROMPT_CONTRACT == "arc.proposer_reviewer.prompt.v3"
     assert loop_semantic_projection(value)["prompt_contract"] == PROMPT_CONTRACT
     assert worker_semantic_projection(
         role="proposer",
