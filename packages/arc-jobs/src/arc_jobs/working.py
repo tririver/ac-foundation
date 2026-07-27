@@ -283,8 +283,21 @@ class EditableArtifactStore:
             return None
         if self.recovery_epoch == 0:
             return self.immutable.find(logical_id)
+        immutable_id = self._immutable_id(logical_id)
+        current = self.immutable.find(immutable_id)
+        if current is not None:
+            content = path.read_bytes()
+            if self.immutable.read_bytes(current) == content:
+                return current
+            # Preserve immutability when an artifact is edited after it was
+            # published in this recovery epoch.
+            return self.immutable.publish_bytes(
+                immutable_id,
+                content,
+                media_type=current.media_type,
+            )
         return self.immutable.publish_bytes(
-            self._immutable_id(logical_id),
+            immutable_id,
             path.read_bytes(),
             media_type=self._known_media_type(logical_id),
         )

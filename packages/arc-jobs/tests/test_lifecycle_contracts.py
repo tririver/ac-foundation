@@ -974,6 +974,57 @@ def test_deleted_working_artifact_regenerates_in_recovery_epoch(tmp_path):
     assert handler.observed == [{"value": 1}, {"value": 2}]
 
 
+class RecoveryArtifactPauseHandler:
+    name = "recovery-artifact-pause.v1"
+
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, context):
+        self.calls += 1
+        if self.calls == 1:
+            return Failed(RunError("expected", "enter recovery"))
+        ref = context.artifacts.find("stage/value")
+        if ref is None:
+            ref = context.artifacts.publish_bytes(
+                "stage/value",
+                b"recovery-only",
+                media_type="text/plain",
+            )
+        if self.calls == 2:
+            return Paused(
+                Awaiting(
+                    ResumeReason.SUPERVISION_REQUIRED,
+                    "review-recovery-artifact",
+                    False,
+                )
+            )
+        return Succeeded(ref)
+
+
+def test_paused_recovery_replays_current_epoch_artifact_without_republishing(
+    tmp_path,
+):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = RecoveryArtifactPauseHandler()
+
+    failed = engine.execute(
+        RunSpec("run-1", handler.name, {}), handler
+    )
+    paused = engine.resume("run-1", handler)
+    completed = engine.resume("run-1", handler)
+
+    assert failed.status is RunStatus.FAILED
+    assert paused.status is RunStatus.PAUSED
+    assert paused.recovery_epoch == 1
+    assert completed.status is RunStatus.SUCCEEDED
+    assert completed.recovery_epoch == 1
+    assert completed.result_ref is not None
+    assert completed.result_ref.artifact_id == "recovery-1/stage/value"
+    assert completed.result_ref.media_type == "text/plain"
+
+
 class BlockingRecoveryHandler:
     name = "blocking-recovery.v1"
 
