@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from arc_jobs import (
+    AtomicStateStore,
     ArtifactDigest,
     ArtifactSourceRef,
     EventWriter,
@@ -39,8 +40,10 @@ from arc_proposer_reviewer import (
     WorkerSpec,
 )
 from arc_proposer_reviewer.models import BATCH_SCHEMA_VERSION
+from arc_proposer_reviewer.projection import read_batch_round, read_batch_trace
 from arc_proposer_reviewer.protocol import decode_batch_result, encode_batch_request
 from arc_proposer_reviewer.prompts import reviewer_envelope_schema
+from arc_proposer_reviewer.state import _LoopStateContract, state_namespace
 
 
 PROPOSAL_SCHEMA = {
@@ -137,6 +140,7 @@ def _loop(
     max_rounds: int = 1,
     allow_early_stop: bool = True,
     policy: ProposerFailurePolicy = ProposerFailurePolicy.FAIL_LOOP,
+    review_final_round: bool = True,
 ) -> LoopSpec:
     return LoopSpec(
         loop_id=loop_id,
@@ -146,6 +150,7 @@ def _loop(
         max_rounds=max_rounds,
         allow_early_stop=allow_early_stop,
         on_proposer_failure=policy,
+        review_final_round=review_final_round,
     )
 
 
@@ -834,3 +839,191 @@ def test_invalid_later_review_preserves_the_last_complete_round(
     assert result.final_review is not None
     assert result.final_review["payload"] == {"score": 1}
     assert result.error is not None
+
+
+def test_terminal_proposer_round_skips_reviewer_and_replays_durably(
+    tmp_path: Path,
+) -> None:
+    class ContinuingReviews(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.requests = []
+            self.review_calls = 0
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.requests.append(request)
+            completed = _completed(request)
+            if _is_proposer(request):
+                return completed
+            self.review_calls += 1
+            value = dict(completed.value)
+            value["action"] = "continue"
+            value["reason"] = "A complete revision is required."
+            value["feedback"] = {
+                worker_id: "Revise the complete proposal."
+                for worker_id in value["feedback"]
+            }
+            value["payload"] = {"score": self.review_calls}
+            return LLMCompleted(value, "fake", "fake-model", None, None)
+
+    fake = ContinuingReviews()
+    loop = _loop(
+        max_rounds=3,
+        allow_early_stop=True,
+        review_final_round=False,
+    )
+    repository, handler, snapshot = _run(tmp_path, _request(loop), fake)
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    result = _result(repository, snapshot).loops[0]
+    assert result.termination.value == "round_limit"
+    assert result.rounds_completed == 3
+    assert result.final_review is not None
+    assert result.final_review["payload"] == {"score": 2}
+    assert [
+        "proposer" if _is_proposer(request) else "reviewer"
+        for request in fake.requests
+    ] == ["proposer", "reviewer", "proposer", "reviewer", "proposer"]
+    assert fake.review_calls == 2
+
+    trace = read_batch_trace(repository, "run-a")
+    assert [round_ref.review_ref is None for round_ref in trace.loops[0].rounds] == [
+        False,
+        False,
+        True,
+    ]
+    terminal = read_batch_round(repository, "run-a", loop.loop_id, 3)
+    assert terminal.review is None
+    assert terminal.review_ref is None
+    assert len(terminal.transcript_refs) == 1
+    state = AtomicStateStore(
+        repository.run_directory("run-a")
+        / "state"
+        / f"{state_namespace(loop.loop_id)}.json",
+        _LoopStateContract(),
+    ).read()
+    assert state is not None
+    assert state.rounds_completed == 3
+    assert state.review_ref is not None
+    assert state.review_ref.artifact_id.endswith("rounds/002/reviews/loop-a-r")
+    assert len(state.transcript_refs) == 5
+    artifacts = ImmutableArtifactStore(
+        repository.run_directory("run-a"), repository_root=repository.root
+    )
+    assert artifacts.find(
+        "proposer-reviewer/loops/loop-a/rounds/003/proposals/loop-a-p"
+    ) is not None
+    assert artifacts.find(
+        "proposer-reviewer/loops/loop-a/rounds/003/reviews/loop-a-r"
+    ) is None
+    assert artifacts.find(
+        "proposer-reviewer/loops/loop-a/rounds/003/transcript/001"
+    ) is not None
+
+    replayed = RunEngine(repository).execute(
+        RunSpec("run-a", handler.name, encode_batch_request(_request(loop))),
+        handler,
+    )
+    assert replayed == snapshot
+    assert len(fake.requests) == 5
+
+
+def test_early_reviewer_stop_prevents_terminal_proposer_round(
+    tmp_path: Path,
+) -> None:
+    fake = FakeLLM()
+    loop = _loop(
+        max_rounds=3,
+        allow_early_stop=True,
+        review_final_round=False,
+    )
+    repository, _handler, snapshot = _run(tmp_path, _request(loop), fake)
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    result = _result(repository, snapshot).loops[0]
+    assert result.termination.value == "reviewer_stop"
+    assert result.rounds_completed == 1
+    assert len(fake.calls) == 2
+    assert read_batch_trace(repository, "run-a").loops[0].rounds[0].review_ref is not None
+
+
+def test_terminal_proposer_pause_resumes_without_a_terminal_reviewer(
+    tmp_path: Path,
+) -> None:
+    class PauseTerminalProposal(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.proposer_calls = 0
+            self.review_calls = 0
+            self.requests = []
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.requests.append(request)
+            if _is_proposer(request):
+                self.proposer_calls += 1
+                if self.proposer_calls == 3:
+                    self.paused_task_id = request.task_id
+                    return LLMPaused(
+                        ResumeReason.EXTERNAL_CONDITION,
+                        "terminal-provider-wait",
+                        {"code": "provider_unavailable"},
+                    )
+                return _completed(request)
+            self.review_calls += 1
+            completed = _completed(request)
+            value = dict(completed.value)
+            value["action"] = "continue"
+            value["reason"] = "One terminal revision remains."
+            value["feedback"] = {
+                worker_id: "Revise the complete proposal."
+                for worker_id in value["feedback"]
+            }
+            return LLMCompleted(value, "fake", "fake-model", None, None)
+
+        def resume(self, context, task_id, *, input, options):
+            self.calls.append(("resume", task_id))
+            assert task_id == self.paused_task_id
+            return LLMCompleted(
+                {"proposal": "terminal-resumed"},
+                "fake",
+                "fake-model",
+                None,
+                None,
+            )
+
+    fake = PauseTerminalProposal()
+    loop = _loop(
+        max_rounds=3,
+        allow_early_stop=True,
+        review_final_round=False,
+    )
+    repository, handler, paused = _run(tmp_path, _request(loop), fake)
+
+    assert paused.status is RunStatus.PAUSED
+    assert paused.awaiting is not None
+    assert paused.awaiting.details["round"] == 3
+    assert paused.awaiting.details["role"] == "proposer"
+    assert fake.review_calls == 2
+
+    resumed = RunEngine(repository).resume("run-a", handler)
+
+    assert resumed.status is RunStatus.SUCCEEDED
+    result = _result(repository, resumed).loops[0]
+    assert result.rounds_completed == 3
+    assert result.final_proposals == {"loop-a-p": {"proposal": "terminal-resumed"}}
+    assert result.final_review is not None
+    assert result.final_review["payload"] == {"score": 1}
+    assert fake.review_calls == 2
+    assert [kind for kind, _task_id in fake.calls] == [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "resume",
+    ]
+    terminal = read_batch_round(repository, "run-a", loop.loop_id, 3)
+    assert terminal.review is None
+    assert terminal.proposals == {"loop-a-p": {"proposal": "terminal-resumed"}}

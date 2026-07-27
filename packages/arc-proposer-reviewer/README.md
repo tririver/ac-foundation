@@ -38,6 +38,12 @@ inspection = runner.projection(
 forward newly persisted `arc.jobs.event.v1` documents for foreground status
 rendering. Sink failures do not change the durable batch outcome.
 
+`LoopSpec.review_final_round` defaults to `True`, preserving the usual
+proposer-reviewer round. Set it to `False` to make only the final configured
+round proposer-only: earlier reviewer `stop` decisions still accept the current
+proposal when early stopping is enabled, while a run that reaches its round
+limit commits the terminal proposal and retains the latest completed review.
+
 ## Tests
 
 The default suite uses fake providers:

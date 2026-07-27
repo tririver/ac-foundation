@@ -129,6 +129,10 @@ def _validate_loop(loop: LoopSpec, path: tuple[str | int, ...]) -> None:
     _positive_int(loop.max_rounds, path + ("max_rounds",))
     if type(loop.allow_early_stop) is not bool:
         raise RequestValidationError("must be a boolean", path + ("allow_early_stop",))
+    if type(loop.review_final_round) is not bool:
+        raise RequestValidationError(
+            "must be a boolean", path + ("review_final_round",)
+        )
     if not isinstance(loop.on_proposer_failure, ProposerFailurePolicy):
         raise RequestValidationError(
             "unknown proposer failure policy", path + ("on_proposer_failure",)

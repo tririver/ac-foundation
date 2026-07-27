@@ -533,6 +533,74 @@ class ProposerReviewerService:
                 worker_id: read_json_artifact(artifacts, ref)
                 for worker_id, ref in successful_refs.items()
             }
+            if (
+                not loop.review_final_round
+                and round_number == loop.max_rounds
+            ):
+                new_transcript_refs = list(state.transcript_refs)
+                turn_number = 0
+                for worker in loop.proposers:
+                    if worker.worker_id not in successful_refs:
+                        continue
+                    turn_number += 1
+                    turn = TranscriptTurn(
+                        role="proposer",
+                        worker_id=worker.worker_id,
+                        round_number=round_number,
+                        content_ref=successful_refs[worker.worker_id],
+                        addressed_worker_ids=(),
+                    )
+                    new_transcript_refs.append(
+                        artifacts.publish_json(
+                            transcript_artifact_id(
+                                loop.loop_id,
+                                round_number,
+                                f"{turn_number:03d}",
+                            ),
+                            encode_transcript_turn(turn),
+                        )
+                    )
+                before_commit = store.read()
+                assert before_commit is not None
+                state = store.compare_and_swap(
+                    before_commit.revision,
+                    _LoopState(
+                        revision=before_commit.revision + 1,
+                        loop_id=loop.loop_id,
+                        rounds_completed=round_number,
+                        proposal_refs={
+                            **before_commit.proposal_refs,
+                            **successful_refs,
+                        },
+                        current_proposer_ids=tuple(successful_refs),
+                        # The terminal proposal is intentionally unreviewed;
+                        # preserve the latest completed reviewer record.
+                        review_ref=before_commit.review_ref,
+                        proposer_sessions={
+                            **before_commit.proposer_sessions,
+                            **successful_sessions,
+                        },
+                        reviewer_session=before_commit.reviewer_session,
+                        transcript_refs=tuple(new_transcript_refs),
+                        pauses={},
+                        termination=LoopTermination.ROUND_LIMIT,
+                    ),
+                )
+                _emit_progress(
+                    context,
+                    _ExecutionProgress(
+                        "round_finished",
+                        loop.loop_id,
+                        round_number=round_number,
+                        status="succeeded",
+                    ),
+                )
+                return _successful_loop(
+                    loop,
+                    state,
+                    LoopTermination.ROUND_LIMIT,
+                    artifacts,
+                )
             review_upstream = {
                 f"proposal:{worker_id}": ref.digest.value
                 for worker_id, ref in successful_refs.items()

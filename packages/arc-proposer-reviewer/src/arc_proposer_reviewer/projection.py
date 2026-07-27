@@ -174,7 +174,7 @@ class CommittedRoundRef:
     loop_id: str
     round_number: int
     proposal_refs: Mapping[str, SafeArtifactRef]
-    review_ref: SafeArtifactRef
+    review_ref: SafeArtifactRef | None
     transcript_refs: tuple[SafeArtifactRef, ...]
 
 
@@ -198,9 +198,9 @@ class CommittedRound:
     loop_id: str
     round_number: int
     proposals: Mapping[str, JsonValue]
-    review: JsonValue
+    review: JsonValue | None
     proposal_refs: Mapping[str, SafeArtifactRef]
-    review_ref: SafeArtifactRef
+    review_ref: SafeArtifactRef | None
     transcript_refs: tuple[SafeArtifactRef, ...]
 
 
@@ -208,7 +208,7 @@ class CommittedRound:
 class _CommittedRoundData:
     reference: CommittedRoundRef
     proposal_refs: Mapping[str, object]
-    review_ref: object
+    review_ref: object | None
 
 
 @dataclass(frozen=True)
@@ -491,7 +491,11 @@ class BatchProjection:
             worker_id: self._read_json(ref)
             for worker_id, ref in round_data.proposal_refs.items()
         }
-        review = self._read_json(round_data.review_ref)
+        review = (
+            None
+            if round_data.review_ref is None
+            else self._read_json(round_data.review_ref)
+        )
         return CommittedRound(
             loop_id=round_data.reference.loop_id,
             round_number=round_data.reference.round_number,
@@ -598,7 +602,15 @@ class BatchProjection:
         for worker_id in state.current_proposer_ids:
             if state.proposal_refs.get(worker_id) != latest.proposal_refs[worker_id]:
                 raise BatchProjectionIntegrityError("current proposal frontier is inconsistent")
-        if state.review_ref != latest.review_ref:
+        latest_review_ref = next(
+            (
+                committed.review_ref
+                for committed in reversed(result)
+                if committed.review_ref is not None
+            ),
+            None,
+        )
+        if state.review_ref != latest_review_ref:
             raise BatchProjectionIntegrityError("current review frontier is inconsistent")
         return tuple(result)
 
@@ -612,6 +624,9 @@ class BatchProjection:
     ) -> _CommittedRoundData:
         if not entries:
             raise BatchProjectionIntegrityError("committed round has no transcript turns")
+        terminal_proposer_only = (
+            not loop.review_final_round and round_number == loop.max_rounds
+        )
         proposer_ids = {worker.worker_id for worker in loop.proposers}
         proposal_refs: dict[str, object] = {}
         review_ref: object | None = None
@@ -622,7 +637,10 @@ class BatchProjection:
                     raise BatchProjectionIntegrityError("proposer transcript turn is invalid")
                 if turn.worker_id in proposal_refs:
                     raise BatchProjectionIntegrityError("round contains a duplicate proposer")
-                if turn.addressed_worker_ids != (loop.reviewer.worker_id,):
+                expected_audience = (
+                    () if terminal_proposer_only else (loop.reviewer.worker_id,)
+                )
+                if turn.addressed_worker_ids != expected_audience:
                     raise BatchProjectionIntegrityError("proposer transcript audience is invalid")
                 expected = _scoped_artifact_id(
                     proposal_artifact_id(loop.loop_id, round_number, turn.worker_id)
@@ -646,8 +664,12 @@ class BatchProjection:
                 raise BatchProjectionIntegrityError("review artifact locator is inconsistent")
             self._verify_ref(turn.content_ref)
             review_ref = turn.content_ref
-        if not proposal_refs or review_ref is None:
+        if not proposal_refs or (review_ref is None and not terminal_proposer_only):
             raise BatchProjectionIntegrityError("committed round is incomplete")
+        if review_ref is not None and terminal_proposer_only:
+            raise BatchProjectionIntegrityError(
+                "terminal proposer-only round contains a reviewer"
+            )
         if round_number == state.rounds_completed and state.termination is LoopTermination.FAILED:
             raise BatchProjectionIntegrityError("failed loop state has a terminal frontier")
         reference = CommittedRoundRef(
@@ -657,7 +679,7 @@ class BatchProjection:
                 worker_id: _safe_ref(ref)
                 for worker_id, ref in proposal_refs.items()
             },
-            review_ref=_safe_ref(review_ref),
+            review_ref=(None if review_ref is None else _safe_ref(review_ref)),
             transcript_refs=transcript_refs,
         )
         return _CommittedRoundData(reference, proposal_refs, review_ref)

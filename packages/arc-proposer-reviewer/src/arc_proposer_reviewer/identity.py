@@ -48,7 +48,7 @@ def loop_semantic_projection(
     *,
     inputs: tuple[LLMInputArtifact, ...] = (),
 ) -> dict[str, JsonValue]:
-    return {
+    projection: dict[str, JsonValue] = {
         "semantic_key_schema": LOOP_SEMANTIC_KEY_SCHEMA,
         "prompt_contract": PROMPT_CONTRACT,
         "loop_id": loop.loop_id,
@@ -62,6 +62,10 @@ def loop_semantic_projection(
         "allow_early_stop": loop.allow_early_stop,
         "on_proposer_failure": loop.on_proposer_failure.value,
     }
+    # Omitting the default preserves semantic keys for v4 requests and runs.
+    if not loop.review_final_round:
+        projection["review_final_round"] = False
+    return projection
 
 
 def worker_semantic_projection(

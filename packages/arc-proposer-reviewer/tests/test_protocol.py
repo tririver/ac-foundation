@@ -60,6 +60,19 @@ def test_batch_request_round_trips_with_closed_worker_shape() -> None:
     assert decode_batch_request(encoded) == original
 
 
+def test_v4_request_decodes_with_final_reviewer_enabled_by_default() -> None:
+    legacy = encode_batch_request(request())
+    legacy["schema_version"] = "arc.proposer_reviewer.batch.v4"
+    del legacy["loops"][0]["review_final_round"]  # type: ignore[index]
+
+    decoded = decode_batch_request(legacy)
+
+    assert decoded.schema_version == BATCH_SCHEMA_VERSION
+    assert decoded.loops[0].review_final_round is True
+    assert encode_batch_request(decoded)["schema_version"] == BATCH_SCHEMA_VERSION
+    assert encode_batch_request(decoded)["loops"][0]["review_final_round"] is True  # type: ignore[index]
+
+
 def test_batch_request_round_trips_verified_input_references_without_content() -> None:
     original = request()
     input_artifact = LLMInputArtifact(

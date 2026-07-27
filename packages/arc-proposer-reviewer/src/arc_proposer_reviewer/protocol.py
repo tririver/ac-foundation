@@ -9,6 +9,7 @@ from arc_llm import LLMInputArtifact, ModelSelection
 from .identity import worker_contract_document
 from .models import (
     BATCH_SCHEMA_VERSION,
+    LEGACY_BATCH_SCHEMA_VERSION_V4,
     RESULT_SCHEMA_VERSION,
     BatchFailurePolicy,
     BatchRequest,
@@ -25,9 +26,13 @@ from .validation import RequestValidationError, validate_batch_request
 def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
     _exact(document, {"schema_version", "batch_id", "loops", "inputs", "failure_policy"}, ())
     schema_version = _required_text(document, "schema_version", ())
-    if schema_version != BATCH_SCHEMA_VERSION:
+    if schema_version not in {BATCH_SCHEMA_VERSION, LEGACY_BATCH_SCHEMA_VERSION_V4}:
         raise RequestValidationError(
-            f"schema_version must be {BATCH_SCHEMA_VERSION}", ("schema_version",)
+            (
+                "schema_version must be "
+                f"{BATCH_SCHEMA_VERSION} or {LEGACY_BATCH_SCHEMA_VERSION_V4}"
+            ),
+            ("schema_version",),
         )
     batch_id = _required_text(document, "batch_id", ())
     raw_loops = document["loops"]
@@ -36,7 +41,11 @@ def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
     raw_inputs = document["inputs"]
     if not isinstance(raw_inputs, list):
         raise RequestValidationError("must be an array", ("inputs",))
-    loops = tuple(_decode_loop(value, ("loops", index)) for index, value in enumerate(raw_loops))
+    legacy_v4 = schema_version == LEGACY_BATCH_SCHEMA_VERSION_V4
+    loops = tuple(
+        _decode_loop(value, ("loops", index), legacy_v4=legacy_v4)
+        for index, value in enumerate(raw_loops)
+    )
     failure_policy = _enum(
         BatchFailurePolicy,
         document["failure_policy"],
@@ -94,21 +103,25 @@ def decode_batch_result(document: Mapping[str, JsonValue]) -> BatchResult:
     )
 
 
-def _decode_loop(value: JsonValue, path: tuple[str | int, ...]) -> LoopSpec:
+def _decode_loop(
+    value: JsonValue,
+    path: tuple[str | int, ...],
+    *,
+    legacy_v4: bool,
+) -> LoopSpec:
     document = _object(value, path)
-    _exact(
-        document,
-        {
-            "loop_id",
-            "context",
-            "proposers",
-            "reviewer",
-            "max_rounds",
-            "allow_early_stop",
-            "on_proposer_failure",
-        },
-        path,
-    )
+    fields = {
+        "loop_id",
+        "context",
+        "proposers",
+        "reviewer",
+        "max_rounds",
+        "allow_early_stop",
+        "on_proposer_failure",
+    }
+    if not legacy_v4:
+        fields.add("review_final_round")
+    _exact(document, fields, path)
     raw_context = document["context"]
     if not isinstance(raw_context, Mapping):
         raise RequestValidationError("must be an object", path + ("context",))
@@ -121,6 +134,11 @@ def _decode_loop(value: JsonValue, path: tuple[str | int, ...]) -> LoopSpec:
     max_rounds = document["max_rounds"]
     if type(max_rounds) is not int:
         raise RequestValidationError("must be an integer", path + ("max_rounds",))
+    review_final_round = True if legacy_v4 else document["review_final_round"]
+    if type(review_final_round) is not bool:
+        raise RequestValidationError(
+            "must be a boolean", path + ("review_final_round",)
+        )
     return LoopSpec(
         loop_id=_required_text(document, "loop_id", path),
         context=dict(raw_context),
@@ -136,6 +154,7 @@ def _decode_loop(value: JsonValue, path: tuple[str | int, ...]) -> LoopSpec:
             document["on_proposer_failure"],
             path + ("on_proposer_failure",),
         ),
+        review_final_round=review_final_round,
     )
 
 
@@ -204,6 +223,7 @@ def _encode_loop(loop: LoopSpec) -> dict[str, JsonValue]:
         "max_rounds": loop.max_rounds,
         "allow_early_stop": loop.allow_early_stop,
         "on_proposer_failure": loop.on_proposer_failure.value,
+        "review_final_round": loop.review_final_round,
     }
 
 
