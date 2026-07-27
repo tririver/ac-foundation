@@ -15,6 +15,7 @@ from .models import (
     LoopSpec,
     ProposerFailurePolicy,
     REVIEW_SCHEMA_VERSION,
+    RevisionContextMode,
     Review,
 )
 
@@ -136,6 +137,10 @@ def _validate_loop(loop: LoopSpec, path: tuple[str | int, ...]) -> None:
     if not isinstance(loop.on_proposer_failure, ProposerFailurePolicy):
         raise RequestValidationError(
             "unknown proposer failure policy", path + ("on_proposer_failure",)
+        )
+    if not isinstance(loop.revision_context_mode, RevisionContextMode):
+        raise RequestValidationError(
+            "unknown revision context mode", path + ("revision_context_mode",)
         )
 
     seen_workers: set[str] = set()

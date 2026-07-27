@@ -10,6 +10,7 @@ from .models import (
     LoopSpec,
     LoopTermination,
     ProposerFailurePolicy,
+    RevisionContextMode,
     WorkerSpec,
 )
 from .service import ProposerReviewerService
@@ -45,6 +46,7 @@ __all__ = [
     "LoopSpec",
     "LoopTermination",
     "ProposerFailurePolicy",
+    "RevisionContextMode",
     "ProposerReviewerHandler",
     "ProposerReviewerService",
     "inspect_batch",

@@ -44,6 +44,11 @@ round proposer-only: earlier reviewer `stop` decisions still accept the current
 proposal when early stopping is enabled, while a run that reaches its round
 limit commits the terminal proposal and retains the latest completed review.
 
+`LoopSpec.revision_context_mode` defaults to `feedback_only`: a delta proposer
+receives its previous proposal and its own targeted feedback. Set it to
+`RevisionContextMode.FULL_REVIEW_ENVELOPE` when a caller also wants each delta
+proposer to receive the complete previous review envelope as broader context.
+
 ## Tests
 
 The default suite uses fake providers:

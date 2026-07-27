@@ -60,6 +60,7 @@ from .models import (
     LoopSpec,
     LoopTermination,
     ProposerFailurePolicy,
+    RevisionContextMode,
     WorkerSpec,
 )
 from .prompts import (
@@ -407,6 +408,12 @@ class ProposerReviewerService:
                                     "current context."
                                 ),
                             )
+                        ),
+                        previous_review_envelope=(
+                            prior_review
+                            if loop.revision_context_mode
+                            is RevisionContextMode.FULL_REVIEW_ENVELOPE
+                            else None
                         ),
                         transcript_refs=transcript_refs,
                     )

@@ -5,7 +5,7 @@ from typing import Literal, Mapping
 from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
 from arc_llm import LLMInputArtifact
 
-from .models import LoopSpec, WorkerSpec
+from .models import LoopSpec, RevisionContextMode, WorkerSpec
 from .prompts import PROMPT_CONTRACT
 
 
@@ -65,6 +65,10 @@ def loop_semantic_projection(
     # Omitting the default preserves semantic keys for v4 requests and runs.
     if not loop.review_final_round:
         projection["review_final_round"] = False
+    # The default does not alter a revision prompt, so omitting it preserves
+    # task identities for durable v4/v5 batches that may be resumed.
+    if loop.revision_context_mode is not RevisionContextMode.FEEDBACK_ONLY:
+        projection["revision_context_mode"] = loop.revision_context_mode.value
     return projection
 
 
@@ -77,7 +81,7 @@ def worker_semantic_projection(
     upstream_digests: Mapping[str, str],
     inputs: tuple[LLMInputArtifact, ...] = (),
 ) -> dict[str, JsonValue]:
-    return {
+    projection: dict[str, JsonValue] = {
         "semantic_key_schema": WORKER_SEMANTIC_KEY_SCHEMA,
         "prompt_contract": PROMPT_CONTRACT,
         "role": role,
@@ -89,6 +93,15 @@ def worker_semantic_projection(
         "inputs": input_artifact_documents(inputs),
         "upstream_content_digests": dict(sorted(upstream_digests.items())),
     }
+    # This changes only a delta proposer prompt. Keep initial proposer and
+    # reviewer task identities unchanged, including for durable resumed runs.
+    if (
+        role == "proposer"
+        and "previous_proposal" in upstream_digests
+        and loop.revision_context_mode is not RevisionContextMode.FEEDBACK_ONLY
+    ):
+        projection["revision_context_mode"] = loop.revision_context_mode.value
+    return projection
 
 
 def worker_semantic_key(

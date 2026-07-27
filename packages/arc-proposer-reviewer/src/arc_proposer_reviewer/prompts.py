@@ -58,25 +58,35 @@ def render_delta_proposer_prompt(
     round_number: int,
     previous_proposal: JsonValue,
     targeted_feedback: str,
+    previous_review_envelope: JsonValue | None = None,
     transcript_refs: tuple[Mapping[str, JsonValue], ...] = (),
 ) -> str:
+    round_task: dict[str, JsonValue] = {
+        "kind": "revised_proposal",
+        "loop_id": loop.loop_id,
+        "round": round_number,
+        "previous_proposal": previous_proposal,
+        "targeted_feedback": targeted_feedback,
+        "transcript_refs": list(transcript_refs),
+        "instruction": (
+            "Recompute and return a complete standalone proposal. "
+            "Do not return a patch or only the changed fields."
+        ),
+    }
+    if previous_review_envelope is not None:
+        round_task["previous_review_envelope"] = previous_review_envelope
+        round_task["instruction"] = (
+            "Use the targeted feedback as the direct revision request and the "
+            "complete previous review envelope as broader context. Recompute and "
+            "return a complete standalone proposal. Do not return a patch or only "
+            "the changed fields."
+        )
     return _sections(
         _PROPOSER_PROTOCOL,
         worker.instructions,
         worker.output_schema,
         loop.context,
-        {
-            "kind": "revised_proposal",
-            "loop_id": loop.loop_id,
-            "round": round_number,
-            "previous_proposal": previous_proposal,
-            "targeted_feedback": targeted_feedback,
-            "transcript_refs": list(transcript_refs),
-            "instruction": (
-                "Recompute and return a complete standalone proposal. "
-                "Do not return a patch or only the changed fields."
-            ),
-        },
+        round_task,
     )
 
 

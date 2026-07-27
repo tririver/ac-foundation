@@ -12,6 +12,7 @@ from arc_proposer_reviewer.models import (
     BatchRequest,
     LoopSpec,
     ProposerFailurePolicy,
+    RevisionContextMode,
     WorkerSpec,
 )
 from arc_proposer_reviewer.protocol import decode_batch_request, encode_batch_request
@@ -57,6 +58,7 @@ def test_batch_request_round_trips_with_closed_worker_shape() -> None:
     encoded = encode_batch_request(original)
     proposer = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
     assert set(proposer) == {"worker_id", "instructions", "output_schema", "model"}
+    assert encoded["loops"][0]["revision_context_mode"] == "feedback_only"  # type: ignore[index]
     assert decode_batch_request(encoded) == original
 
 
@@ -64,6 +66,7 @@ def test_v4_request_decodes_with_final_reviewer_enabled_by_default() -> None:
     legacy = encode_batch_request(request())
     legacy["schema_version"] = "arc.proposer_reviewer.batch.v4"
     del legacy["loops"][0]["review_final_round"]  # type: ignore[index]
+    del legacy["loops"][0]["revision_context_mode"]  # type: ignore[index]
 
     decoded = decode_batch_request(legacy)
 
@@ -71,6 +74,49 @@ def test_v4_request_decodes_with_final_reviewer_enabled_by_default() -> None:
     assert decoded.loops[0].review_final_round is True
     assert encode_batch_request(decoded)["schema_version"] == BATCH_SCHEMA_VERSION
     assert encode_batch_request(decoded)["loops"][0]["review_final_round"] is True  # type: ignore[index]
+
+
+def test_v5_request_decodes_with_feedback_only_revision_context_by_default() -> None:
+    legacy = encode_batch_request(request())
+    legacy["schema_version"] = "arc.proposer_reviewer.batch.v5"
+    del legacy["loops"][0]["revision_context_mode"]  # type: ignore[index]
+
+    decoded = decode_batch_request(legacy)
+
+    assert decoded.schema_version == BATCH_SCHEMA_VERSION
+    assert decoded.loops[0].revision_context_mode is RevisionContextMode.FEEDBACK_ONLY
+
+
+def test_full_review_envelope_revision_context_round_trips() -> None:
+    original = request()
+    loop = original.loops[0]
+    original = BatchRequest(
+        original.schema_version,
+        original.batch_id,
+        (LoopSpec(
+            loop.loop_id,
+            loop.context,
+            loop.proposers,
+            loop.reviewer,
+            loop.max_rounds,
+            loop.allow_early_stop,
+            loop.on_proposer_failure,
+            loop.review_final_round,
+            RevisionContextMode.FULL_REVIEW_ENVELOPE,
+        ),),
+        original.failure_policy,
+    )
+
+    assert decode_batch_request(encode_batch_request(original)) == original
+
+
+@pytest.mark.parametrize("value", ("unknown", True, None))
+def test_revision_context_mode_is_closed_enum(value: object) -> None:
+    document = encode_batch_request(request())
+    document["loops"][0]["revision_context_mode"] = value  # type: ignore[index]
+
+    with pytest.raises(RequestValidationError, match="unknown enum value|must be a string"):
+        decode_batch_request(document)
 
 
 def test_batch_request_round_trips_verified_input_references_without_content() -> None:

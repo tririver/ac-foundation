@@ -13,7 +13,7 @@ from arc_proposer_reviewer.identity import (
 )
 from arc_jobs import ArtifactDigest, ArtifactSourceRef
 from arc_llm import LLMInputArtifact
-from arc_proposer_reviewer.models import LoopSpec, WorkerSpec
+from arc_proposer_reviewer.models import LoopSpec, RevisionContextMode, WorkerSpec
 from arc_proposer_reviewer.prompts import (
     PROMPT_CONTRACT,
     render_delta_proposer_prompt,
@@ -71,6 +71,23 @@ def test_delta_and_reviewer_prompts_keep_only_business_context() -> None:
     )
     assert "complete standalone proposal" in delta
     assert "Address this exact issue." in delta
+    assert "previous_review_envelope" not in delta
+    full_delta = render_delta_proposer_prompt(
+        loop=value,
+        worker=value.proposers[0],
+        round_number=2,
+        previous_proposal={"answer": "old"},
+        targeted_feedback="Address this exact issue.",
+        previous_review_envelope={
+            "schema_version": "arc.proposer_reviewer.review.v1",
+            "action": "continue",
+            "reason": "A broader issue.",
+            "feedback": {"p": "Address this exact issue."},
+            "payload": {"score": 1},
+        },
+    )
+    assert "previous_review_envelope" in full_delta
+    assert "complete previous review envelope as broader context" in full_delta
     reviewer = render_reviewer_prompt(
         loop=value,
         round_number=1,
@@ -187,3 +204,42 @@ def test_worker_identity_covers_only_current_worker_contract() -> None:
         worker=worker,
         upstream_digests={},
     )["prompt_contract"] == PROMPT_CONTRACT
+
+
+def test_full_review_envelope_mode_changes_semantic_identity_only_when_enabled() -> None:
+    value = loop()
+    full_context = replace(
+        value,
+        revision_context_mode=RevisionContextMode.FULL_REVIEW_ENVELOPE,
+    )
+    worker = value.proposers[0]
+
+    assert "revision_context_mode" not in loop_semantic_projection(value)
+    assert loop_semantic_projection(full_context)["revision_context_mode"] == "full_review_envelope"
+    assert worker_semantic_key(
+        role="proposer", loop=value, round_number=1, worker=worker,
+        upstream_digests={},
+    ) == worker_semantic_key(
+        role="proposer", loop=full_context, round_number=1, worker=worker,
+        upstream_digests={},
+    )
+    assert worker_semantic_key(
+        role="reviewer", loop=value, round_number=2, worker=value.reviewer,
+        upstream_digests={"previous_review": "a" * 64},
+    ) == worker_semantic_key(
+        role="reviewer", loop=full_context, round_number=2, worker=value.reviewer,
+        upstream_digests={"previous_review": "a" * 64},
+    )
+    assert worker_semantic_key(
+        role="proposer", loop=value, round_number=2, worker=worker,
+        upstream_digests={
+            "previous_proposal": "b" * 64,
+            "previous_review": "a" * 64,
+        },
+    ) != worker_semantic_key(
+        role="proposer", loop=full_context, round_number=2, worker=worker,
+        upstream_digests={
+            "previous_proposal": "b" * 64,
+            "previous_review": "a" * 64,
+        },
+    )

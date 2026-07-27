@@ -7,8 +7,9 @@ from typing import Literal, Mapping
 from arc_jobs import JsonValue, RunError
 from arc_llm import LLMExecutionOptions, LLMInputArtifact, ModelSelection
 
-
-BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v5"
+# Batch schema v6 adds the optional revision context configuration.
+BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v6"
+LEGACY_BATCH_SCHEMA_VERSION_V5 = "arc.proposer_reviewer.batch.v5"
 LEGACY_BATCH_SCHEMA_VERSION_V4 = "arc.proposer_reviewer.batch.v4"
 REVIEW_SCHEMA_VERSION = "arc.proposer_reviewer.review.v1"
 RESULT_SCHEMA_VERSION = "arc.proposer_reviewer.result.v1"
@@ -17,6 +18,13 @@ RESULT_SCHEMA_VERSION = "arc.proposer_reviewer.result.v1"
 class ProposerFailurePolicy(StrEnum):
     FAIL_LOOP = "fail_loop"
     CONTINUE_IF_ANY = "continue_if_any"
+
+
+class RevisionContextMode(StrEnum):
+    """Context supplied to a proposer after a completed review."""
+
+    FEEDBACK_ONLY = "feedback_only"
+    FULL_REVIEW_ENVELOPE = "full_review_envelope"
 
 
 class BatchFailurePolicy(StrEnum):
@@ -48,11 +56,12 @@ class LoopSpec:
     allow_early_stop: bool = True
     on_proposer_failure: ProposerFailurePolicy = ProposerFailurePolicy.FAIL_LOOP
     review_final_round: bool = True
+    revision_context_mode: RevisionContextMode = RevisionContextMode.FEEDBACK_ONLY
 
 
 @dataclass(frozen=True)
 class BatchRequest:
-    schema_version: Literal["arc.proposer_reviewer.batch.v5"]
+    schema_version: Literal["arc.proposer_reviewer.batch.v6"]
     batch_id: str
     loops: tuple[LoopSpec, ...]
     failure_policy: BatchFailurePolicy = BatchFailurePolicy.COLLECT

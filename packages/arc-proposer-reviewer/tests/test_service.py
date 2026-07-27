@@ -37,6 +37,7 @@ from arc_proposer_reviewer import (
     ProposerFailurePolicy,
     ProposerReviewerHandler,
     ProposerReviewerService,
+    RevisionContextMode,
     WorkerSpec,
 )
 from arc_proposer_reviewer.models import BATCH_SCHEMA_VERSION
@@ -141,6 +142,7 @@ def _loop(
     allow_early_stop: bool = True,
     policy: ProposerFailurePolicy = ProposerFailurePolicy.FAIL_LOOP,
     review_final_round: bool = True,
+    revision_context_mode: RevisionContextMode = RevisionContextMode.FEEDBACK_ONLY,
 ) -> LoopSpec:
     return LoopSpec(
         loop_id=loop_id,
@@ -151,6 +153,7 @@ def _loop(
         allow_early_stop=allow_early_stop,
         on_proposer_failure=policy,
         review_final_round=review_final_round,
+        revision_context_mode=revision_context_mode,
     )
 
 
@@ -785,8 +788,79 @@ def test_targeted_feedback_and_worker_llm_contracts_reach_the_same_lineage(
         and "feedback-for:p-one" not in item.prompt
         for item in second_round
     )
+    assert all("previous_review_envelope" not in item.prompt for item in second_round)
     assert proposer_requests[2].session is not None
     assert proposer_requests[3].session is not None
+
+
+def test_full_review_envelope_reaches_delta_proposer_and_recovers_after_pause(
+    tmp_path: Path,
+) -> None:
+    class PauseRevisionLLM(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.requests = []
+            self.proposer_calls = 0
+            self.review_calls = 0
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.requests.append(request)
+            if _is_proposer(request):
+                self.proposer_calls += 1
+                if self.proposer_calls == 2:
+                    self.paused_task_id = request.task_id
+                    return LLMPaused(
+                        ResumeReason.EXTERNAL_CONDITION,
+                        "provider-wait",
+                        {"code": "provider_unavailable"},
+                    )
+                return _completed(request)
+            self.review_calls += 1
+            completed = _completed(request)
+            value = dict(completed.value)
+            value["action"] = "continue" if self.review_calls == 1 else "stop"
+            value["reason"] = "Revise the proposal once."
+            value["feedback"] = {"loop-a-p": "Tighten the derivation."}
+            value["payload"] = {"score": self.review_calls}
+            return LLMCompleted(value, "fake", "fake-model", None, None)
+
+        def resume(self, context, task_id, *, input, options):
+            self.calls.append(("resume", task_id))
+            assert task_id == self.paused_task_id
+            return LLMCompleted(
+                {"proposal": f"resumed:{task_id}"},
+                "fake",
+                "fake-model",
+                None,
+                None,
+            )
+
+    fake = PauseRevisionLLM()
+    loop = _loop(
+        max_rounds=2,
+        allow_early_stop=False,
+        revision_context_mode=RevisionContextMode.FULL_REVIEW_ENVELOPE,
+    )
+    repository, handler, paused = _run(tmp_path, _request(loop), fake)
+
+    assert paused.status is RunStatus.PAUSED
+    revision_request = fake.requests[2]
+    round_task = json.loads(revision_request.prompt.split("## Round task\n", 1)[1])
+    assert round_task["targeted_feedback"] == "Tighten the derivation."
+    assert round_task["previous_review_envelope"] == {
+        "schema_version": "arc.proposer_reviewer.review.v1",
+        "action": "continue",
+        "reason": "Revise the proposal once.",
+        "feedback": {"loop-a-p": "Tighten the derivation."},
+        "payload": {"score": 1},
+    }
+
+    resumed = RunEngine(repository).resume("run-a", handler)
+
+    assert resumed.status is RunStatus.SUCCEEDED
+    assert _result(repository, resumed).loops[0].rounds_completed == 2
+    assert ("resume", revision_request.task_id) in fake.calls
 
 
 def test_invalid_later_review_preserves_the_last_complete_round(
