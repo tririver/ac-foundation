@@ -73,8 +73,8 @@ Packages:
 - `arc-llm`: provider and model calls.
 - `arc-proposer-reviewer`: proposal and review orchestration.
 - `arc-paper`: paper access, caching, and summaries.
-- `arc-domain`: domain discovery, artifacts, and reusable deterministic
-  field-grouping primitives.
+- `arc-domain`: domain discovery, typed summaries, package views, and
+  evidence-bearing domain artifacts.
 - `arc-translate`: bilingual translation and review.
 - `arc-companion`: guide assembly and Companion releases.
 
