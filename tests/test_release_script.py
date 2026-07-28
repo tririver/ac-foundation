@@ -53,7 +53,7 @@ def _write_minimal_arc_repo(work: Path) -> None:
         )
 
     (work / "plugins/arc/skills/arc/.arc-install-ref").write_text(
-        "v0.1.0\n", encoding="utf-8"
+        "1" * 40 + "\n", encoding="utf-8"
     )
     (work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt").write_text(
         "# Direct external dependencies tested for ARC v0.1.0.\n"
@@ -175,7 +175,6 @@ def _apply_release_bump(work: Path, version: str = "0.2.0") -> None:
             '"version": "0.1.0"',
             f'"version": "{version}"',
         )
-    _replace(work / "plugins/arc/skills/arc/.arc-install-ref", "v0.1.0", f"v{version}")
     _replace(
         work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt",
         "ARC v0.1.0",
@@ -237,7 +236,9 @@ def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_pat
     assert "arc-llm>=0.2,<0.3" in (work / "packages/arc-paper/tests/test_package_metadata.py").read_text(encoding="utf-8")
     assert json.loads((work / "plugins/arc/.codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
     assert json.loads((work / "plugins/arc/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
-    assert (work / "plugins/arc/skills/arc/.arc-install-ref").read_text(encoding="utf-8").strip() == "v0.2.0"
+    assert (
+        work / "plugins/arc/skills/arc/.arc-install-ref"
+    ).read_text(encoding="utf-8").strip() == "1" * 40
     constraints = work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt"
     assert constraints.read_text(encoding="utf-8").splitlines()[0].endswith(
         "ARC v0.2.0."

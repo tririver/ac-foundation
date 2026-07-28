@@ -62,7 +62,6 @@ version_paths=(
   "VERSION"
   "plugins/arc/.codex-plugin/plugin.json"
   "plugins/arc/.claude-plugin/plugin.json"
-  "plugins/arc/skills/arc/.arc-install-ref"
   "plugins/arc/skills/arc/scripts/runtime-constraints.txt"
   "packages/arc-llm/pyproject.toml"
   "packages/arc-jobs/pyproject.toml"
@@ -230,8 +229,6 @@ def replace_all(path: Path, pattern: re.Pattern[str], replacement: str) -> None:
 for path in paths:
     if path.name == "VERSION":
         path.write_text(version + "\n", encoding="utf-8")
-    elif path.name == ".arc-install-ref":
-        replace_once(path, r"^v\d+\.\d+\.\d+$", f"v{version}")
     elif path.name == "runtime-constraints.txt":
         replace_once(
             path,
@@ -270,6 +267,7 @@ python3 - "$version" "$internal_range" "$root" <<'PY'
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -298,11 +296,10 @@ for manifest in [
     if data.get("version") != version:
         raise SystemExit(f"{manifest} version mismatch")
 
-for install_ref in [
-    root / "plugins/arc/skills/arc/.arc-install-ref",
-]:
-    if install_ref.read_text(encoding="utf-8").strip() != f"v{version}":
-        raise SystemExit(f"{install_ref} version mismatch")
+install_ref_path = root / "plugins/arc/skills/arc/.arc-install-ref"
+install_ref = install_ref_path.read_text(encoding="utf-8").strip()
+if not re.fullmatch(r"[0-9a-fA-F]{40}", install_ref):
+    raise SystemExit(f"{install_ref_path} must contain a full commit SHA")
 
 for constraints in [
     root / "plugins/arc/skills/arc/scripts/runtime-constraints.txt",
