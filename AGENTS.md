@@ -124,6 +124,9 @@ Packages:
 - ARC is local research software. Handle interrupted writes, accidental
   corruption, malformed provider output, and ordinary cooperating-process
   races.
+- Use the existing cooperative stop semantics for run control. Do not add a
+  separate cancel concept without a concrete lifecycle requirement that stop
+  cannot satisfy.
 - Find the root cause of failures. When a run fails because of a general ARC
   contract or implementation defect, first fix ARC and add a regression test;
   do not hide the defect with ad hoc task-script changes or project-local

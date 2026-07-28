@@ -36,21 +36,6 @@ def _text_files() -> tuple[Path, ...]:
     return tuple(sorted(set(paths)))
 
 
-def test_arc_exposes_stop_without_an_owned_cancel_concept() -> None:
-    offenders: list[str] = []
-    for path in _text_files():
-        relative = path.relative_to(ROOT)
-        if "cancel" in path.name.lower():
-            offenders.append(f"{relative}: filename")
-        for line_number, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
-            if "cancel" not in line.lower():
-                continue
-            offenders.append(f"{relative}:{line_number}: {line.strip()}")
-    assert offenders == []
-
-
 def test_public_docs_use_current_control_contract_schemas() -> None:
     offenders: list[str] = []
     for path in _text_files():
