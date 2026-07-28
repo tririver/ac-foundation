@@ -79,6 +79,7 @@ version_paths=(
   "packages/arc-paper/tests/test_import.py"
   "packages/arc-paper/tests/test_package_metadata.py"
 )
+install_ref_path="plugins/arc/skills/arc/.arc-install-ref"
 
 existing_version_paths=()
 for path in "${version_paths[@]}"; do
@@ -91,8 +92,11 @@ if [ "${#existing_version_paths[@]}" -eq 0 ]; then
   die "No ARC version files found under $root"
 fi
 
-path_is_version_path() {
+path_is_release_resume_path() {
   candidate="$1"
+  if [ "$candidate" = "$install_ref_path" ]; then
+    return 0
+  fi
   for path in "${existing_version_paths[@]}"; do
     if [ "$candidate" = "$path" ]; then
       return 0
@@ -101,7 +105,7 @@ path_is_version_path() {
   return 1
 }
 
-pause "Step 1/8: preflight checks for clean worktree, upstream freshness, release commits, and tag availability."
+pause "Step 1/9: preflight checks for clean worktree, upstream freshness, release commits, and tag availability."
 
 dirty="$(git status --short --untracked-files=all)"
 if [ -n "$dirty" ]; then
@@ -118,12 +122,12 @@ if [ -n "$dirty" ]; then
   fi
   while IFS= read -r changed_path; do
     [ -z "$changed_path" ] && continue
-    if ! path_is_version_path "$changed_path"; then
+    if ! path_is_release_resume_path "$changed_path"; then
       version_only_dirty=0
     fi
   done <<< "$changed_files"
   if [ "$version_only_dirty" = "1" ]; then
-    printf 'Worktree has only release version-file changes; continuing resume.\n'
+    printf 'Worktree has only release metadata changes; continuing resume.\n'
   else
     printf '%s\n' "$dirty" >&2
     die "Worktree is dirty; commit or stash changes before release"
@@ -195,7 +199,7 @@ else
   printf 'No existing v* release tag found; treating this as first release.\n'
 fi
 
-pause "Step 2/8: bump plugin manifests, Python package versions, internal dependency ranges, and version tests to $version."
+pause "Step 2/9: bump plugin manifests, Python package versions, internal dependency ranges, and version tests to $version."
 
 python3 - "$version" "$internal_range" "${existing_version_paths[@]}" <<'PY'
 from __future__ import annotations
@@ -261,7 +265,7 @@ else
   git diff -- "${existing_version_paths[@]}"
 fi
 
-pause "Step 3/8: validate bumped metadata."
+pause "Step 3/9: validate bumped metadata."
 
 python3 - "$version" "$internal_range" "$root" <<'PY'
 from __future__ import annotations
@@ -326,7 +330,7 @@ else
   printf 'SKIP: claude not found on PATH; using built-in manifest checks.\n'
 fi
 
-pause "Step 4/8: commit version bump if needed."
+pause "Step 4/9: commit version bump if needed."
 
 if [ "$version_changed" = "1" ]; then
   run git add "${existing_version_paths[@]}"
@@ -335,7 +339,31 @@ else
   printf 'SKIP: no version bump commit needed.\n'
 fi
 
-pause "Step 5/8: create release tag $tag if needed."
+pause "Step 5/9: pin the plugin runtime to the complete versioned source commit."
+
+pinned_ref="$(sed -n '1p' "$install_ref_path")"
+head_parent="$(git rev-parse HEAD^ 2>/dev/null || true)"
+head_paths="$(git diff-tree --no-commit-id --name-only -r HEAD)"
+already_pinned=0
+if [ -n "$head_parent" ] && [ "$pinned_ref" = "$head_parent" ] && [ "$head_paths" = "$install_ref_path" ]; then
+  already_pinned=1
+fi
+
+if [ "$target_tag_exists" = "1" ]; then
+  if [ "$already_pinned" != "1" ]; then
+    die "Tag $tag does not point to a valid plugin source-pin commit"
+  fi
+  printf 'SKIP: tagged release already pins source commit %s.\n' "$pinned_ref"
+elif [ "$already_pinned" = "1" ]; then
+  printf 'Plugin runtime already pins the preceding source commit %s.\n' "$pinned_ref"
+else
+  source_ref="$(git rev-parse HEAD)"
+  printf '%s\n' "$source_ref" > "$install_ref_path"
+  run git add "$install_ref_path"
+  run git commit -m "chore(plugin): pin ARC ${version} source"
+fi
+
+pause "Step 6/9: create release tag $tag if needed."
 
 if [ "$target_tag_exists" = "1" ]; then
   printf 'SKIP: release tag %s already exists at HEAD.\n' "$tag"
@@ -343,15 +371,15 @@ else
   run git tag -a "$tag" -m "$tag"
 fi
 
-pause "Step 6/8: dry-run push release branch and tag."
+pause "Step 7/9: dry-run push release branch and tag."
 
 run_dry git push --dry-run "$remote_name" "HEAD:${branch}" "$tag"
 
-pause "Step 7/8: push release branch and tag."
+pause "Step 8/9: push release branch and tag."
 
 run git push "$remote_name" "HEAD:${branch}" "$tag"
 
-pause "Step 8/8: dry-run then push stable branch to this release commit."
+pause "Step 9/9: dry-run then push stable branch to this release commit."
 
 run_dry git push --dry-run "$remote_name" "HEAD:stable"
 pause "Final remote mutation: push stable branch to $tag."

@@ -167,6 +167,16 @@ def _commit_release_bump(work: Path, version: str = "0.2.0") -> None:
     _git(work, "commit", "-m", f"chore: release v{version}")
 
 
+def _commit_install_pin(work: Path, version: str = "0.2.0") -> str:
+    source_ref = _git(work, "rev-parse", "HEAD").stdout.strip()
+    (work / "plugins/arc/skills/arc/.arc-install-ref").write_text(
+        source_ref + "\n", encoding="utf-8"
+    )
+    _git(work, "add", "plugins/arc/skills/arc/.arc-install-ref")
+    _git(work, "commit", "-m", f"chore(plugin): pin ARC {version} source")
+    return source_ref
+
+
 def _apply_release_bump(work: Path, version: str = "0.2.0") -> None:
     (work / "VERSION").write_text(version + "\n", encoding="utf-8")
     for host in ("codex", "claude"):
@@ -236,9 +246,11 @@ def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_pat
     assert "arc-llm>=0.2,<0.3" in (work / "packages/arc-paper/tests/test_package_metadata.py").read_text(encoding="utf-8")
     assert json.loads((work / "plugins/arc/.codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
     assert json.loads((work / "plugins/arc/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
+    release_ref = _git(work, "rev-list", "-n", "1", "v0.2.0").stdout.strip()
+    source_ref = _git(work, "rev-parse", f"{release_ref}^").stdout.strip()
     assert (
         work / "plugins/arc/skills/arc/.arc-install-ref"
-    ).read_text(encoding="utf-8").strip() == "1" * 40
+    ).read_text(encoding="utf-8").strip() == source_ref
     constraints = work / "plugins/arc/skills/arc/scripts/runtime-constraints.txt"
     assert constraints.read_text(encoding="utf-8").splitlines()[0].endswith(
         "ARC v0.2.0."
@@ -251,7 +263,13 @@ def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_pat
     assert "refs/heads/stable" in refs
     assert "refs/tags/v0.2.0" in refs
     assert "refs/tags/arc--v0.2.0" not in refs
-    assert _git(work, "log", "-1", "--pretty=%s").stdout.strip() == "chore: release v0.2.0"
+    assert _git(work, "log", "-1", "--pretty=%s").stdout.strip() == (
+        "chore(plugin): pin ARC 0.2.0 source"
+    )
+    assert _git(work, "log", "-2", "--pretty=%s").stdout.splitlines() == [
+        "chore(plugin): pin ARC 0.2.0 source",
+        "chore: release v0.2.0",
+    ]
 
     dry_run_index = result.stdout.index("DRY RUN: git push --dry-run origin HEAD:main v0.2.0")
     push_index = result.stdout.index("RUN: git push origin HEAD:main v0.2.0")
@@ -310,6 +328,27 @@ def test_release_script_resumes_after_committed_version_bump(tmp_path: Path) -> 
     assert "RUN: git commit -m chore: release v0.2.0" not in result.stdout
 
 
+def test_release_script_resumes_after_committed_install_pin(tmp_path: Path) -> None:
+    work, origin = _init_release_repo(tmp_path)
+    _commit_release_bump(work)
+    source_ref = _commit_install_pin(work)
+    _git(work, "push", "origin", "main")
+
+    result = _run_script(work)
+
+    assert result.returncode == 0, result.stderr
+    refs = _git(origin, "show-ref").stdout
+    assert "refs/tags/v0.2.0" in refs
+    assert "refs/heads/stable" in refs
+    assert (
+        f"Plugin runtime already pins the preceding source commit {source_ref}."
+        in result.stdout
+    )
+    assert _git(work, "log", "-1", "--pretty=%s").stdout.strip() == (
+        "chore(plugin): pin ARC 0.2.0 source"
+    )
+
+
 def test_release_script_resumes_after_uncommitted_version_bump(tmp_path: Path) -> None:
     work, origin = _init_release_repo(tmp_path)
     _apply_release_bump(work)
@@ -320,8 +359,10 @@ def test_release_script_resumes_after_uncommitted_version_bump(tmp_path: Path) -
     refs = _git(origin, "show-ref").stdout
     assert "refs/tags/v0.2.0" in refs
     assert "refs/heads/stable" in refs
-    assert "Worktree has only release version-file changes; continuing resume." in result.stdout
-    assert _git(work, "log", "-1", "--pretty=%s").stdout.strip() == "chore: release v0.2.0"
+    assert "Worktree has only release metadata changes; continuing resume." in result.stdout
+    assert _git(work, "log", "-1", "--pretty=%s").stdout.strip() == (
+        "chore(plugin): pin ARC 0.2.0 source"
+    )
 
 
 def test_release_script_rejects_tracked_generated_python_cache(tmp_path: Path) -> None:
@@ -341,6 +382,7 @@ def test_release_script_rejects_tracked_generated_python_cache(tmp_path: Path) -
 def test_release_script_resumes_after_local_tag_at_head(tmp_path: Path) -> None:
     work, origin = _init_release_repo(tmp_path)
     _commit_release_bump(work)
+    _commit_install_pin(work)
     _git(work, "push", "origin", "main")
     _git(work, "tag", "-a", "v0.2.0", "-m", "v0.2.0")
 
