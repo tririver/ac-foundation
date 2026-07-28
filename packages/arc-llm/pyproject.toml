@@ -11,7 +11,7 @@ license = "MIT"
 authors = [{ name = "ARC" }]
 requires-python = ">=3.11"
 dependencies = [
-  "arc-jobs>=1.0.1,<1.1",
+  "arc-jobs>=1.0,<1.1",
   "json-repair>=0.59,<1",
   "jsonschema>=4,<5",
 ]

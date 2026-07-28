@@ -11,8 +11,8 @@ license = "MIT"
 authors = [{ name = "ARC" }]
 requires-python = ">=3.11"
 dependencies = [
-  "arc-jobs>=1.0.1,<1.1",
-  "arc-llm>=1.0.1,<1.1",
+  "arc-jobs>=1.0,<1.1",
+  "arc-llm>=1.0,<1.1",
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
