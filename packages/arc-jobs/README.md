@@ -1,7 +1,7 @@
 # arc-jobs
 
 `arc-jobs` is ARC's zero-dependency durable-run kernel. It owns atomic run
-state, immutable artifacts, cooperative stopping, pause/resume, effect
+state, immutable artifacts, cooperative stopping, pause/resume, explicit failed-run
 recovery, work groups, and the shared command-result codec. It does not own
 provider selection, detached processes, or research-domain workflows.
 
