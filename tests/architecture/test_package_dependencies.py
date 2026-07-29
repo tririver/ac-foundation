@@ -30,7 +30,7 @@ ALLOWED = {
 
 DIST_TO_MODULE = {name.replace("_", "-"): name for name in ALLOWED}
 REQUIRED_EXTERNAL_DEPENDENCIES = {
-    "arc_companion": {"beautifulsoup4>=4.12"},
+    "arc_companion": {"markdown-it-py>=4.2,<5"},
 }
 PROJECT_URLS = {
     "Homepage": "https://github.com/tririver/arc",
