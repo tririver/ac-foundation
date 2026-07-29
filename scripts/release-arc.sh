@@ -67,6 +67,7 @@ version_paths=(
   "packages/arc-jobs/pyproject.toml"
   "packages/arc-proposer-reviewer/pyproject.toml"
   "packages/arc-paper/pyproject.toml"
+  "packages/arc-render/pyproject.toml"
   "packages/arc-domain/pyproject.toml"
   "packages/arc-translate/pyproject.toml"
   "packages/arc-companion/pyproject.toml"
@@ -76,8 +77,10 @@ version_paths=(
   "packages/arc-translate/src/arc_translate/__init__.py"
   "packages/arc-companion/src/arc_companion/__init__.py"
   "packages/arc-paper/src/arc_paper/__init__.py"
+  "packages/arc-render/src/arc_render/__init__.py"
   "packages/arc-paper/tests/test_import.py"
   "packages/arc-paper/tests/test_package_metadata.py"
+  "packages/arc-render/tests/test_import.py"
 )
 install_ref_path="plugins/arc/skills/arc/.arc-install-ref"
 
@@ -284,6 +287,7 @@ packages = [
     "arc-jobs",
     "arc-proposer-reviewer",
     "arc-paper",
+    "arc-render",
     "arc-domain",
     "arc-translate",
     "arc-companion",

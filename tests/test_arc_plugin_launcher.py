@@ -18,6 +18,7 @@ CORE_LAUNCHER = SKILL / "scripts/arc-runtime"
 CORE_BIN = BASE_PLUGIN / "bin"
 CORE_TOOLS = (
     "arc-paper",
+    "arc-render",
     "arc-domain",
     "arc-llm",
     "arc-proposer-reviewer",
@@ -377,6 +378,10 @@ def test_first_core_use_lazy_installs_only_core_packages(tmp_path: Path) -> None
         f"arc-proposer-reviewer @ git+https://github.com/tririver/arc.git@{bundled_ref}"
         in install_calls[1]
     )
+    assert (
+        f"arc-render @ git+https://github.com/tririver/arc.git@{bundled_ref}"
+        in install_calls[1]
+    )
     assert "arc-mcp @" not in install_calls[1]
     assert "--constraint" in install_calls[1]
 
@@ -460,6 +465,7 @@ def test_runtime_fingerprint_covers_ref_constraints_python_and_local_content(
         "arc-llm",
         "arc-proposer-reviewer",
         "arc-paper",
+        "arc-render",
         "arc-domain",
         "arc-translate",
         "arc-companion",
@@ -833,6 +839,7 @@ def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> 
         "arc-llm",
         "arc-proposer-reviewer",
         "arc-paper",
+        "arc-render",
         "arc-domain",
         "arc-translate",
         "arc-companion",
@@ -886,6 +893,7 @@ def test_auto_local_separates_checkout_identity_from_fallback_pin(
         "arc-llm",
         "arc-proposer-reviewer",
         "arc-paper",
+        "arc-render",
         "arc-domain",
         "arc-translate",
         "arc-companion",

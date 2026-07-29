@@ -75,13 +75,28 @@ def test_proposer_reviewer_uses_core_concurrency_and_provider_boundaries():
 
 
 def test_paper_has_no_translate_domain_or_companion_dependency():
-    forbidden = {"arc_translate", "arc_domain", "arc_companion"}
+    forbidden = {"arc_render", "arc_translate", "arc_domain", "arc_companion"}
     for path, tree in _trees("arc-paper"):
         assert not (_import_roots(tree) & forbidden), path.relative_to(ROOT)
 
 
-def test_domain_has_no_translate_or_companion_dependency():
-    forbidden = {"arc_translate", "arc_companion"}
+def test_render_has_no_upper_layer_or_browser_automation_dependencies():
+    forbidden = {
+        "arc_jobs",
+        "arc_llm",
+        "arc_proposer_reviewer",
+        "arc_domain",
+        "arc_translate",
+        "arc_companion",
+        "playwright",
+        "selenium",
+    }
+    for path, tree in _trees("arc-render"):
+        assert not (_import_roots(tree) & forbidden), path.relative_to(ROOT)
+
+
+def test_domain_has_no_render_translate_or_companion_dependency():
+    forbidden = {"arc_render", "arc_translate", "arc_companion"}
     for path, tree in _trees("arc-domain"):
         assert not (_import_roots(tree) & forbidden), path.relative_to(ROOT)
 

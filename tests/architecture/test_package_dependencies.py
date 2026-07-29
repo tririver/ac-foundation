@@ -8,18 +8,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = ROOT / "packages"
 RELEASE = "1.0.1"
+RELEASE_FAMILY = ".".join(RELEASE.split(".")[:2])
 
 ALLOWED = {
     "arc_jobs": set(),
     "arc_llm": {"arc_jobs"},
     "arc_proposer_reviewer": {"arc_jobs", "arc_llm"},
     "arc_paper": {"arc_jobs", "arc_llm"},
+    "arc_render": {"arc_paper"},
     "arc_domain": {"arc_jobs", "arc_llm", "arc_paper"},
-    "arc_translate": {"arc_jobs", "arc_llm", "arc_paper"},
+    "arc_translate": {"arc_jobs", "arc_llm", "arc_paper", "arc_render"},
     "arc_companion": {
         "arc_jobs",
         "arc_llm",
         "arc_paper",
+        "arc_render",
         "arc_proposer_reviewer",
         "arc_translate",
     },
@@ -35,7 +38,7 @@ PROJECT_URLS = {
     "Issues": "https://github.com/tririver/arc/issues",
 }
 ARC_DEPENDENCY = re.compile(
-    r"^(arc-[a-z0-9-]+)>=1\.0\.1,<1\.1$"
+    rf"^(arc-[a-z0-9-]+)>={re.escape(RELEASE_FAMILY)},<1\.1$"
 )
 
 
@@ -92,7 +95,7 @@ def _declared(project: dict) -> set[str]:
         match = ARC_DEPENDENCY.fullmatch(dependency)
         assert match, (
             f"ARC dependency {dependency!r} must use the unified "
-            f">={RELEASE},<1.1 release train"
+            f">={RELEASE_FAMILY},<1.1 release train"
         )
         edges.add(match.group(1).replace("-", "_"))
     return edges
@@ -156,6 +159,26 @@ def test_known_direct_external_dependencies_are_declared():
             f"{module} is missing direct external dependencies: "
             f"{sorted(required - dependencies)}"
         )
+
+
+def test_render_has_no_browser_automation_dependencies():
+    dependencies = {
+        dependency.casefold()
+        for dependency in _projects()["arc_render"][1].get("dependencies", ())
+    }
+    forbidden_prefixes = (
+        "playwright",
+        "selenium",
+        "pyppeteer",
+        "pychrome",
+        "chromedriver",
+        "chromium",
+    )
+    assert not {
+        dependency
+        for dependency in dependencies
+        if dependency.startswith(forbidden_prefixes)
+    }, "arc-render must discover a system browser instead of packaging browser automation"
 
 
 def test_arc_dependency_graph_is_acyclic():
