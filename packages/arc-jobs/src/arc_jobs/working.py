@@ -123,24 +123,42 @@ class WorkingState:
             / f"epoch-{recovery_epoch:04d}"
             / "working"
         )
+        snapshot_path = snapshot_root.relative_to(self.run_directory).as_posix()
+        index_document: dict[str, JsonValue] = {
+            "schema_version": "arc.jobs.working_index.v1",
+            "recovery_epoch": recovery_epoch,
+            "updated_at": utc_now(),
+            "snapshot_path": snapshot_path,
+            "files": current_files,
+            "warnings": warnings,
+        }
+        index_bytes = canonical_json_bytes(index_document) + b"\n"
         if snapshot_root.exists():
             shutil.rmtree(snapshot_root)
         shutil.copytree(self.root, snapshot_root)
         semantic_input = self.read_semantic_input()
-        atomic_write_json(
-            self.index_path,
-            {
-                "schema_version": "arc.jobs.working_index.v1",
-                "recovery_epoch": recovery_epoch,
-                "updated_at": utc_now(),
-                "snapshot_path": snapshot_root.relative_to(
-                    self.run_directory
-                ).as_posix(),
-                "files": current_files,
-                "warnings": warnings,
-            },
-        )
-        return semantic_input, tuple(warnings)
+        snapshot_index_path = snapshot_root / "index.json"
+        atomic_write_bytes(snapshot_index_path, index_bytes)
+        atomic_write_bytes(self.index_path, index_bytes)
+        index_relative_path = snapshot_index_path.relative_to(
+            self.run_directory
+        ).as_posix()
+        index_sha256 = hashlib.sha256(index_bytes).hexdigest()
+        event_warnings: list[dict[str, JsonValue]] = []
+        for warning_index, warning in enumerate(warnings):
+            paths = warning.get("paths")
+            event_warnings.append(
+                {
+                    "code": warning["code"],
+                    "message": warning["message"],
+                    "recovery_epoch": recovery_epoch,
+                    "index_path": index_relative_path,
+                    "index_sha256": index_sha256,
+                    "warning_index": warning_index,
+                    "path_count": len(paths) if isinstance(paths, list) else 0,
+                }
+            )
+        return semantic_input, tuple(event_warnings)
 
     def record_error(self, error: RunError, *, attempt: int, recovery_epoch: int) -> None:
         atomic_write_json(

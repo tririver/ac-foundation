@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import threading
@@ -877,6 +878,55 @@ def test_working_semantic_edit_warns_and_is_used_without_mutating_spec(tmp_path)
     assert [warning["code"] for warning in index["warnings"]] == [
         "working_state_modified"
     ]
+
+
+def test_large_working_change_list_is_referenced_by_recovery_event(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = FailOnceHandler()
+    assert engine.execute(
+        RunSpec("run-1", handler.name, {"value": 1}), handler
+    ).status is RunStatus.FAILED
+    working = repository.working_state("run-1")
+    candidate_root = (
+        working.candidates_directory / ("a" * 120) / ("b" * 120)
+    )
+    candidate_root.mkdir(parents=True)
+    for index in range(900):
+        (candidate_root / f"{index:04d}-{'c' * 100}.json").write_text("{}\n")
+
+    resumed = engine.resume("run-1", handler)
+
+    assert resumed.status is RunStatus.SUCCEEDED
+    snapshot_index_path = (
+        repository.run_directory("run-1")
+        / "recovery"
+        / "epoch-0001"
+        / "working"
+        / "index.json"
+    )
+    snapshot_index = json.loads(snapshot_index_path.read_text())
+    warning = snapshot_index["warnings"][0]
+    assert warning["code"] == "working_state_modified"
+    assert len(json.dumps(warning).encode("utf-8")) > 256 * 1024
+    events = EventWriter(
+        repository.run_directory("run-1") / "events.jsonl",
+        run_id="run-1",
+    ).tail()
+    event_warning = next(
+        event["data"] for event in events if event["event"] == "run_warning"
+    )
+    assert event_warning == {
+        "code": "working_state_modified",
+        "message": (
+            "Editable working state differs from the previous recovery baseline."
+        ),
+        "recovery_epoch": 1,
+        "index_path": "recovery/epoch-0001/working/index.json",
+        "index_sha256": hashlib.sha256(snapshot_index_path.read_bytes()).hexdigest(),
+        "warning_index": 0,
+        "path_count": len(warning["paths"]),
+    }
 
 
 def test_malformed_working_semantic_input_names_path_and_remains_repairable(tmp_path):
