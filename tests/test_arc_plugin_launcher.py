@@ -275,6 +275,35 @@ def test_bundled_plugin_release_metadata_uses_version_and_immutable_source_pin()
     install_ref = (SKILL / ".arc-install-ref").read_text(encoding="utf-8").strip()
     assert re.fullmatch(r"[0-9a-f]{40}", install_ref)
 
+
+def test_repo_marketplace_exposes_the_bundled_arc_plugin() -> None:
+    marketplace_path = ROOT / ".agents/plugins/marketplace.json"
+    marketplace = json.loads(marketplace_path.read_text(encoding="utf-8"))
+
+    assert marketplace["name"] == "arc"
+    assert marketplace["interface"]["displayName"] == "ARC"
+    assert len(marketplace["plugins"]) == 1
+
+    entry = marketplace["plugins"][0]
+    assert entry == {
+        "name": "arc",
+        "source": {
+            "source": "local",
+            "path": "./plugins/arc",
+        },
+        "policy": {
+            "installation": "AVAILABLE",
+            "authentication": "ON_INSTALL",
+        },
+        "category": "Productivity",
+    }
+
+    plugin_root = ROOT / entry["source"]["path"].removeprefix("./")
+    plugin = json.loads(
+        (plugin_root / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
+    )
+    assert plugin["name"] == entry["name"]
+
 def test_core_runtime_profile_and_constraints_are_mcp_free() -> None:
     assert (SKILL / "scripts/.arc-runtime-profile").read_text().strip() == "core"
     constraints = (SKILL / "scripts/runtime-constraints.txt").read_text()

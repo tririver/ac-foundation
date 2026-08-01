@@ -296,6 +296,28 @@ packages = [
 if (root / "VERSION").read_text(encoding="utf-8").strip() != version:
     raise SystemExit("root VERSION mismatch")
 
+marketplace_path = root / ".agents/plugins/marketplace.json"
+marketplace = json.loads(marketplace_path.read_text(encoding="utf-8"))
+if marketplace.get("name") != "arc":
+    raise SystemExit(f"{marketplace_path} marketplace name mismatch")
+plugins = marketplace.get("plugins")
+if not isinstance(plugins, list) or len(plugins) != 1:
+    raise SystemExit(f"{marketplace_path} must expose exactly the ARC plugin")
+entry = plugins[0]
+source = entry.get("source")
+if entry.get("name") != "arc" or source != {
+    "source": "local",
+    "path": "./plugins/arc",
+}:
+    raise SystemExit(f"{marketplace_path} ARC plugin source mismatch")
+if entry.get("policy") != {
+    "installation": "AVAILABLE",
+    "authentication": "ON_INSTALL",
+}:
+    raise SystemExit(f"{marketplace_path} ARC plugin policy mismatch")
+if entry.get("category") != "Productivity":
+    raise SystemExit(f"{marketplace_path} ARC plugin category mismatch")
+
 for manifest in [
     root / "plugins/arc/.codex-plugin/plugin.json",
     root / "plugins/arc/.claude-plugin/plugin.json",
