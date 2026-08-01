@@ -27,7 +27,7 @@ from .projection import (
     read_batch_trace,
 )
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 __all__ = [
     "BatchFailurePolicy",
