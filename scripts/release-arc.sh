@@ -77,11 +77,9 @@ version_paths=(
   "packages/arc-translate/src/arc_translate/__init__.py"
   "packages/arc-companion/src/arc_companion/__init__.py"
   "packages/arc-paper/src/arc_paper/__init__.py"
-  "packages/arc-render/src/arc_render/__init__.py"
   "packages/arc-paper/tests/test_import.py"
   "packages/arc-paper/tests/test_package_metadata.py"
   "packages/arc-llm/tests/test_contract_matrix.py"
-  "packages/arc-render/tests/test_import.py"
   "tests/architecture/test_package_dependencies.py"
 )
 install_ref_path="plugins/arc/skills/arc/.arc-install-ref"
