@@ -80,7 +80,9 @@ version_paths=(
   "packages/arc-render/src/arc_render/__init__.py"
   "packages/arc-paper/tests/test_import.py"
   "packages/arc-paper/tests/test_package_metadata.py"
+  "packages/arc-llm/tests/test_contract_matrix.py"
   "packages/arc-render/tests/test_import.py"
+  "tests/architecture/test_package_dependencies.py"
 )
 install_ref_path="plugins/arc/skills/arc/.arc-install-ref"
 
@@ -253,7 +255,20 @@ for path in paths:
     elif path.name == "test_import.py":
         replace_once(path, r'(__version__\s*==\s*")[^"]+(")', rf"\g<1>{version}\2")
     elif path.name == "test_package_metadata.py":
+        replace_once(
+            path,
+            r'(project\["version"\]\s*==\s*")[^"]+(")',
+            rf"\g<1>{version}\2",
+        )
         replace_all(path, internal_dep_re, rf"\1{internal_range}")
+    elif path.name == "test_contract_matrix.py":
+        replace_once(
+            path,
+            r'(observed\["version"\]\s*==\s*")[^"]+(")',
+            rf"\g<1>{version}\2",
+        )
+    elif path.name == "test_package_dependencies.py":
+        replace_once(path, r'^(RELEASE\s*=\s*")[^"]+(")', rf"\g<1>{version}\2")
 PY
 
 version_changed=1

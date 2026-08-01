@@ -37,8 +37,10 @@ def _write_minimal_arc_repo(work: Path) -> None:
     (work / "packages/arc-companion/src/arc_companion").mkdir(parents=True)
     (work / "packages/arc-paper/src/arc_paper").mkdir(parents=True)
     (work / "packages/arc-paper/tests").mkdir(parents=True)
+    (work / "packages/arc-llm/tests").mkdir(parents=True)
     (work / "packages/arc-render/src/arc_render").mkdir(parents=True)
     (work / "packages/arc-render/tests").mkdir(parents=True)
+    (work / "tests/architecture").mkdir(parents=True)
     (work / "VERSION").write_text("0.1.0\n", encoding="utf-8")
 
     (work / ".agents/plugins/marketplace.json").write_text(
@@ -162,11 +164,20 @@ def _write_minimal_arc_repo(work: Path) -> None:
         encoding="utf-8",
     )
     (work / "packages/arc-paper/tests/test_package_metadata.py").write_text(
+        'assert project["version"] == "0.1.0"\n'
         'EXPECTED = ["arc-llm>=0.1,<0.2", "arc-paper>=0.1,<0.2"]\n',
+        encoding="utf-8",
+    )
+    (work / "packages/arc-llm/tests/test_contract_matrix.py").write_text(
+        'assert observed["version"] == "0.1.0"\n',
         encoding="utf-8",
     )
     (work / "packages/arc-render/tests/test_import.py").write_text(
         'from arc_render import __version__\n\n\ndef test_version():\n    assert __version__ == "0.1.0"\n',
+        encoding="utf-8",
+    )
+    (work / "tests/architecture/test_package_dependencies.py").write_text(
+        'RELEASE = "0.1.0"\n',
         encoding="utf-8",
     )
     (work / "README.md").write_text("initial\n", encoding="utf-8")
@@ -241,8 +252,11 @@ def _apply_release_bump(work: Path, version: str = "0.2.0") -> None:
     _replace(work / "packages/arc-paper/src/arc_paper/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-render/src/arc_render/__init__.py", '0.1.0', version)
     _replace(work / "packages/arc-paper/tests/test_import.py", '0.1.0', version)
+    _replace(work / "packages/arc-paper/tests/test_package_metadata.py", '0.1.0', version)
     _replace(work / "packages/arc-paper/tests/test_package_metadata.py", ">=0.1,<0.2", ">=0.2,<0.3")
+    _replace(work / "packages/arc-llm/tests/test_contract_matrix.py", '0.1.0', version)
     _replace(work / "packages/arc-render/tests/test_import.py", '0.1.0', version)
+    _replace(work / "tests/architecture/test_package_dependencies.py", '0.1.0', version)
 
 
 def _run_script(
@@ -286,8 +300,17 @@ def test_release_script_bumps_versions_creates_one_tag_and_pushes_stable(tmp_pat
         work / "packages/arc-companion/pyproject.toml"
     ).read_text(encoding="utf-8")
     assert 'assert __version__ == "0.2.0"' in (work / "packages/arc-paper/tests/test_import.py").read_text(encoding="utf-8")
+    assert 'assert project["version"] == "0.2.0"' in (
+        work / "packages/arc-paper/tests/test_package_metadata.py"
+    ).read_text(encoding="utf-8")
     assert 'assert __version__ == "0.2.0"' in (work / "packages/arc-render/tests/test_import.py").read_text(encoding="utf-8")
     assert "arc-llm>=0.2,<0.3" in (work / "packages/arc-paper/tests/test_package_metadata.py").read_text(encoding="utf-8")
+    assert 'assert observed["version"] == "0.2.0"' in (
+        work / "packages/arc-llm/tests/test_contract_matrix.py"
+    ).read_text(encoding="utf-8")
+    assert 'RELEASE = "0.2.0"' in (
+        work / "tests/architecture/test_package_dependencies.py"
+    ).read_text(encoding="utf-8")
     assert json.loads((work / "plugins/arc/.codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
     assert json.loads((work / "plugins/arc/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"] == "0.2.0"
     release_ref = _git(work, "rev-list", "-n", "1", "v0.2.0").stdout.strip()
