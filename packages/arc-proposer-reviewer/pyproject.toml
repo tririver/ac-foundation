@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arc-proposer-reviewer"
-version = "1.0.2"
+version = "1.0.3"
 description = "Typed proposer-reviewer orchestration for ARC."
 readme = "README.md"
 license = "MIT"
