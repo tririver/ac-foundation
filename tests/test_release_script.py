@@ -30,6 +30,7 @@ def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def _write_minimal_arc_repo(work: Path) -> None:
     (work / ".agents/plugins").mkdir(parents=True)
+    (work / ".claude-plugin").mkdir(parents=True)
     (work / "plugins/arc/.codex-plugin").mkdir(parents=True)
     (work / "plugins/arc/.claude-plugin").mkdir(parents=True)
     (work / "plugins/arc/skills/arc/scripts").mkdir(parents=True)
@@ -59,6 +60,26 @@ def _write_minimal_arc_repo(work: Path) -> None:
                             "authentication": "ON_INSTALL",
                         },
                         "category": "Productivity",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (work / ".claude-plugin/marketplace.json").write_text(
+        json.dumps(
+            {
+                "name": "arc",
+                "description": "arc marketplace",
+                "owner": {"name": "ARC"},
+                "plugins": [
+                    {
+                        "name": "arc",
+                        "description": "arc",
+                        "source": "./plugins/arc",
+                        "category": "productivity",
                     }
                 ],
             },

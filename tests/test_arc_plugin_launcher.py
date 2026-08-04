@@ -304,6 +304,30 @@ def test_repo_marketplace_exposes_the_bundled_arc_plugin() -> None:
     )
     assert plugin["name"] == entry["name"]
 
+
+def test_claude_marketplace_exposes_the_bundled_arc_plugin() -> None:
+    marketplace_path = ROOT / ".claude-plugin/marketplace.json"
+    marketplace = json.loads(marketplace_path.read_text(encoding="utf-8"))
+
+    assert marketplace["name"] == "arc"
+    assert marketplace["owner"] == {"name": "ARC"}
+    assert len(marketplace["plugins"]) == 1
+
+    entry = marketplace["plugins"][0]
+    assert entry["name"] == "arc"
+    assert entry["source"] == "./plugins/arc"
+    assert entry["category"] == "productivity"
+
+    plugin_root = ROOT / entry["source"].removeprefix("./")
+    plugin = json.loads(
+        (plugin_root / ".claude-plugin/plugin.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert plugin["name"] == entry["name"]
+    assert plugin["description"] == entry["description"]
+
+
 def test_core_runtime_profile_and_constraints_are_mcp_free() -> None:
     assert (SKILL / "scripts/.arc-runtime-profile").read_text().strip() == "core"
     constraints = (SKILL / "scripts/runtime-constraints.txt").read_text()

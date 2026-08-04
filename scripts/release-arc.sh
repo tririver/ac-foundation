@@ -331,13 +331,41 @@ if entry.get("policy") != {
 if entry.get("category") != "Productivity":
     raise SystemExit(f"{marketplace_path} ARC plugin category mismatch")
 
-for manifest in [
+claude_marketplace_path = root / ".claude-plugin/marketplace.json"
+claude_marketplace = json.loads(
+    claude_marketplace_path.read_text(encoding="utf-8")
+)
+if claude_marketplace.get("name") != "arc":
+    raise SystemExit(f"{claude_marketplace_path} marketplace name mismatch")
+if claude_marketplace.get("owner") != {"name": "ARC"}:
+    raise SystemExit(f"{claude_marketplace_path} marketplace owner mismatch")
+claude_plugins = claude_marketplace.get("plugins")
+if not isinstance(claude_plugins, list) or len(claude_plugins) != 1:
+    raise SystemExit(
+        f"{claude_marketplace_path} must expose exactly the ARC plugin"
+    )
+claude_entry = claude_plugins[0]
+if (
+    claude_entry.get("name") != "arc"
+    or claude_entry.get("source") != "./plugins/arc"
+):
+    raise SystemExit(f"{claude_marketplace_path} ARC plugin source mismatch")
+if claude_entry.get("category") != "productivity":
+    raise SystemExit(f"{claude_marketplace_path} ARC plugin category mismatch")
+
+manifest_paths = [
     root / "plugins/arc/.codex-plugin/plugin.json",
     root / "plugins/arc/.claude-plugin/plugin.json",
-]:
+]
+for manifest in manifest_paths:
     data = json.loads(manifest.read_text(encoding="utf-8"))
     if data.get("version") != version:
         raise SystemExit(f"{manifest} version mismatch")
+claude_manifest = json.loads(manifest_paths[1].read_text(encoding="utf-8"))
+if claude_entry.get("description") != claude_manifest.get("description"):
+    raise SystemExit(
+        f"{claude_marketplace_path} ARC plugin description mismatch"
+    )
 
 install_ref_path = root / "plugins/arc/skills/arc/.arc-install-ref"
 install_ref = install_ref_path.read_text(encoding="utf-8").strip()
