@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -387,6 +388,67 @@ def test_batch_inputs_reach_all_proposers_reviewers_and_rounds(
     assert all(request.inputs == (workspace_input,) for request in fake.requests)
 
 
+def test_loop_input_ids_scope_worker_requests_and_semantic_keys(
+    tmp_path: Path,
+) -> None:
+    class RecordingFake(FakeLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.requests = []
+
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            self.requests.append(request)
+            return _completed(request)
+
+    fake = RecordingFake()
+    inputs = tuple(
+        LLMInputArtifact(
+            input_id,
+            ArtifactSourceRef(
+                "run-a",
+                f"proposer-reviewer/inputs/source/{index:04d}-{input_id}",
+                ArtifactDigest("sha256", digest * 64, 8),
+            ),
+            "text/markdown",
+        )
+        for index, (input_id, digest) in enumerate(
+            (("chapter-a", "a"), ("chapter-b", "b"))
+        )
+    )
+    loops = (
+        replace(_loop("loop-a"), input_ids=("chapter-a",)),
+        replace(_loop("loop-b"), input_ids=("chapter-b",)),
+    )
+    request = BatchRequest(
+        BATCH_SCHEMA_VERSION,
+        "batch-a",
+        loops,
+        BatchFailurePolicy.COLLECT,
+        inputs,
+    )
+
+    _repository, _handler, snapshot = _run(tmp_path, request, fake)
+
+    assert snapshot.status is RunStatus.SUCCEEDED
+    requests_by_loop = {
+        loop_id: [
+            item
+            for item in fake.requests
+            if f'"question":"{loop_id}"' in item.prompt
+        ]
+        for loop_id in ("loop-a", "loop-b")
+    }
+    assert requests_by_loop["loop-a"]
+    assert requests_by_loop["loop-b"]
+    assert all(
+        item.inputs == (inputs[0],) for item in requests_by_loop["loop-a"]
+    )
+    assert all(
+        item.inputs == (inputs[1],) for item in requests_by_loop["loop-b"]
+    )
+
+
 def test_stop_is_recorded_but_ignored_when_early_stop_is_disabled(
     tmp_path: Path,
 ) -> None:
@@ -660,6 +722,7 @@ def test_paused_v5_request_artifact_resumes_after_schema_upgrade(
     for loop in legacy_request["loops"]:
         assert isinstance(loop, dict)
         loop.pop("revision_context_mode")
+        loop.pop("input_ids")
 
     repository, handler, paused = _run(tmp_path, request, fake)
     assert paused.status is RunStatus.PAUSED
@@ -688,6 +751,7 @@ def test_schema_upgrade_still_rejects_a_different_persisted_request(
     for loop in different["loops"]:
         assert isinstance(loop, dict)
         loop.pop("revision_context_mode")
+        loop.pop("input_ids")
     _replace_persisted_request(repository, different)
 
     failed = RunEngine(repository).resume("run-a", handler)

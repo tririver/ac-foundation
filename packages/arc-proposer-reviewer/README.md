@@ -49,6 +49,10 @@ receives its previous proposal and its own targeted feedback. Set it to
 `RevisionContextMode.FULL_REVIEW_ENVELOPE` when a caller also wants each delta
 proposer to receive the complete previous review envelope as broader context.
 
+`LoopSpec.input_ids` optionally selects batch inputs for one loop. Its default,
+`None`, preserves the existing behavior of passing every batch input. An empty
+tuple passes none; otherwise IDs must be unique references to `BatchRequest.inputs`.
+
 ## Tests
 
 The default suite uses fake providers:

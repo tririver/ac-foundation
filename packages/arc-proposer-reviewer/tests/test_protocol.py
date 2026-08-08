@@ -59,6 +59,7 @@ def test_batch_request_round_trips_with_closed_worker_shape() -> None:
     proposer = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
     assert set(proposer) == {"worker_id", "instructions", "output_schema", "model"}
     assert encoded["loops"][0]["revision_context_mode"] == "feedback_only"  # type: ignore[index]
+    assert encoded["loops"][0]["input_ids"] is None  # type: ignore[index]
     assert decode_batch_request(encoded) == original
 
 
@@ -67,6 +68,7 @@ def test_v4_request_decodes_with_final_reviewer_enabled_by_default() -> None:
     legacy["schema_version"] = "arc.proposer_reviewer.batch.v4"
     del legacy["loops"][0]["review_final_round"]  # type: ignore[index]
     del legacy["loops"][0]["revision_context_mode"]  # type: ignore[index]
+    del legacy["loops"][0]["input_ids"]  # type: ignore[index]
 
     decoded = decode_batch_request(legacy)
 
@@ -80,11 +82,23 @@ def test_v5_request_decodes_with_feedback_only_revision_context_by_default() -> 
     legacy = encode_batch_request(request())
     legacy["schema_version"] = "arc.proposer_reviewer.batch.v5"
     del legacy["loops"][0]["revision_context_mode"]  # type: ignore[index]
+    del legacy["loops"][0]["input_ids"]  # type: ignore[index]
 
     decoded = decode_batch_request(legacy)
 
     assert decoded.schema_version == BATCH_SCHEMA_VERSION
     assert decoded.loops[0].revision_context_mode is RevisionContextMode.FEEDBACK_ONLY
+
+
+def test_v6_request_decodes_with_all_inputs_inherited_by_default() -> None:
+    legacy = encode_batch_request(request())
+    legacy["schema_version"] = "arc.proposer_reviewer.batch.v6"
+    del legacy["loops"][0]["input_ids"]  # type: ignore[index]
+
+    decoded = decode_batch_request(legacy)
+
+    assert decoded.schema_version == BATCH_SCHEMA_VERSION
+    assert decoded.loops[0].input_ids is None
 
 
 def test_full_review_envelope_revision_context_round_trips() -> None:
@@ -145,6 +159,45 @@ def test_batch_request_round_trips_verified_input_references_without_content() -
     }]
     assert "content" not in str(encoded)
     assert decode_batch_request(encoded) == original
+
+
+def test_loop_input_ids_round_trip_and_must_reference_batch_inputs() -> None:
+    original = request()
+    input_artifact = LLMInputArtifact(
+        "chapter-001",
+        ArtifactSourceRef(
+            "batch-1",
+            "proposer-reviewer/inputs/source/0000-chapter-001",
+            ArtifactDigest("sha256", "b" * 64, 7),
+        ),
+        "text/markdown",
+    )
+    loop = original.loops[0]
+    selected_loop = LoopSpec(
+        loop_id=loop.loop_id,
+        context=loop.context,
+        proposers=loop.proposers,
+        reviewer=loop.reviewer,
+        max_rounds=loop.max_rounds,
+        allow_early_stop=loop.allow_early_stop,
+        on_proposer_failure=loop.on_proposer_failure,
+        review_final_round=loop.review_final_round,
+        revision_context_mode=loop.revision_context_mode,
+        input_ids=("chapter-001",),
+    )
+    selected = BatchRequest(
+        original.schema_version,
+        original.batch_id,
+        (selected_loop,),
+        original.failure_policy,
+        (input_artifact,),
+    )
+    assert decode_batch_request(encode_batch_request(selected)) == selected
+
+    invalid = encode_batch_request(selected)
+    invalid["loops"][0]["input_ids"] = ["unknown"]  # type: ignore[index]
+    with pytest.raises(RequestValidationError, match="refer to a batch input"):
+        decode_batch_request(invalid)
 
 
 @pytest.mark.parametrize("field", ("surprise", "unexpected_capability"))

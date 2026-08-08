@@ -9,6 +9,7 @@ from arc_llm import LLMInputArtifact, ModelSelection
 from .identity import worker_contract_document
 from .models import (
     BATCH_SCHEMA_VERSION,
+    LEGACY_BATCH_SCHEMA_VERSION_V6,
     LEGACY_BATCH_SCHEMA_VERSION_V4,
     LEGACY_BATCH_SCHEMA_VERSION_V5,
     RESULT_SCHEMA_VERSION,
@@ -30,14 +31,16 @@ def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
     schema_version = _required_text(document, "schema_version", ())
     if schema_version not in {
         BATCH_SCHEMA_VERSION,
+        LEGACY_BATCH_SCHEMA_VERSION_V6,
         LEGACY_BATCH_SCHEMA_VERSION_V5,
         LEGACY_BATCH_SCHEMA_VERSION_V4,
     }:
         raise RequestValidationError(
             (
                 "schema_version must be "
-                f"{BATCH_SCHEMA_VERSION}, {LEGACY_BATCH_SCHEMA_VERSION_V5}, "
-                f"or {LEGACY_BATCH_SCHEMA_VERSION_V4}"
+                f"{BATCH_SCHEMA_VERSION}, {LEGACY_BATCH_SCHEMA_VERSION_V6}, "
+                f"{LEGACY_BATCH_SCHEMA_VERSION_V5}, or "
+                f"{LEGACY_BATCH_SCHEMA_VERSION_V4}"
             ),
             ("schema_version",),
         )
@@ -131,8 +134,10 @@ def _decode_loop(
     }
     if schema_version != LEGACY_BATCH_SCHEMA_VERSION_V4:
         fields.add("review_final_round")
-    if schema_version == BATCH_SCHEMA_VERSION:
+    if schema_version in {BATCH_SCHEMA_VERSION, LEGACY_BATCH_SCHEMA_VERSION_V6}:
         fields.add("revision_context_mode")
+    if schema_version == BATCH_SCHEMA_VERSION:
+        fields.add("input_ids")
     _exact(document, fields, path)
     raw_context = document["context"]
     if not isinstance(raw_context, Mapping):
@@ -157,13 +162,21 @@ def _decode_loop(
         )
     revision_context_mode = (
         RevisionContextMode.FEEDBACK_ONLY
-        if schema_version != BATCH_SCHEMA_VERSION
+        if schema_version not in {BATCH_SCHEMA_VERSION, LEGACY_BATCH_SCHEMA_VERSION_V6}
         else _enum(
             RevisionContextMode,
             document["revision_context_mode"],
             path + ("revision_context_mode",),
         )
     )
+    raw_input_ids = document.get("input_ids")
+    if raw_input_ids is not None and (
+        not isinstance(raw_input_ids, list)
+        or any(not isinstance(item, str) for item in raw_input_ids)
+    ):
+        raise RequestValidationError(
+            "must be an array of strings or null", path + ("input_ids",)
+        )
     return LoopSpec(
         loop_id=_required_text(document, "loop_id", path),
         context=dict(raw_context),
@@ -181,6 +194,9 @@ def _decode_loop(
         ),
         review_final_round=review_final_round,
         revision_context_mode=revision_context_mode,
+        input_ids=(
+            None if raw_input_ids is None else tuple(raw_input_ids)
+        ),
     )
 
 
@@ -251,6 +267,7 @@ def _encode_loop(loop: LoopSpec) -> dict[str, JsonValue]:
         "on_proposer_failure": loop.on_proposer_failure.value,
         "review_final_round": loop.review_final_round,
         "revision_context_mode": loop.revision_context_mode.value,
+        "input_ids": None if loop.input_ids is None else list(loop.input_ids),
     }
 
 

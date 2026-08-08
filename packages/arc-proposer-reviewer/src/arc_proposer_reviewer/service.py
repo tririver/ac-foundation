@@ -151,7 +151,9 @@ class ProposerReviewerService:
         units = tuple(
             WorkUnit(
                 loop.loop_id,
-                loop_semantic_projection(loop, inputs=request.inputs),
+                loop_semantic_projection(
+                    loop, inputs=_loop_inputs(loop, request.inputs)
+                ),
             )
             for loop in request.loops
         )
@@ -164,12 +166,13 @@ class ProposerReviewerService:
                 _ExecutionProgress("loop_started", loop.loop_id),
             )
             try:
+                loop_inputs = _loop_inputs(loop, request.inputs)
                 outcome = self._execute_loop(
                     context,
                     artifacts,
                     loop,
                     options=options,
-                    inputs=request.inputs,
+                    inputs=loop_inputs,
                 )
             except StoppedError:
                 _emit_progress(
@@ -1163,6 +1166,18 @@ def _remove_pause(context: RunContext, store: object, key: str) -> None:
 
 def _pause_key(role: str, worker_id: str) -> str:
     return f"{role}.{worker_id}"
+
+
+def _loop_inputs(
+    loop: LoopSpec,
+    inputs: tuple[LLMInputArtifact, ...],
+) -> tuple[LLMInputArtifact, ...]:
+    """Return the frozen batch inputs selected for one loop."""
+
+    if loop.input_ids is None:
+        return inputs
+    by_id = {item.input_id: item for item in inputs}
+    return tuple(by_id[input_id] for input_id in loop.input_ids)
 
 
 def _loop_result_document(value: LoopResult) -> dict[str, JsonValue]:

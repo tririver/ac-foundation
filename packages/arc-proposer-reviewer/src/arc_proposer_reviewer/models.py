@@ -7,8 +7,9 @@ from typing import Literal, Mapping
 from arc_jobs import JsonValue, RunError
 from arc_llm import LLMExecutionOptions, LLMInputArtifact, ModelSelection
 
-# Batch schema v6 adds the optional revision context configuration.
-BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v6"
+# Batch schema v7 adds optional per-loop batch input selection.
+BATCH_SCHEMA_VERSION = "arc.proposer_reviewer.batch.v7"
+LEGACY_BATCH_SCHEMA_VERSION_V6 = "arc.proposer_reviewer.batch.v6"
 LEGACY_BATCH_SCHEMA_VERSION_V5 = "arc.proposer_reviewer.batch.v5"
 LEGACY_BATCH_SCHEMA_VERSION_V4 = "arc.proposer_reviewer.batch.v4"
 REVIEW_SCHEMA_VERSION = "arc.proposer_reviewer.review.v1"
@@ -57,11 +58,12 @@ class LoopSpec:
     on_proposer_failure: ProposerFailurePolicy = ProposerFailurePolicy.FAIL_LOOP
     review_final_round: bool = True
     revision_context_mode: RevisionContextMode = RevisionContextMode.FEEDBACK_ONLY
+    input_ids: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
 class BatchRequest:
-    schema_version: Literal["arc.proposer_reviewer.batch.v6"]
+    schema_version: Literal["arc.proposer_reviewer.batch.v7"]
     batch_id: str
     loops: tuple[LoopSpec, ...]
     failure_policy: BatchFailurePolicy = BatchFailurePolicy.COLLECT

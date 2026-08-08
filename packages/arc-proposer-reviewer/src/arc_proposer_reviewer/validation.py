@@ -57,6 +57,25 @@ def validate_batch_request(request: BatchRequest) -> None:
         if loop.loop_id in seen_loops:
             raise RequestValidationError("duplicate loop_id", path + ("loop_id",))
         seen_loops.add(loop.loop_id)
+        if loop.input_ids is not None:
+            if not isinstance(loop.input_ids, tuple):
+                raise RequestValidationError(
+                    "must be a tuple or None", path + ("input_ids",)
+                )
+            loop_inputs: set[str] = set()
+            for input_index, input_id in enumerate(loop.input_ids):
+                input_path = path + ("input_ids", input_index)
+                if not isinstance(input_id, str) or not input_id:
+                    raise RequestValidationError(
+                        "must be a non-empty string", input_path
+                    )
+                if input_id in loop_inputs:
+                    raise RequestValidationError("must be unique", input_path)
+                if input_id not in seen_inputs:
+                    raise RequestValidationError(
+                        "must refer to a batch input", input_path
+                    )
+                loop_inputs.add(input_id)
 
 
 def validate_execution_options(options: ExecutionOptions) -> None:
