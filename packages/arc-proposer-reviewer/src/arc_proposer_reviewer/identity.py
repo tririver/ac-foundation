@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Mapping
 
-from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key
+from arc_jobs import JsonValue, SemanticKeyDigest, semantic_key, validate_simple_id
 from arc_llm import LLMInputArtifact
 
 from .models import LoopSpec, RevisionContextMode, WorkerSpec
@@ -11,6 +11,29 @@ from .prompts import PROMPT_CONTRACT
 
 WORKER_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.worker_semantic_key.v7"
 LOOP_SEMANTIC_KEY_SCHEMA = "arc.proposer_reviewer.loop_semantic_key.v7"
+EXECUTION_SCOPE_SCHEMA = "arc.proposer_reviewer.execution_scope.v1"
+
+
+def normalize_execution_scope(execution_scope: str | None) -> str | None:
+    """Validate an optional operational scope without changing semantic inputs."""
+
+    if execution_scope is None:
+        return None
+    return validate_simple_id(execution_scope, label="execution scope")
+
+
+def execution_scope_token(execution_scope: str | None) -> str | None:
+    """Return a bounded namespace token for a non-default execution scope."""
+
+    normalized = normalize_execution_scope(execution_scope)
+    if normalized is None:
+        return None
+    return semantic_key(
+        {
+            "semantic_key_schema": EXECUTION_SCOPE_SCHEMA,
+            "execution_scope": normalized,
+        }
+    ).sha256[:32]
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
@@ -133,6 +156,7 @@ def worker_task_id(
     worker: WorkerSpec,
     upstream_digests: Mapping[str, str],
     inputs: tuple[LLMInputArtifact, ...] = (),
+    execution_scope: str | None = None,
 ) -> str:
     digest = worker_semantic_key(
         role=role,
@@ -142,7 +166,10 @@ def worker_task_id(
         upstream_digests=upstream_digests,
         inputs=inputs,
     )
-    return f"pr-{role}-{digest.sha256}"
+    scope_token = execution_scope_token(execution_scope)
+    if scope_token is None:
+        return f"pr-{role}-{digest.sha256}"
+    return f"pr-{role}-{scope_token}-{digest.sha256}"
 
 
 def derive_batch_run_id(batch_id: str) -> str:

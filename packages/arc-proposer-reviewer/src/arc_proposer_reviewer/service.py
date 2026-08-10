@@ -47,6 +47,7 @@ from .artifacts import (
 from .dialogue import TranscriptTurn, encode_transcript_turn
 from .identity import (
     loop_semantic_projection,
+    normalize_execution_scope,
     worker_semantic_projection,
     worker_task_id,
 )
@@ -120,10 +121,14 @@ class ProposerReviewerService:
         request: BatchRequest,
         *,
         options: ExecutionOptions,
+        execution_scope: str | None = None,
     ) -> RunOutcome:
         validate_batch_request(request)
         validate_execution_options(options)
+        execution_scope = normalize_execution_scope(execution_scope)
         artifacts = context.artifacts.scoped("proposer-reviewer")
+        if execution_scope is not None:
+            artifacts = artifacts.scoped(f"scopes/{execution_scope}")
         request_document = encode_batch_request(request)
         request_ref = artifacts.find(request_artifact_id())
         if request_ref is None:
@@ -164,6 +169,7 @@ class ProposerReviewerService:
             _emit_progress(
                 context,
                 _ExecutionProgress("loop_started", loop.loop_id),
+                execution_scope=execution_scope,
             )
             try:
                 loop_inputs = _loop_inputs(loop, request.inputs)
@@ -173,6 +179,7 @@ class ProposerReviewerService:
                     loop,
                     options=options,
                     inputs=loop_inputs,
+                    execution_scope=execution_scope,
                 )
             except StoppedError:
                 _emit_progress(
@@ -180,6 +187,7 @@ class ProposerReviewerService:
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="stopped"
                     ),
+                    execution_scope=execution_scope,
                 )
                 raise
             except Exception:
@@ -188,6 +196,7 @@ class ProposerReviewerService:
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="failed"
                     ),
+                    execution_scope=execution_scope,
                 )
                 raise
             if isinstance(outcome, Paused):
@@ -196,6 +205,7 @@ class ProposerReviewerService:
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="paused"
                     ),
+                    execution_scope=execution_scope,
                 )
                 return outcome
             document = _loop_result_document(outcome)
@@ -206,6 +216,7 @@ class ProposerReviewerService:
                     _ExecutionProgress(
                         "loop_finished", loop.loop_id, status="failed"
                     ),
+                    execution_scope=execution_scope,
                 )
                 return UnitResult(
                     unit.unit_id,
@@ -219,11 +230,12 @@ class ProposerReviewerService:
                 _ExecutionProgress(
                     "loop_finished", loop.loop_id, status="succeeded"
                 ),
+                execution_scope=execution_scope,
             )
             return UnitResult(unit.unit_id, "succeeded", document)
 
         grouped = context.run_group(
-            batch_group_id(),
+            batch_group_id(execution_scope=execution_scope),
             units,
             run_loop,
             max_workers=options.max_concurrent_loops,
@@ -285,8 +297,12 @@ class ProposerReviewerService:
         *,
         options: ExecutionOptions,
         inputs: tuple[LLMInputArtifact, ...] = (),
+        execution_scope: str | None = None,
     ) -> LoopResult | Paused:
-        store = context.state(state_namespace(loop.loop_id), _LoopStateContract())
+        store = context.state(
+            state_namespace(loop.loop_id, execution_scope=execution_scope),
+            _LoopStateContract(),
+        )
         state = store.read()
         if state is None:
             state = store.create(
@@ -318,6 +334,7 @@ class ProposerReviewerService:
                     loop.loop_id,
                     round_number=round_number,
                 ),
+                execution_scope=execution_scope,
             )
             prior_review = (
                 None
@@ -408,6 +425,7 @@ class ProposerReviewerService:
                     worker=worker,
                     upstream_digests=upstream,
                     inputs=inputs,
+                    execution_scope=execution_scope,
                 )
                 if round_number == 1 or worker.worker_id not in previous_proposals:
                     prompt = render_initial_proposer_prompt(
@@ -456,6 +474,7 @@ class ProposerReviewerService:
                     round_number=round_number,
                     role="proposer",
                     worker_id=worker.worker_id,
+                    execution_scope=execution_scope,
                 )
                 if isinstance(outcome, LLMPaused):
                     paused = _outer_pause(
@@ -465,6 +484,7 @@ class ProposerReviewerService:
                         worker=worker,
                         role="proposer",
                         task_id=task_id,
+                        execution_scope=execution_scope,
                     )
                     _put_pause(
                         context,
@@ -510,7 +530,11 @@ class ProposerReviewerService:
             current_state = store.read()
             assert current_state is not None
             grouped = context.run_group(
-                proposer_group_id(loop.loop_id, round_number),
+                proposer_group_id(
+                    loop.loop_id,
+                    round_number,
+                    execution_scope=execution_scope,
+                ),
                 tuple(proposer_units),
                 run_proposer,
                 max_workers=(
@@ -558,13 +582,16 @@ class ProposerReviewerService:
                 )
             failed_ids = tuple(unit.unit_id for unit in failed)
             if failed_ids:
+                partial_failure_data: dict[str, JsonValue] = {
+                    "loop_id": loop.loop_id,
+                    "round": round_number,
+                    "failed_worker_ids": list(failed_ids),
+                }
+                if execution_scope is not None:
+                    partial_failure_data["execution_scope"] = execution_scope
                 context.events.emit(
                     "proposer_partial_failure",
-                    {
-                        "loop_id": loop.loop_id,
-                        "round": round_number,
-                        "failed_worker_ids": list(failed_ids),
-                    },
+                    partial_failure_data,
                 )
             proposals = {
                 worker_id: read_json_artifact(artifacts, ref)
@@ -631,6 +658,7 @@ class ProposerReviewerService:
                         round_number=round_number,
                         status="succeeded",
                     ),
+                    execution_scope=execution_scope,
                 )
                 return _successful_loop(
                     loop,
@@ -661,6 +689,7 @@ class ProposerReviewerService:
                 worker=loop.reviewer,
                 upstream_digests=review_upstream,
                 inputs=inputs,
+                execution_scope=execution_scope,
             )
             reviewer_request = LLMRequest(
                 task_id=reviewer_task_id,
@@ -695,6 +724,7 @@ class ProposerReviewerService:
                 round_number=round_number,
                 role="reviewer",
                 worker_id=loop.reviewer.worker_id,
+                execution_scope=execution_scope,
             )
             if isinstance(reviewer_outcome, LLMPaused):
                 paused = _outer_pause(
@@ -704,6 +734,7 @@ class ProposerReviewerService:
                     worker=loop.reviewer,
                     role="reviewer",
                     task_id=reviewer_task_id,
+                    execution_scope=execution_scope,
                 )
                 _put_pause(
                     context,
@@ -844,6 +875,7 @@ class ProposerReviewerService:
                     round_number=round_number,
                     status="succeeded",
                 ),
+                execution_scope=execution_scope,
             )
             if termination is not None:
                 return _successful_loop(
@@ -869,6 +901,7 @@ class ProposerReviewerService:
         round_number: int,
         role: Literal["proposer", "reviewer"],
         worker_id: str,
+        execution_scope: str | None,
     ):
         _emit_progress(
             context,
@@ -880,6 +913,7 @@ class ProposerReviewerService:
                 worker_id=worker_id,
                 task_id=task_id,
             ),
+            execution_scope=execution_scope,
         )
         status = "failed"
         try:
@@ -907,6 +941,7 @@ class ProposerReviewerService:
                     task_id=task_id,
                     status=status,
                 ),
+                execution_scope=execution_scope,
             )
 
     def _call_worker(
@@ -1033,6 +1068,8 @@ def _failed_loop(
 def _emit_progress(
     context: RunContext,
     progress: _ExecutionProgress,
+    *,
+    execution_scope: str | None = None,
 ) -> None:
     data: dict[str, JsonValue] = {
         "loop_id": progress.loop_id,
@@ -1046,6 +1083,8 @@ def _emit_progress(
     ):
         if value is not None:
             data[name] = value
+    if execution_scope is not None:
+        data["execution_scope"] = execution_scope
     try:
         event = {
             "round_finished": "proposer_reviewer_round_committed",
@@ -1063,6 +1102,7 @@ def _outer_pause(
     worker: WorkerSpec,
     role: str,
     task_id: str,
+    execution_scope: str | None = None,
 ) -> Paused:
     details = dict(outcome.details)
     inner_code = details.pop("code", None)
@@ -1077,6 +1117,8 @@ def _outer_pause(
             "task_id": task_id,
         }
     )
+    if execution_scope is not None:
+        details["execution_scope"] = execution_scope
     return Paused(
         Awaiting(
             reason=outcome.reason,

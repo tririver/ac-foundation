@@ -18,6 +18,8 @@ from arc_jobs import (
     RunRepository,
     RunSpec,
     RunStatus,
+    Paused,
+    Succeeded,
 )
 from arc_llm import (
     InvalidRequestError,
@@ -45,7 +47,12 @@ from arc_proposer_reviewer.models import BATCH_SCHEMA_VERSION
 from arc_proposer_reviewer.projection import read_batch_round, read_batch_trace
 from arc_proposer_reviewer.protocol import decode_batch_result, encode_batch_request
 from arc_proposer_reviewer.prompts import reviewer_envelope_schema
-from arc_proposer_reviewer.state import _LoopStateContract, state_namespace
+from arc_proposer_reviewer.state import (
+    _LoopStateContract,
+    batch_group_id,
+    proposer_group_id,
+    state_namespace,
+)
 
 
 PROPOSAL_SCHEMA = {
@@ -217,6 +224,24 @@ def context_events(repository: RunRepository, run_id: str):
     ).tail()
 
 
+def _direct_context(root: Path) -> tuple[RunRepository, RunContext]:
+    repository = RunRepository(root)
+    snapshot = repository.create(
+        RunSpec("parent", "test.parent", {"case": "scope"})
+    )
+    return repository, RunContext(repository, snapshot, resume_input=None)
+
+
+def _artifact_ids(repository: RunRepository) -> set[str]:
+    manifests = (
+        repository.run_directory("parent") / "artifacts" / "manifests"
+    )
+    return {
+        str(json.loads(path.read_text(encoding="utf-8"))["artifact_id"])
+        for path in manifests.glob("*.json")
+    }
+
+
 def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
     tmp_path: Path,
 ) -> None:
@@ -237,6 +262,151 @@ def test_one_proposer_one_reviewer_one_round_publishes_typed_result(
     )
     assert replayed == snapshot
     assert len(fake.calls) == 2
+
+
+def test_default_execution_scope_preserves_existing_runtime_identities(
+    tmp_path: Path,
+) -> None:
+    request = _request(_loop())
+    legacy_repository, legacy_context = _direct_context(tmp_path / "legacy")
+    explicit_repository, explicit_context = _direct_context(tmp_path / "explicit")
+    legacy_fake = FakeLLM()
+    explicit_fake = FakeLLM()
+
+    legacy_outcome = ProposerReviewerService(legacy_fake).execute(  # type: ignore[arg-type]
+        legacy_context,
+        request,
+        options=ExecutionOptions(),
+    )
+    explicit_outcome = ProposerReviewerService(explicit_fake).execute(  # type: ignore[arg-type]
+        explicit_context,
+        request,
+        options=ExecutionOptions(),
+        execution_scope=None,
+    )
+
+    assert isinstance(legacy_outcome, Succeeded)
+    assert isinstance(explicit_outcome, Succeeded)
+    assert legacy_fake.calls == explicit_fake.calls
+    assert _artifact_ids(legacy_repository) == _artifact_ids(explicit_repository)
+    loop = request.loops[0]
+    assert state_namespace(loop.loop_id).startswith("pr-loop-")
+    assert batch_group_id() == "batch.loops"
+    assert proposer_group_id(loop.loop_id, 1).startswith("pr.")
+    assert (
+        legacy_repository.run_directory("parent")
+        / "state"
+        / f"{state_namespace(loop.loop_id)}.json"
+    ).read_bytes() == (
+        explicit_repository.run_directory("parent")
+        / "state"
+        / f"{state_namespace(loop.loop_id)}.json"
+    ).read_bytes()
+    legacy_events = [
+        item["data"] for item in context_events(legacy_repository, "parent")
+    ]
+    explicit_events = [
+        item["data"] for item in context_events(explicit_repository, "parent")
+    ]
+    assert legacy_events == explicit_events
+    assert all("execution_scope" not in item for item in legacy_events)
+
+
+def test_nondefault_execution_scope_isolates_artifacts_state_groups_tasks_and_events(
+    tmp_path: Path,
+) -> None:
+    repository, context = _direct_context(tmp_path)
+    fake = FakeLLM()
+    service = ProposerReviewerService(fake)  # type: ignore[arg-type]
+    request = _request(_loop())
+
+    default_outcome = service.execute(context, request, options=ExecutionOptions())
+    scoped_outcome = service.execute(
+        context,
+        request,
+        options=ExecutionOptions(),
+        execution_scope="editorial",
+    )
+
+    assert isinstance(default_outcome, Succeeded)
+    assert isinstance(scoped_outcome, Succeeded)
+    default_tasks = [task_id for _kind, task_id in fake.calls[:2]]
+    scoped_tasks = [task_id for _kind, task_id in fake.calls[2:]]
+    assert default_tasks != scoped_tasks
+    assert all(task_id.startswith("pr-") for task_id in default_tasks)
+    assert all("editorial" not in task_id for task_id in scoped_tasks)
+    loop = request.loops[0]
+    artifact_ids = _artifact_ids(repository)
+    assert "proposer-reviewer/request" in artifact_ids
+    assert "proposer-reviewer/scopes/editorial/request" in artifact_ids
+    assert (
+        repository.run_directory("parent")
+        / "state"
+        / f"{state_namespace(loop.loop_id)}.json"
+    ).is_file()
+    assert (
+        repository.run_directory("parent")
+        / "state"
+        / f"{state_namespace(loop.loop_id, execution_scope='editorial')}.json"
+    ).is_file()
+    groups = repository.run_directory("parent") / "groups"
+    assert (groups / batch_group_id()).is_dir()
+    assert (groups / batch_group_id(execution_scope="editorial")).is_dir()
+    assert (groups / proposer_group_id(loop.loop_id, 1)).is_dir()
+    assert (
+        groups
+        / proposer_group_id(
+            loop.loop_id, 1, execution_scope="editorial"
+        )
+    ).is_dir()
+    scoped_events = [
+        item["data"]
+        for item in context_events(repository, "parent")
+        if item["data"].get("execution_scope") == "editorial"
+    ]
+    assert scoped_events
+    assert all(item["execution_scope"] == "editorial" for item in scoped_events)
+
+
+def test_scoped_pause_resume_does_not_overwrite_default_loop_state(
+    tmp_path: Path,
+) -> None:
+    repository, context = _direct_context(tmp_path)
+    fake = FakeLLM(pause_once=True)
+    service = ProposerReviewerService(fake)  # type: ignore[arg-type]
+    request = _request(_loop())
+
+    paused = service.execute(
+        context,
+        request,
+        options=ExecutionOptions(),
+        execution_scope="editorial",
+    )
+    default_outcome = service.execute(context, request, options=ExecutionOptions())
+    resumed = service.execute(
+        context,
+        request,
+        options=ExecutionOptions(),
+        execution_scope="editorial",
+    )
+
+    assert isinstance(paused, Paused)
+    assert isinstance(default_outcome, Succeeded)
+    assert isinstance(resumed, Succeeded)
+    loop = request.loops[0]
+    default_state = context.state(
+        state_namespace(loop.loop_id), _LoopStateContract()
+    ).read()
+    editorial_state = context.state(
+        state_namespace(loop.loop_id, execution_scope="editorial"),
+        _LoopStateContract(),
+    ).read()
+    assert default_state is not None and default_state.pauses == {}
+    assert editorial_state is not None and editorial_state.pauses == {}
+    assert default_state.termination is not None
+    assert editorial_state.termination is not None
+    assert fake.paused_task_id is not None
+    assert fake.paused_task_id != fake.calls[1][1]
 
 
 def test_event_sink_and_durable_events_include_task_correlation(

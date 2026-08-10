@@ -17,6 +17,7 @@ from arc_jobs import (
 from arc_llm import SessionRef
 
 from .artifacts import artifact_ref_from_document, artifact_ref_to_document
+from .identity import execution_scope_token
 from .models import LoopTermination
 
 
@@ -199,16 +200,37 @@ def runtime_loop_id(loop_id: str) -> str:
     ).sha256[:32]
 
 
-def state_namespace(loop_id: str) -> str:
-    return f"pr-loop-{runtime_loop_id(loop_id)}"
+def state_namespace(
+    loop_id: str,
+    *,
+    execution_scope: str | None = None,
+) -> str:
+    scope_token = execution_scope_token(execution_scope)
+    if scope_token is None:
+        return f"pr-loop-{runtime_loop_id(loop_id)}"
+    return f"pr-scope-{scope_token}-loop-{runtime_loop_id(loop_id)}"
 
 
-def batch_group_id() -> str:
-    return "batch.loops"
+def batch_group_id(*, execution_scope: str | None = None) -> str:
+    scope_token = execution_scope_token(execution_scope)
+    if scope_token is None:
+        return "batch.loops"
+    return f"pr.scope-{scope_token}.batch.loops"
 
 
-def proposer_group_id(loop_id: str, round_number: int) -> str:
-    return f"pr.{runtime_loop_id(loop_id)}.r{round_number:03d}.proposers"
+def proposer_group_id(
+    loop_id: str,
+    round_number: int,
+    *,
+    execution_scope: str | None = None,
+) -> str:
+    scope_token = execution_scope_token(execution_scope)
+    prefix = (
+        "pr"
+        if scope_token is None
+        else f"pr.scope-{scope_token}"
+    )
+    return f"{prefix}.{runtime_loop_id(loop_id)}.r{round_number:03d}.proposers"
 
 
 def _session_document(value: SessionRef) -> dict[str, JsonValue]:
