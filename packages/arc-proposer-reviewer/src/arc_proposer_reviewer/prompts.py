@@ -98,31 +98,42 @@ def render_reviewer_prompt(
     previous_review: JsonValue | None,
     failed_proposer_ids: tuple[str, ...] = (),
     transcript_refs: tuple[Mapping[str, JsonValue], ...] = (),
+    proposal_digests: Mapping[str, str] | None = None,
 ) -> str:
     active_ids = tuple(proposals)
     envelope_schema = reviewer_envelope_schema(
         payload_schema=loop.reviewer.output_schema,
         active_proposer_ids=active_ids,
     )
+    round_task: dict[str, JsonValue] = {
+        "kind": "independent_review",
+        "loop_id": loop.loop_id,
+        "round": round_number,
+        "active_proposer_ids": list(active_ids),
+        "current_proposals": dict(proposals),
+        "previous_review": previous_review,
+        "failed_proposer_ids": list(failed_proposer_ids),
+        "transcript_refs": list(transcript_refs),
+        "instruction": (
+            "Perform a complete review of the current proposals. "
+            "Do not patch or merely endorse the previous review."
+        ),
+    }
+    if proposal_digests is not None:
+        if set(proposal_digests) != set(active_ids) or any(
+            not isinstance(value, str) or not value
+            for value in proposal_digests.values()
+        ):
+            raise ValueError(
+                "proposal_digests must bind every active proposer to a digest"
+            )
+        round_task["proposal_digests"] = dict(proposal_digests)
     return _sections(
         _REVIEWER_PROTOCOL,
         loop.reviewer.instructions,
         envelope_schema,
         loop.context,
-        {
-            "kind": "independent_review",
-            "loop_id": loop.loop_id,
-            "round": round_number,
-            "active_proposer_ids": list(active_ids),
-            "current_proposals": dict(proposals),
-            "previous_review": previous_review,
-            "failed_proposer_ids": list(failed_proposer_ids),
-            "transcript_refs": list(transcript_refs),
-            "instruction": (
-                "Perform a complete review of the current proposals. "
-                "Do not patch or merely endorse the previous review."
-            ),
-        },
+        round_task,
     )
 
 

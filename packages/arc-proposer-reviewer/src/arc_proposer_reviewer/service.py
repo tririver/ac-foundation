@@ -700,6 +700,14 @@ class ProposerReviewerService:
                     previous_review=prior_review,
                     failed_proposer_ids=failed_ids,
                     transcript_refs=transcript_refs,
+                    proposal_digests=(
+                        {
+                            worker_id: ref.digest.value
+                            for worker_id, ref in successful_refs.items()
+                        }
+                        if execution_scope is not None
+                        else None
+                    ),
                 ),
                 output=_worker_output(
                     reviewer_envelope_schema(

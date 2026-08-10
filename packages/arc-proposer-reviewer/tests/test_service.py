@@ -70,11 +70,13 @@ REVIEW_PAYLOAD_SCHEMA = {
 class FakeLLM:
     def __init__(self, *, pause_once: bool = False) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.requests = []
         self.pause_once = pause_once
         self.paused_task_id: str | None = None
 
     def execute(self, context, request, *, options):
         self.calls.append(("execute", request.task_id))
+        self.requests.append(request)
         if self.pause_once and self.paused_task_id is None and _is_proposer(request):
             self.paused_task_id = request.task_id
             return LLMPaused(
@@ -335,6 +337,12 @@ def test_nondefault_execution_scope_isolates_artifacts_state_groups_tasks_and_ev
     assert default_tasks != scoped_tasks
     assert all(task_id.startswith("pr-") for task_id in default_tasks)
     assert all("editorial" not in task_id for task_id in scoped_tasks)
+    scoped_reviewer = next(
+        item
+        for item in fake.requests[2:]
+        if not _is_proposer(item)
+    )
+    assert '"proposal_digests":' in scoped_reviewer.prompt
     loop = request.loops[0]
     artifact_ids = _artifact_ids(repository)
     assert "proposer-reviewer/request" in artifact_ids

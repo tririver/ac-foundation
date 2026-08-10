@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from arc_proposer_reviewer.identity import (
     LOOP_SEMANTIC_KEY_SCHEMA,
     WORKER_SEMANTIC_KEY_SCHEMA,
@@ -100,6 +102,42 @@ def test_delta_and_reviewer_prompts_keep_only_business_context() -> None:
     assert "concrete expected scientific" in reviewer
     assert "contribution and the feedback" in reviewer
     assert "Do not continue merely because additional rounds are available" in reviewer
+
+
+def test_reviewer_proposal_digest_binding_is_explicit_and_opt_in() -> None:
+    value = loop()
+    proposals = {"p": {"answer": "candidate"}}
+    default = render_reviewer_prompt(
+        loop=value,
+        round_number=1,
+        proposals=proposals,
+        previous_review=None,
+    )
+    explicit_default = render_reviewer_prompt(
+        loop=value,
+        round_number=1,
+        proposals=proposals,
+        previous_review=None,
+        proposal_digests=None,
+    )
+    scoped = render_reviewer_prompt(
+        loop=value,
+        round_number=1,
+        proposals=proposals,
+        previous_review=None,
+        proposal_digests={"p": "a" * 64},
+    )
+
+    assert default == explicit_default
+    assert '"proposal_digests":{"p":"' + "a" * 64 + '"}' in scoped
+    with pytest.raises(ValueError, match="bind every active proposer"):
+        render_reviewer_prompt(
+            loop=value,
+            round_number=1,
+            proposals=proposals,
+            previous_review=None,
+            proposal_digests={},
+        )
 
 
 def test_workspace_input_protocol_reads_only_task_relevant_material() -> None:
