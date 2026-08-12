@@ -7,7 +7,14 @@ belong to the packages that call it.
 
 ## Quick start
 
-Run one typed request in an explicit durable root:
+Installing the Python distribution exposes the `arc-llm` console script. In an
+active ARC Skill, use `<skill-dir>/scripts/arc-runtime arc-llm`; inside this
+source checkout, `packages/arc-paper/.venv/bin/arc-llm` is the direct shared
+development fallback.
+
+Create `local/example/request.json` from the validated v4 template in the
+[ARC LLM Quick Start](../../plugins/arc/skills/arc/manuals/arc-llm.md), then run
+one typed request in an explicit durable root:
 
 ```bash
 arc-llm generate \
@@ -16,8 +23,14 @@ arc-llm generate \
   --host-authority <host-authority>
 ```
 
-Use `arc-llm --help` and `arc-llm generate --help` for the request contract,
-run controls, provider diagnostic, and current options.
+Persist `run.id`. Read the lifecycle at `data.run.status`; on success, the
+verified result path is `data.run.result.path`, with a matching item in
+`artifacts[]` whose `role` is `result`. Resolve only that returned path under
+`<run-root>/runs/<run.id>/`; the model result is not inline in the command
+envelope. The Quick Start also provides exact status, pause, and result paths
+plus the closed v3 resume template. Use `arc-llm --help` and
+`arc-llm <command> --help` for current commands and flags, not the JSON request
+contract.
 
 Provider admission pauses by default when effective available system or
 container memory falls below 10%. Override the threshold with

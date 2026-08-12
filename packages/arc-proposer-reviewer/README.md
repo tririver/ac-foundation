@@ -7,19 +7,43 @@ to `arc-llm`; research-workflow policy belongs to the calling workflow.
 
 ## Quick start
 
-Run one validated batch request:
+Installing the Python distribution exposes the `arc-proposer-reviewer` console
+script. The ARC plugin does not install a standalone bin wrapper for this
+core-only command: in an active Skill, invoke
+`<skill-dir>/scripts/arc-runtime arc-proposer-reviewer`. Inside this source
+checkout, `packages/arc-paper/.venv/bin/arc-proposer-reviewer` is a direct
+shared development fallback.
+
+Create `local/example/batch.json` from the smallest validated v7 template in
+the [ARC Proposer-Reviewer Quick Start](../../plugins/arc/skills/arc/manuals/arc-proposer-reviewer.md).
+Validate it locally, then run and query the batch through the public CLI:
 
 ```bash
+arc-proposer-reviewer validate \
+  --request local/example/batch.json
+
 arc-proposer-reviewer run \
   --request local/example/batch.json \
-  --run-root local/example/proposer-reviewer
+  --run-root local/example/proposer-reviewer \
+  --run-id batch-001
+
+arc-proposer-reviewer inspect \
+  --run-root local/example/proposer-reviewer --run-id batch-001
+
+arc-proposer-reviewer trace \
+  --run-root local/example/proposer-reviewer --run-id batch-001
+
+arc-proposer-reviewer show-round \
+  --run-root local/example/proposer-reviewer --run-id batch-001 \
+  --loop-id question-1 --round 1
 ```
 
-Use `arc-proposer-reviewer --help` and
-`arc-proposer-reviewer run --help` for request validation, resume, cooperative
-stop, inspection, trace, and committed-round queries. `inspect` reports the
-durable lifecycle, loop lifecycle counts, current workers and interactions,
-actionable pauses, and sanitized failure causes.
+Validation is at `data.valid`, lifecycle and pauses at `data.inspection`,
+committed references at `data.trace`, and one expanded committed round at
+`data.round`. `inspect` reports loop lifecycle counts, current workers and
+interactions, actionable pauses, and sanitized failure causes. Help documents
+commands and flags; the linked Quick Start owns the complete v7 batch contract,
+exact result paths, and v3 resume skeleton.
 
 ## Python API
 

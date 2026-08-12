@@ -7,14 +7,30 @@ provider selection, detached processes, or research-domain workflows.
 
 ## Quick start
 
+Installing the Python distribution exposes the `arc-jobs` console script. In
+an active ARC Skill, use `<skill-dir>/scripts/arc-runtime arc-jobs`; inside this
+source checkout, `packages/arc-paper/.venv/bin/arc-jobs` is the direct shared
+development fallback.
+
 Inspect a run created by an ARC package:
 
 ```bash
 arc-jobs status --run-root local/example/runs --run-id run-001
 ```
 
-Use `arc-jobs --help` and `arc-jobs status --help` for the current control
-commands and arguments.
+The command envelope is a query: read the durable lifecycle at
+`data.run.status`, not only top-level `status`. The result artifact ID and
+returned path are at `data.run.result.artifact_id` and
+`data.run.result.path`; failures and pauses are at `data.run.error` and
+`data.run.resume`; exact editable recovery paths are under
+`data.run.working_state`. `validate` returns `data.valid` and `data.issues[]`,
+while `stop` returns `data.run.stop_requested` and `data.run.status`.
+
+`arc-jobs` deliberately has no resume command. Resume through the package that
+created the run, using the same run root and ID. See the
+[ARC Jobs Quick Start](../../plugins/arc/skills/arc/manuals/arc-jobs.md) for
+launcher selection, command examples, result paths, and recovery boundaries.
+Use `arc-jobs --help` and `arc-jobs <command> --help` for current flags.
 
 ## Python API
 

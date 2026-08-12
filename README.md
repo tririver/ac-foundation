@@ -79,8 +79,9 @@ Use ARC to develop and review ideas from the resulting domain.
 Use ARC to check this calculation.
 ```
 
-The ARC manuals provide concise quick starts. Use built-in `--help` for exact
-commands, options, and error guidance.
+An installed ARC plugin exposes its bundled Skill and manuals to the agent.
+Those manuals provide task-oriented quick starts; built-in `--help` provides
+exact commands, options, and error guidance.
 
 ## Development and release
 
