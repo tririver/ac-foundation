@@ -24,6 +24,12 @@ container memory falls below 10%. Override the threshold with
 `--minimum-available-memory-percent PERCENT`, or bypass the check explicitly
 with `--disable-memory-guard`. The same flags are available for `resume`.
 
+ARC's default **max parallel** provider target is 100 concurrent calls. This
+is an admission target, not a hard ceiling: callers may set any positive
+`ProviderGateOptions.global_limit`, and a caller-owned worker pool must create
+the demand. The memory guard, provider-specific limits, and circuit breaker
+can reduce effective concurrency below the target.
+
 Set `<host-authority>` once per run: use `unrestricted` only when the host
 explicitly reports unrestricted authority; otherwise use `unknown`. Reuse the
 identical value when resuming that run.

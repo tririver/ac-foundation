@@ -26,6 +26,7 @@ ModelTier: TypeAlias = Literal["low", "medium", "high", "xhigh"]
 
 REQUEST_SCHEMA_VERSION = "arc.llm.request.v4"
 RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v3"
+DEFAULT_MAX_PARALLEL_PROVIDER_CALLS = 100
 
 
 def _frozen_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -95,7 +96,7 @@ class ExecutionLimits:
 @dataclass(frozen=True)
 class ProviderGateOptions:
     enabled: bool = True
-    global_limit: int = 24
+    global_limit: int = DEFAULT_MAX_PARALLEL_PROVIDER_CALLS
     provider_limits: Mapping[str, int] = field(default_factory=dict)
     circuit_failure_threshold: int = 3
     circuit_cooldown_seconds: float = 900.0

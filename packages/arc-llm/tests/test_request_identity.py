@@ -8,6 +8,7 @@ import pytest
 
 from arc_jobs import ArtifactDigest, ArtifactSourceRef
 from arc_llm import (
+    DEFAULT_MAX_PARALLEL_PROVIDER_CALLS,
     ExecutionLimits,
     InvalidRequestError,
     JsonOutput,
@@ -180,7 +181,7 @@ def test_operational_limits_do_not_change_semantic_key() -> None:
 def test_provider_gate_defaults_and_overrides_are_typed_operational_policy() -> None:
     defaults = ProviderGateOptions()
     assert defaults.enabled
-    assert defaults.global_limit == 24
+    assert defaults.global_limit == DEFAULT_MAX_PARALLEL_PROVIDER_CALLS == 100
     assert defaults.minimum_available_memory_fraction == 0.10
     assert defaults.memory_poll_interval_seconds == 1.0
     assert defaults.memory_launch_interval_seconds == 0.25

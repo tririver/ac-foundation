@@ -59,6 +59,7 @@ from .providers import (
     UsageAvailability,
 )
 from .request import (
+    DEFAULT_MAX_PARALLEL_PROVIDER_CALLS,
     ExecutionLimits,
     JsonOutput,
     LLMExecutionOptions,
@@ -89,6 +90,7 @@ __all__ = [
     "CandidateConflictError",
     "ArcRuntimeEnvironment",
     "CorruptTaskStateError",
+    "DEFAULT_MAX_PARALLEL_PROVIDER_CALLS",
     "ErrorCode",
     "ExecutionFingerprint",
     "ExecutionLimits",
