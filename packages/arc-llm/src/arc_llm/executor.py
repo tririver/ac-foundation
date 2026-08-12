@@ -692,7 +692,11 @@ class LLMTaskExecutor:
         )
         workspace = self._prepare_workspace(context, request, state, options=options)
         gate = self._provider_gate(context, options)
-        with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
+        with gate.acquire(
+            adapter.name,
+            checkpoint=context.checkpoint,
+            observe=lambda event, data: self._observe_gate(context, event, data),
+        ) as permit:
             state = self._mark_attempt_started(state, store)
             try:
                 execution = adapter.start(
@@ -713,7 +717,7 @@ class LLMTaskExecutor:
                 self._emit_gate_record_warning(context, permit)
                 raise
             self._record_gate_execution(context, permit, execution)
-            return execution
+            return self._with_gate_warnings(execution, permit)
 
     def _mark_attempt_started(self, state: LLMTaskState, store: Any) -> LLMTaskState:
         if state.current.attempt_started:
@@ -763,7 +767,11 @@ class LLMTaskExecutor:
             continuation_prompt=prompt,
         )
         gate = self._provider_gate(context, options)
-        with gate.acquire(adapter.name, checkpoint=context.checkpoint) as permit:
+        with gate.acquire(
+            adapter.name,
+            checkpoint=context.checkpoint,
+            observe=lambda event, data: self._observe_gate(context, event, data),
+        ) as permit:
             state = self._mark_attempt_started(state, store)
             try:
                 execution = adapter.resume(
@@ -784,7 +792,7 @@ class LLMTaskExecutor:
                 self._emit_gate_record_warning(context, permit)
                 raise
             self._record_gate_execution(context, permit, execution)
-            return execution
+            return self._with_gate_warnings(execution, permit)
 
     def _observer(self, context: Any, state: LLMTaskState, store: Any) -> DurableProviderObserver:
         def save_handle(handle: NativeResumeHandle) -> None:
@@ -819,6 +827,40 @@ class LLMTaskExecutor:
         else:
             permit.record_success()
         self._emit_gate_record_warning(context, permit)
+
+    @staticmethod
+    def _observe_gate(
+        context: Any,
+        event: str,
+        data: Mapping[str, Any],
+    ) -> None:
+        try:
+            details = dict(data)
+            if event == "llm_memory_guard_warning":
+                details["attempt"] = context.attempt
+                if any(
+                    item["event"] == event
+                    and item["data"].get("attempt") == context.attempt
+                    for item in context.events.tail()
+                ):
+                    return
+            context.events.emit(event, details)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _with_gate_warnings(
+        execution: ProviderExecution,
+        permit: Any,
+    ) -> ProviderExecution:
+        if not permit.warnings:
+            return execution
+        diagnostics = dict(execution.diagnostics)
+        existing = diagnostics.get("warnings")
+        warnings = list(existing) if isinstance(existing, (list, tuple)) else []
+        warnings.extend(permit.warnings)
+        diagnostics["warnings"] = warnings
+        return replace(execution, diagnostics=diagnostics)
 
     @staticmethod
     def _emit_gate_record_warning(context: Any, permit: Any) -> None:
@@ -1922,13 +1964,24 @@ class LLMTaskExecutor:
             return ()
         warnings: list[Mapping[str, Any]] = []
         for raw_warning in raw_warnings:
-            if (
-                not isinstance(raw_warning, Mapping)
-                or raw_warning.get("code")
-                != "provider_nonzero_exit_with_valid_output"
-            ):
+            if not isinstance(raw_warning, Mapping):
                 continue
+            code = raw_warning.get("code")
             message = raw_warning.get("message")
+            if code == "memory_guard_unavailable":
+                error_type = raw_warning.get("error_type")
+                if not isinstance(message, str) or not isinstance(error_type, str):
+                    continue
+                warnings.append(
+                    {
+                        "code": code,
+                        "message": message[:512],
+                        "error_type": error_type[:128],
+                    }
+                )
+                continue
+            if code != "provider_nonzero_exit_with_valid_output":
+                continue
             provider = raw_warning.get("provider")
             returncode = raw_warning.get("returncode")
             if (
@@ -2611,7 +2664,7 @@ class LLMTaskExecutor:
     @staticmethod
     def _publish_policy(scoped: Any, generation: int, options: LLMExecutionOptions) -> None:
         document = {
-            "schema_version": "arc.llm.operational_policy.v1",
+            "schema_version": "arc.llm.operational_policy.v2",
             "limits": {
                 "idle_timeout_seconds": options.limits.idle_timeout_seconds,
             },
@@ -2621,6 +2674,15 @@ class LLMTaskExecutor:
                 "provider_limits": dict(sorted(options.gate.provider_limits.items())),
                 "circuit_failure_threshold": options.gate.circuit_failure_threshold,
                 "circuit_cooldown_seconds": options.gate.circuit_cooldown_seconds,
+                "minimum_available_memory_fraction": (
+                    options.gate.minimum_available_memory_fraction
+                ),
+                "memory_poll_interval_seconds": (
+                    options.gate.memory_poll_interval_seconds
+                ),
+                "memory_launch_interval_seconds": (
+                    options.gate.memory_launch_interval_seconds
+                ),
             },
         }
         digest = document_sha256(document)

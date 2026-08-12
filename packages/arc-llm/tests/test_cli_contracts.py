@@ -2,10 +2,74 @@ from __future__ import annotations
 
 import json
 
-from arc_jobs import CommandResult, CommandStatus, RunRepository, RunSpec, RunStatus, command_result_json
+from arc_jobs import (
+    CommandResult,
+    CommandStatus,
+    RunRepository,
+    RunSpec,
+    RunStatus,
+    command_result_json,
+)
 
 from arc_llm import LLMCompleted, ProviderRegistry
-from arc_llm.cli import _command_with_runtime_warnings, main
+from arc_llm.cli import (
+    _build_parser,
+    _command_with_runtime_warnings,
+    _execution_options,
+    main,
+)
+
+
+def test_cli_memory_guard_defaults_overrides_and_bypass() -> None:
+    parser = _build_parser()
+
+    default = parser.parse_args(
+        ["generate", "--request", "request.json", "--run-root", "runs"]
+    )
+    custom = parser.parse_args(
+        [
+            "generate",
+            "--request",
+            "request.json",
+            "--run-root",
+            "runs",
+            "--minimum-available-memory-percent",
+            "25",
+        ]
+    )
+    disabled = parser.parse_args(
+        [
+            "resume",
+            "--run-root",
+            "runs",
+            "--run-id",
+            "task",
+            "--disable-memory-guard",
+        ]
+    )
+
+    assert _execution_options(default).gate.minimum_available_memory_fraction == 0.10
+    assert _execution_options(custom).gate.minimum_available_memory_fraction == 0.25
+    assert _execution_options(disabled).gate.minimum_available_memory_fraction is None
+
+
+def test_cli_rejects_invalid_memory_guard_percentage(capsys) -> None:
+    code = main(
+        [
+            "generate",
+            "--request",
+            "request.json",
+            "--run-root",
+            "runs",
+            "--minimum-available-memory-percent",
+            "0",
+        ],
+        registry=ProviderRegistry(),
+    )
+
+    assert code == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["error"]["code"] == "invalid_request"
 
 
 def test_cli_places_runtime_warnings_in_the_command_warning_channel() -> None:

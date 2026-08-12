@@ -19,6 +19,11 @@ arc-llm generate \
 Use `arc-llm --help` and `arc-llm generate --help` for the request contract,
 run controls, provider diagnostic, and current options.
 
+Provider admission pauses by default when effective available system or
+container memory falls below 10%. Override the threshold with
+`--minimum-available-memory-percent PERCENT`, or bypass the check explicitly
+with `--disable-memory-guard`. The same flags are available for `resume`.
+
 Set `<host-authority>` once per run: use `unrestricted` only when the host
 explicitly reports unrestricted authority; otherwise use `unknown`. Reuse the
 identical value when resuming that run.

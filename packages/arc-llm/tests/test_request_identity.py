@@ -181,15 +181,30 @@ def test_provider_gate_defaults_and_overrides_are_typed_operational_policy() -> 
     defaults = ProviderGateOptions()
     assert defaults.enabled
     assert defaults.global_limit == 24
+    assert defaults.minimum_available_memory_fraction == 0.10
+    assert defaults.memory_poll_interval_seconds == 1.0
+    assert defaults.memory_launch_interval_seconds == 0.25
     configured = ProviderGateOptions(
         global_limit=8,
         provider_limits={"codex": 2},
         circuit_failure_threshold=2,
         circuit_cooldown_seconds=30,
+        minimum_available_memory_fraction=None,
     )
     assert configured.provider_limits["codex"] == 2
     with pytest.raises(InvalidRequestError):
         ProviderGateOptions(global_limit=2, provider_limits={"codex": 3})
+    for invalid in (0, -0.1, 1.1, True):
+        with pytest.raises(InvalidRequestError):
+            ProviderGateOptions(  # type: ignore[arg-type]
+                minimum_available_memory_fraction=invalid
+            )
+    for field in (
+        "memory_poll_interval_seconds",
+        "memory_launch_interval_seconds",
+    ):
+        with pytest.raises(InvalidRequestError):
+            ProviderGateOptions(**{field: 0})
 
 
 def test_runtime_internet_is_not_semantic_and_prompt_changes_are_detected() -> None:

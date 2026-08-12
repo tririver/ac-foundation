@@ -99,6 +99,9 @@ class ProviderGateOptions:
     provider_limits: Mapping[str, int] = field(default_factory=dict)
     circuit_failure_threshold: int = 3
     circuit_cooldown_seconds: float = 900.0
+    minimum_available_memory_fraction: float | None = 0.10
+    memory_poll_interval_seconds: float = 1.0
+    memory_launch_interval_seconds: float = 0.25
 
     def __post_init__(self) -> None:
         if not isinstance(self.enabled, bool):
@@ -119,6 +122,25 @@ class ProviderGateOptions:
             raise InvalidRequestError(
                 "gate.circuit_cooldown_seconds must be positive."
             )
+        if self.minimum_available_memory_fraction is not None and (
+            isinstance(self.minimum_available_memory_fraction, bool)
+            or not isinstance(self.minimum_available_memory_fraction, (int, float))
+            or not 0 < self.minimum_available_memory_fraction <= 1
+        ):
+            raise InvalidRequestError(
+                "gate.minimum_available_memory_fraction must be null or in (0, 1]."
+            )
+        for name in (
+            "memory_poll_interval_seconds",
+            "memory_launch_interval_seconds",
+        ):
+            value = getattr(self, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or value <= 0
+            ):
+                raise InvalidRequestError(f"gate.{name} must be positive.")
         limits = dict(self.provider_limits)
         for provider, limit in limits.items():
             if (

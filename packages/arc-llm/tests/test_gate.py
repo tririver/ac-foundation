@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import multiprocessing
 import os
 from pathlib import Path
-import inspect
 
 import pytest
 
+from arc_jobs import BoundedLeasePool
 from arc_llm import (
     FailureCategory,
     ProviderFailure,
     ProviderGateOptions,
 )
 from arc_llm.gate import ProviderCallGate
+from arc_llm.memory import MemoryAvailability
 
 
 def _checkpoint() -> None:
@@ -389,7 +391,8 @@ def test_gate_uses_repository_operational_root_at_provider_boundary(
         RunSpec("parent", "test.parent", {"case": "provider-gate"})
     )
     context = RunContext(repository, snapshot, resume_input=None)
-    outcome = LLMTaskService(registry=registry).execute(
+    service = LLMTaskService(registry=registry)
+    outcome = service.execute(
         context,
         LLMRequest(
             "gated",
@@ -439,7 +442,8 @@ def test_gate_state_write_warning_is_bounded_and_does_not_replace_success(
         snapshot,
         resume_input=None,
     )
-    outcome = LLMTaskService(registry=registry).execute(
+    service = LLMTaskService(registry=registry)
+    outcome = service.execute(
         context,
         LLMRequest(
             "gated",
@@ -457,6 +461,70 @@ def test_gate_state_write_warning_is_bounded_and_does_not_replace_success(
     assert [event["data"] for event in warnings] == [
         {"code": "provider_gate_state_write_failed"}
     ]
+
+
+def test_memory_probe_failure_is_a_completed_outcome_warning(
+    tmp_path: Path, adapter, registry, monkeypatch
+) -> None:
+    from arc_jobs import RunContext, RunRepository, RunSpec
+    from arc_llm import (
+        JsonOutput,
+        LLMCompleted,
+        LLMRequest,
+        LLMTaskService,
+        ModelSelection,
+        NativeResumeHandle,
+        ProviderExecution,
+        ProviderTerminalKind,
+    )
+    from arc_llm.output import CandidateMaterial
+
+    adapter.steps.append(
+        ProviderExecution(
+            ProviderTerminalKind.COMPLETED,
+            (CandidateMaterial(value={"answer": 1}, terminal=True),),
+            NativeResumeHandle("codex", "thread"),
+        )
+    )
+    monkeypatch.setattr(
+        "arc_llm.gate.read_memory_availability",
+        lambda: (_ for _ in ()).throw(OSError("unsupported")),
+    )
+    repository = RunRepository(tmp_path)
+    snapshot = repository.create(
+        RunSpec("parent", "test.parent", {"case": "memory-warning"})
+    )
+    context = RunContext(repository, snapshot, resume_input=None)
+
+    service = LLMTaskService(registry=registry)
+    outcome = service.execute(
+        context,
+        LLMRequest(
+            "gated",
+            "Return an object.",
+            JsonOutput({"type": "object", "required": ["answer"]}),
+            ModelSelection("codex"),
+        ),
+    )
+
+    assert isinstance(outcome, LLMCompleted)
+    assert [warning["code"] for warning in outcome.warnings] == [
+        "internet_best_effort",
+        "memory_guard_unavailable",
+    ]
+    assert any(
+        event["event"] == "llm_memory_guard_warning"
+        for event in context.events.tail()
+    )
+    service._executor._observe_gate(
+        context,
+        "llm_memory_guard_warning",
+        {"code": "memory_guard_unavailable"},
+    )
+    assert sum(
+        event["event"] == "llm_memory_guard_warning"
+        for event in context.events.tail()
+    ) == 1
 
 
 def test_operational_limit_changes_expand_the_repository_pool(
@@ -495,7 +563,10 @@ def test_configured_gate_can_hold_more_than_twenty_four_permits(
 ) -> None:
     gate = ProviderCallGate(
         tmp_path / "operational" / "llm",
-        ProviderGateOptions(global_limit=200),
+        ProviderGateOptions(
+            global_limit=200,
+            minimum_available_memory_fraction=None,
+        ),
     )
     permits = []
     try:
@@ -505,3 +576,172 @@ def test_configured_gate_can_hold_more_than_twenty_four_permits(
     finally:
         for permit in permits:
             permit.release()
+
+
+def test_low_memory_releases_capacity_then_resumes_with_events(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "operational" / "llm"
+    measurements = iter(
+        (
+            MemoryAvailability(5, 100, "test"),
+            MemoryAvailability(20, 100, "test"),
+            MemoryAvailability(20, 100, "test"),
+        )
+    )
+    now = [100.0]
+    sleeps = []
+    capacity_was_free = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if seconds == 0.02:
+            probe = BoundedLeasePool(root / "global", 1).acquire(blocking=False)
+            capacity_was_free.append(True)
+            probe.release()
+        now[0] += seconds
+
+    events = []
+    gate = ProviderCallGate(
+        root,
+        ProviderGateOptions(
+            global_limit=1,
+            minimum_available_memory_fraction=0.10,
+            memory_poll_interval_seconds=0.02,
+            memory_launch_interval_seconds=0.01,
+        ),
+        clock=lambda: now[0],
+        memory_probe=lambda: next(measurements),
+        sleeper=sleep,
+    )
+
+    permit = gate.acquire(
+        "codex",
+        checkpoint=_checkpoint,
+        observe=lambda event, data: events.append((event, data)),
+    )
+    permit.release()
+
+    assert capacity_was_free == [True]
+    assert sleeps == [0.02]
+    assert [event for event, _ in events] == [
+        "llm_memory_throttled",
+        "llm_memory_resumed",
+    ]
+    assert events[0][1]["available_fraction"] == 0.05
+    assert events[1][1]["wait_seconds"] == pytest.approx(0.02)
+
+
+def test_memory_guard_paces_repository_launches(tmp_path: Path) -> None:
+    now = [100.0]
+    sleeps = []
+    available = MemoryAvailability(50, 100, "test")
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    gate = ProviderCallGate(
+        tmp_path / "operational" / "llm",
+        ProviderGateOptions(
+            global_limit=2,
+            memory_launch_interval_seconds=0.25,
+        ),
+        clock=lambda: now[0],
+        memory_probe=lambda: available,
+        sleeper=sleep,
+    )
+    first = gate.acquire("codex", checkpoint=_checkpoint)
+    second = gate.acquire("codex", checkpoint=_checkpoint)
+    first.release()
+    second.release()
+
+    assert sleeps == [0.25]
+
+
+def test_unavailable_memory_probe_proceeds_without_pacing_and_warns(
+    tmp_path: Path,
+) -> None:
+    def unavailable() -> MemoryAvailability:
+        raise OSError("unsupported")
+
+    events = []
+    sleeps = []
+    gate = ProviderCallGate(
+        tmp_path / "operational" / "llm",
+        ProviderGateOptions(global_limit=1),
+        memory_probe=unavailable,
+        sleeper=sleeps.append,
+    )
+    permit = gate.acquire(
+        "codex",
+        checkpoint=_checkpoint,
+        observe=lambda event, data: events.append((event, data)),
+    )
+    permit.release()
+
+    assert sleeps == []
+    assert [warning["code"] for warning in permit.warnings] == [
+        "memory_guard_unavailable"
+    ]
+    assert [event for event, _ in events] == ["llm_memory_guard_warning"]
+
+
+def test_invalid_memory_probe_result_uses_fail_open_warning(tmp_path: Path) -> None:
+    gate = ProviderCallGate(
+        tmp_path / "operational" / "llm",
+        ProviderGateOptions(global_limit=1),
+        memory_probe=lambda: None,  # type: ignore[arg-type,return-value]
+        sleeper=lambda _: None,
+    )
+
+    permit = gate.acquire("codex", checkpoint=_checkpoint)
+    permit.release()
+
+    assert permit.warnings[0]["code"] == "memory_guard_unavailable"
+    assert permit.warnings[0]["error_type"] == "TypeError"
+
+
+def test_disabled_memory_guard_skips_probe_and_pacing(tmp_path: Path) -> None:
+    gate = ProviderCallGate(
+        tmp_path / "operational" / "llm",
+        ProviderGateOptions(
+            global_limit=1,
+            minimum_available_memory_fraction=None,
+        ),
+        memory_probe=lambda: (_ for _ in ()).throw(
+            AssertionError("disabled guard must not probe")
+        ),
+        sleeper=lambda _: (_ for _ in ()).throw(
+            AssertionError("disabled guard must not sleep")
+        ),
+    )
+
+    gate.acquire("codex", checkpoint=_checkpoint).release()
+
+
+def test_memory_wait_remains_cooperatively_stoppable(tmp_path: Path) -> None:
+    calls = 0
+
+    class StopWaiting(Exception):
+        pass
+
+    def checkpoint() -> None:
+        nonlocal calls
+        calls += 1
+        if calls >= 4:
+            raise StopWaiting
+
+    gate = ProviderCallGate(
+        tmp_path / "operational" / "llm",
+        ProviderGateOptions(
+            global_limit=1,
+            memory_poll_interval_seconds=0.01,
+            memory_launch_interval_seconds=0.01,
+        ),
+        memory_probe=lambda: MemoryAvailability(1, 100, "test"),
+        sleeper=lambda _: None,
+    )
+
+    with pytest.raises(StopWaiting):
+        gate.acquire("codex", checkpoint=checkpoint)

@@ -34,6 +34,7 @@ from .providers import ProviderRegistry, default_registry
 from .request import (
     LLMExecutionOptions,
     ModelSelection,
+    ProviderGateOptions,
     decode_request,
     decode_resume_input,
 )
@@ -83,6 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=HostAuthority.UNKNOWN.value,
         help="host authority attestation (default: unknown, so ARC uses host turns)",
     )
+    _add_memory_gate_arguments(generate)
 
     resume = commands.add_parser(
         "resume",
@@ -100,6 +102,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=HostAuthority.UNKNOWN.value,
         help="host authority attestation (default: unknown, so ARC uses host turns)",
     )
+    _add_memory_gate_arguments(resume)
 
     status = commands.add_parser(
         "status",
@@ -132,6 +135,48 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_memory_gate_arguments(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--minimum-available-memory-percent",
+        type=_memory_percent,
+        metavar="PERCENT",
+        help=(
+            "pause new provider calls below this available-memory percentage "
+            "(default: 10)"
+        ),
+    )
+    group.add_argument(
+        "--disable-memory-guard",
+        action="store_true",
+        help="launch provider calls without available-memory admission checks",
+    )
+
+
+def _memory_percent(value: str) -> float:
+    try:
+        percent = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not 0 < percent <= 100:
+        raise argparse.ArgumentTypeError("must be greater than 0 and at most 100")
+    return percent
+
+
+def _execution_options(args: argparse.Namespace) -> LLMExecutionOptions:
+    threshold: float | None = 0.10
+    if args.disable_memory_guard:
+        threshold = None
+    elif args.minimum_available_memory_percent is not None:
+        threshold = args.minimum_available_memory_percent / 100.0
+    return LLMExecutionOptions(
+        gate=ProviderGateOptions(
+            minimum_available_memory_fraction=threshold,
+        ),
+        host_authority=HostAuthority(args.host_authority),
+    )
+
+
 def _read_object(path: Path) -> dict[str, object]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -151,9 +196,7 @@ def _dispatch(
 ) -> CommandResult:
     if args.command == "generate":
         request = decode_request(_read_object(args.request))
-        options = LLMExecutionOptions(
-            host_authority=HostAuthority(args.host_authority)
-        )
+        options = _execution_options(args)
         result = client.generate(
             request,
             run_root=args.run_root,
@@ -184,9 +227,7 @@ def _dispatch(
             run_root=args.run_root,
             run_id=args.run_id,
             input=resume_input,
-            options=LLMExecutionOptions(
-                host_authority=HostAuthority(args.host_authority)
-            ),
+            options=_execution_options(args),
             event_sink=event_sink,
         )
         if isinstance(result.outcome, LLMFailed):
