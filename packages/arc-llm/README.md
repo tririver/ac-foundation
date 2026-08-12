@@ -33,9 +33,13 @@ plus the closed v3 resume template. Use `arc-llm --help` and
 contract.
 
 Provider admission pauses by default when effective available system or
-container memory falls below 10%. Override the threshold with
-`--minimum-available-memory-percent PERCENT`, or bypass the check explicitly
-with `--disable-memory-guard`. The same flags are available for `resume`.
+container memory falls below 10%. On Linux, host availability uses
+`MemAvailable`; cgroup availability also counts inactive file cache reported
+by `memory.stat`, because the kernel can reclaim it under pressure. Missing
+cgroup statistics fall back to conservative raw headroom. Override the
+threshold with `--minimum-available-memory-percent PERCENT`, or bypass the
+check explicitly with `--disable-memory-guard`. The same flags are available
+for `resume`.
 
 ARC's default **max parallel** provider target is 100 concurrent calls. This
 is an admission target, not a hard ceiling: callers may set any positive

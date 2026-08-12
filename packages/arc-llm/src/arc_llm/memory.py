@@ -98,6 +98,7 @@ def _linux_cgroup_memory(
         measurement = _cgroup_measurement(
             root / "memory.current",
             root / "memory.max",
+            root / "memory.stat",
             "cgroup_v2",
         )
         if measurement is not None:
@@ -107,6 +108,7 @@ def _linux_cgroup_memory(
         return _cgroup_measurement(
             root / "memory.usage_in_bytes",
             root / "memory.limit_in_bytes",
+            root / "memory.stat",
             "cgroup_v1",
         )
     return None
@@ -115,6 +117,7 @@ def _linux_cgroup_memory(
 def _cgroup_measurement(
     current_path: Path,
     limit_path: Path,
+    stat_path: Path,
     source: str,
 ) -> MemoryAvailability | None:
     try:
@@ -128,7 +131,28 @@ def _cgroup_measurement(
     # Linux v1 represents an unlimited cgroup with a near-int64 sentinel.
     if limit >= 1 << 60:
         return None
-    return _measurement(max(0, limit - current), limit, source)
+    # ``memory.current``/``usage_in_bytes`` includes file-backed cache. Linux
+    # can reclaim inactive file pages under pressure, so count those pages as
+    # available instead of needlessly blocking new provider calls. This is the
+    # same conservative working-set adjustment used by container monitors: it
+    # excludes active file cache and reclaimable slab. Missing/malformed stats
+    # retain the safer raw-headroom fallback.
+    reclaimable = _inactive_file_bytes(stat_path, source)
+    return _measurement(max(0, limit - current + reclaimable), limit, source)
+
+
+def _inactive_file_bytes(path: Path, source: str) -> int:
+    try:
+        values: dict[str, int] = {}
+        for line in path.read_text(encoding="ascii").splitlines():
+            fields = line.split()
+            if len(fields) == 2:
+                values[fields[0]] = int(fields[1])
+    except (OSError, ValueError):
+        return 0
+    if source == "cgroup_v1" and "total_inactive_file" in values:
+        return max(0, values["total_inactive_file"])
+    return max(0, values.get("inactive_file", 0))
 
 
 def _measurement(
