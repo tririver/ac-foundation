@@ -14,6 +14,12 @@ core-only command: in an active Skill, invoke
 checkout, `packages/arc-paper/.venv/bin/arc-proposer-reviewer` is a direct
 shared development fallback.
 
+Check an installed command before use:
+
+```bash
+arc-proposer-reviewer --help
+```
+
 Create `local/example/batch.json` from the smallest validated v7 template in
 the [ARC Proposer-Reviewer Quick Start](../../plugins/arc/skills/arc/manuals/arc-proposer-reviewer.md).
 Validate it locally, then run and query the batch through the public CLI:
