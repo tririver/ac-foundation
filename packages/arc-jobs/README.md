@@ -12,7 +12,9 @@ an active ARC Skill, use `<skill-dir>/scripts/arc-runtime arc-jobs`; inside this
 source checkout, `packages/arc-paper/.venv/bin/arc-jobs` is the direct shared
 development fallback.
 
-Inspect a run created by an ARC package:
+Inspect a run whose owning workflow exposed a generic root and ID. For a
+direct-root owner such as `arc-llm`, preserve the exact `--run-root` input and
+pair it with the returned `run.id`:
 
 ```bash
 arc-jobs status --run-root local/example/runs --run-id run-001
@@ -45,6 +47,10 @@ print(view.snapshot.status.value)
 
 Higher-level packages create and resume their own runs; use their public
 handlers or facades instead of constructing package-internal run specs.
+Project-based packages normally provide project-aware status, validation, and
+stop commands; use those rather than deriving their internal job roots. There
+is no generic fixture-creation CLI because an ownerless run has neither valid
+package semantics nor a package resume path.
 
 `failed` records the latest failed execution attempt; it is not a permanent
 project terminal state. Only an explicit `RunEngine.resume` may retry it.
