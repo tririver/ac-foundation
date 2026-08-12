@@ -78,7 +78,7 @@ def _runtime_dir(runtime_home: Path, launcher: Path = CORE_LAUNCHER) -> Path:
     return Path(values["runtime"])
 
 
-def test_doctor_defaults_to_shared_runtime_and_paper_cache_only(
+def test_doctor_defaults_to_launch_directory_paper_cache_only(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.delenv("ARC_HOME", raising=False)
@@ -89,11 +89,43 @@ def test_doctor_defaults_to_shared_runtime_and_paper_cache_only(
     assert result.returncode == 1, result.stderr
     values = dict(line.split("=", 1) for line in result.stdout.splitlines())
     assert values["arc_home"] == str(home / ".arc")
-    assert values["paper_cache"] == str(home / ".arc" / "cache" / "arc-paper")
+    assert values["paper_cache"] == str(tmp_path / ".arc" / "cache" / "arc-paper")
     assert "domain_cache" not in values
     assert "llm_cache" not in values
     assert "jobs" not in values
     assert "llm_tmp" not in values
+
+
+def test_local_checkout_launch_uses_ignored_checkout_cache(tmp_path: Path) -> None:
+    runtime_home = tmp_path / "runtime-home"
+    result = subprocess.run(
+        [str(CORE_LAUNCHER), "doctor"],
+        cwd=ROOT,
+        env=_launcher_env(
+            runtime_home,
+            extra_env={"ARC_INSTALL_SOURCE": "local"},
+        ),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert result.returncode == 1, result.stderr
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert values["paper_cache"] == str(ROOT / "local" / "cache" / "arc-paper")
+
+
+def test_doctor_preserves_explicit_paper_cache(tmp_path: Path) -> None:
+    runtime_home = tmp_path / "runtime-home"
+    explicit = tmp_path / "explicit-paper-cache"
+    result = _run(
+        runtime_home,
+        "doctor",
+        extra_env={"ARC_PAPER_CACHE": str(explicit)},
+    )
+    assert result.returncode == 1, result.stderr
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert values["paper_cache"] == str(explicit)
 
 
 def _write_fake_runtime_tool(bin_dir: Path, name: str, prefix: str = "cached") -> None:

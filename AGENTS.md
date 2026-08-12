@@ -140,11 +140,11 @@ Packages:
 
 ## State and Deliverables
 
-- ARC-owned shared storage is limited to runtimes under `~/.arc/runtimes` and
-  the shared `arc-paper` cache under `~/.arc/cache/arc-paper`. A cache may be
-  shared only with documented cross-project identity, validity/invalidation,
-  concurrent-access, and lifecycle rules; otherwise it is project state below
-  `<project-dir>/.arc/`.
+- ARC-owned shared storage is limited to runtimes under `~/.arc/runtimes`.
+  `arc-paper` cache data defaults to `<current-directory>/.arc/cache/arc-paper`;
+  inside this checkout it belongs under ignored `local/cache/arc-paper`.
+  Explicit shared caches require documented cross-project identity,
+  validity/invalidation, concurrent-access, and lifecycle rules.
 - Durable runs, LLM sessions and transcripts, child workspaces, domain state,
   diagnostics, temporary files, and unpublished generations are project state,
   not shared caches. Do not add fallback discovery of legacy shared roots.

@@ -13,6 +13,7 @@ retry_requested="${ARC_INSTALL_RETRY:-0}"
 
 ARC_HOME="${ARC_HOME:-${HOME:?HOME is required}/.arc}"
 export ARC_HOME
+launch_cwd="$(pwd -P)"
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 component_root="$(CDPATH= cd -- "$script_dir/.." && pwd -P)"
@@ -324,6 +325,15 @@ else
   source_ref="$install_ref"
   source_fingerprint="git:repo=${install_repo};ref=${install_ref}"
 fi
+if [ -z "${ARC_PAPER_CACHE:-}" ]; then
+  ARC_PAPER_CACHE="${launch_cwd}/.arc/cache/arc-paper"
+  if [ "$resolved_source" = "local" ]; then
+    case "${launch_cwd}/" in
+      "${source_root}/"*) ARC_PAPER_CACHE="${source_root}/local/cache/arc-paper" ;;
+    esac
+  fi
+fi
+export ARC_PAPER_CACHE
 runtime_fingerprint="$(printf '%s\n' \
   "launcher=${launcher_version}" \
   "profile=${selected_profile}" \
@@ -700,7 +710,7 @@ if [ "$management_command" = "doctor" ]; then
   printf 'constraints_sha256=%s\n' "$constraints_hash"
   printf 'runtime=%s\n' "$runtime_dir"
   printf 'arc_home=%s\n' "$ARC_HOME"
-  printf 'paper_cache=%s\n' "${ARC_PAPER_CACHE:-${ARC_HOME}/cache/arc-paper}"
+  printf 'paper_cache=%s\n' "$ARC_PAPER_CACHE"
   printf 'venv=%s\n' "$venv_dir"
   printf 'ready_file=%s\n' "$ready_file"
   if runtime_ready; then
