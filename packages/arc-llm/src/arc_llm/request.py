@@ -108,9 +108,9 @@ class ProviderGateOptions:
             if (
                 isinstance(value, bool)
                 or not isinstance(value, int)
-                or not 1 <= value <= 24
+                or value < 1
             ):
-                raise InvalidRequestError(f"gate.{name} must be between 1 and 24.")
+                raise InvalidRequestError(f"gate.{name} must be positive.")
         if (
             isinstance(self.circuit_cooldown_seconds, bool)
             or not isinstance(self.circuit_cooldown_seconds, (int, float))

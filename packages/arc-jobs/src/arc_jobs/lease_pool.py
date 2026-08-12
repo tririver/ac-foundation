@@ -12,9 +12,6 @@ from .lease import FileLease
 from .storage import atomic_write_json, read_json_object, require_fields
 
 _SCHEMA_VERSION = "arc.jobs.bounded_lease_pool.v1"
-_MAX_CAPACITY = 1024
-
-
 class BoundedLease:
     """One already-acquired slot from a :class:`BoundedLeasePool`."""
 
@@ -37,43 +34,55 @@ class BoundedLease:
 
 
 class BoundedLeasePool:
-    """A fixed-capacity, explicit-root lease pool shared by local processes."""
+    """An expandable, explicit-root lease pool shared by local processes."""
 
     def __init__(self, root: str | Path, capacity: int):
         if (
             not isinstance(capacity, int)
             or isinstance(capacity, bool)
-            or not 1 <= capacity <= _MAX_CAPACITY
+            or capacity < 1
         ):
-            raise ValueError(f"capacity must be between 1 and {_MAX_CAPACITY}")
+            raise ValueError("capacity must be positive")
         self.root = Path(root).resolve()
-        self.capacity = capacity
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         try:
             os.chmod(self.root, 0o700)
         except OSError:
             pass
-        self._bind_capacity()
+        self.capacity = self._bind_capacity(capacity)
 
-    def _bind_capacity(self) -> None:
+    def _bind_capacity(self, requested_capacity: int) -> int:
         init = FileLease(self.root / "initialize.lock").acquire(blocking=True)
         try:
             path = self.root / "pool.json"
             expected = {
                 "schema_version": _SCHEMA_VERSION,
-                "capacity": self.capacity,
+                "capacity": requested_capacity,
             }
             if not path.exists():
                 atomic_write_json(path, expected)
-                return
+                return requested_capacity
             document = read_json_object(path)
             require_fields(document, required={"schema_version", "capacity"})
             if document["schema_version"] != _SCHEMA_VERSION:
                 raise CorruptStateError("unsupported bounded lease pool schema")
-            if document["capacity"] != self.capacity:
-                raise ValueError(
-                    "bounded lease pool capacity differs from the persisted contract"
+            persisted_capacity = document["capacity"]
+            if (
+                not isinstance(persisted_capacity, int)
+                or isinstance(persisted_capacity, bool)
+                or persisted_capacity < 1
+            ):
+                raise CorruptStateError("invalid bounded lease pool capacity")
+            if requested_capacity > persisted_capacity:
+                atomic_write_json(
+                    path,
+                    {
+                        "schema_version": _SCHEMA_VERSION,
+                        "capacity": requested_capacity,
+                    },
                 )
+                return requested_capacity
+            return persisted_capacity
         finally:
             init.release()
 

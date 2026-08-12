@@ -34,12 +34,6 @@ _IMMEDIATE_CIRCUIT_FAILURES = {
     FailureCategory.QUOTA,
     FailureCategory.RATE_LIMIT,
 }
-# The durable pool shape is an implementation compatibility contract, while
-# each call's eligible slot count is operational policy and may change between
-# resumes.  Keep every repository pool at the public options' maximum.
-_POOL_CAPACITY = 24
-
-
 @dataclass(frozen=True)
 class _CircuitState:
     revision: int
@@ -187,13 +181,13 @@ class ProviderCallGate:
                 leases.append(
                     BoundedLeasePool(
                         self.root / "providers" / _provider_namespace(provider),
-                        _POOL_CAPACITY,
+                        provider_limit,
                     ).acquire(limit=provider_limit, checkpoint=checkpoint)
                 )
             leases.append(
                 BoundedLeasePool(
                     self.root / "global",
-                    _POOL_CAPACITY,
+                    self.options.global_limit,
                 ).acquire(
                     limit=self.options.global_limit,
                     checkpoint=checkpoint,

@@ -126,11 +126,21 @@ def test_bounded_lease_pool_lower_limit_counts_cross_process_high_slot_holder(
             child.wait(timeout=10)
 
 
-def test_bounded_lease_pool_rejects_capacity_mismatch(tmp_path):
+def test_bounded_lease_pool_expands_capacity_and_never_shrinks(tmp_path):
     root = tmp_path / "pool"
-    BoundedLeasePool(root, 2)
-    with pytest.raises(ValueError, match="capacity differs"):
-        BoundedLeasePool(root, 3)
+    initial = BoundedLeasePool(root, 2)
+    expanded = BoundedLeasePool(root, 200)
+    reopened = BoundedLeasePool(root, 3)
+
+    assert initial.capacity == 2
+    assert expanded.capacity == 200
+    assert reopened.capacity == 200
+
+
+@pytest.mark.parametrize("capacity", [0, -1, True, 1.5])
+def test_bounded_lease_pool_rejects_invalid_capacity(tmp_path, capacity):
+    with pytest.raises(ValueError, match="capacity must be positive"):
+        BoundedLeasePool(tmp_path / "pool", capacity)
 
 
 @pytest.mark.parametrize("limit", [0, 4, True, 1.5])

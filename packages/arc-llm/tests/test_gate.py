@@ -459,7 +459,7 @@ def test_gate_state_write_warning_is_bounded_and_does_not_replace_success(
     ]
 
 
-def test_operational_limit_changes_reuse_the_fixed_repository_pool(
+def test_operational_limit_changes_expand_the_repository_pool(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "operational" / "llm"
@@ -472,7 +472,7 @@ def test_operational_limit_changes_reuse_the_fixed_repository_pool(
 
     second = ProviderCallGate(
         root,
-        ProviderGateOptions(global_limit=7, provider_limits={"codex": 3}),
+        ProviderGateOptions(global_limit=200, provider_limits={"codex": 150}),
     )
     with second.acquire("codex", checkpoint=_checkpoint) as permit:
         permit.record_success()
@@ -486,5 +486,22 @@ def test_operational_limit_changes_reuse_the_fixed_repository_pool(
             encoding="utf-8"
         )
     )
-    assert global_contract["capacity"] == 24
-    assert provider_contract["capacity"] == 24
+    assert global_contract["capacity"] == 200
+    assert provider_contract["capacity"] == 150
+
+
+def test_configured_gate_can_hold_more_than_twenty_four_permits(
+    tmp_path: Path,
+) -> None:
+    gate = ProviderCallGate(
+        tmp_path / "operational" / "llm",
+        ProviderGateOptions(global_limit=200),
+    )
+    permits = []
+    try:
+        for _ in range(25):
+            permits.append(gate.acquire("codex", checkpoint=_checkpoint))
+        assert len(permits) == 25
+    finally:
+        for permit in permits:
+            permit.release()

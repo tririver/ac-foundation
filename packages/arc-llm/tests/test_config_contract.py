@@ -44,7 +44,19 @@ def test_auto_selection_and_gate_config_fail_closed() -> None:
     assert resolved.provider == "claude"
     with pytest.raises(InvalidRequestError):
         resolve_model_selection(ModelSelection("codex"), available=("claude",))
-    with pytest.raises(InvalidRequestError):
-        ProviderGateOptions(global_limit=25)
+    configured = ProviderGateOptions(
+        global_limit=200,
+        provider_limits={"codex": 200},
+        circuit_failure_threshold=200,
+    )
+    assert configured.global_limit == 200
+    assert configured.circuit_failure_threshold == 200
+    for invalid in (0, -1, True, 1.5):
+        with pytest.raises(InvalidRequestError):
+            ProviderGateOptions(global_limit=invalid)  # type: ignore[arg-type]
+        with pytest.raises(InvalidRequestError):
+            ProviderGateOptions(  # type: ignore[arg-type]
+                circuit_failure_threshold=invalid
+            )
     with pytest.raises(InvalidRequestError):
         ProviderGateOptions(global_limit=2, provider_limits={"codex": 3})
