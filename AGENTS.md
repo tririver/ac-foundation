@@ -215,7 +215,7 @@ Packages:
 - Do not create, move, or push Git tags. Use the repository-configured author
   identity for agent commits.
 
-## Package and Host Boundaries
+## Package, Host, and Documentation Boundaries
 
 - Do not substitute semantic keys, execution fingerprints, operational policy,
   artifact digests, or resume-input digests for one another.
@@ -226,11 +226,19 @@ Packages:
   ARC checkout.
 - Keep packages, skills, prompts, scripts, schemas, and documentation portable
   across coding-agent hosts. Make host-specific behavior optional and provide
-  a portable CLI or public API fallback.
+  a portable CLI or public API fallback. When adding content to an existing
+  Markdown document, first review the whole affected section and its adjacent
+  context, then treat the old and proposed text as one document: keep each part
+  only when it remains necessary, reconcile terminology and claims, and rewrite
+  or merge the section into one coherent narrative instead of merely inserting
+  or appending another explanation.
 - Keep `SKILL.md` concise and task-oriented: explain when and how to use ARC
   tools, not complex control flow or package internals. Put detailed examples
   and troubleshooting in focused references; when a Skill needs steps, label
-  explicit phases and steps.
+  explicit phases and steps. Apply the same coherence review to manuals and
+  other Markdown documentation. Prefer clarity and completeness over an
+  arbitrary line limit; shorten only when the result is at least as clear and
+  preserves all necessary guidance.
 
 ## Testing and Evaluation
 
