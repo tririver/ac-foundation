@@ -14,6 +14,9 @@ from arc_jobs.cli import main
         ["status", "--help"],
         ["stop", "--help"],
         ["validate", "--help"],
+        ["workers", "--help"],
+        ["workers", "get", "--help"],
+        ["workers", "set", "--help"],
     ],
 )
 def test_root_and_subcommand_help_is_human_readable(

@@ -28,6 +28,25 @@ returned path are at `data.run.result.artifact_id` and
 `data.run.working_state`. `validate` returns `data.valid` and `data.issues[]`,
 while `stop` returns `data.run.stop_requested` and `data.run.status`.
 
+Work groups expose a durable runtime concurrency target. Owners choose the
+initial target through `max_workers`; an operator may inspect or change it
+without stopping the run:
+
+```bash
+arc-jobs workers get \
+  --run-root local/example/runs --run-id run-001 --group-id summaries
+arc-jobs workers set \
+  --run-root local/example/runs --run-id run-001 --group-id summaries \
+  --workers 100
+```
+
+Increasing the target admits pending units immediately. Decreasing it never
+cancels in-flight work; new units wait until the in-flight count falls below
+the new target. The target is operational state, not semantic input, and
+survives pause, process replacement, and failed-run recovery. Provider gates,
+memory admission, and circuit breakers may keep effective concurrency below
+the requested target. Only groups that have started have worker controls.
+
 `arc-jobs` deliberately has no resume command. Resume through the package that
 created the run, using the same run root and ID. See the
 [ARC Jobs Quick Start](../../plugins/arc/skills/arc/manuals/arc-jobs.md) for
@@ -43,6 +62,11 @@ from arc_jobs import RunRepository
 
 view = RunRepository("local/example/runs").inspect("run-001")
 print(view.snapshot.status.value)
+
+workers = RunRepository("local/example/runs").set_group_workers(
+    "run-001", "summaries", 100
+)
+print(workers.target_workers)
 ```
 
 Higher-level packages create and resume their own runs; use their public

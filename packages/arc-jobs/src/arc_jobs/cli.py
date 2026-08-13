@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from .errors import ArcJobsError
+from .group_workers import GroupWorkerControl
 from .protocol import (
     CommandError,
     CommandResult,
@@ -58,6 +59,24 @@ def _parser(*, prog: str = "arc-jobs") -> argparse.ArgumentParser:
     stop.add_argument("--run-root", required=True, help="durable run repository root")
     stop.add_argument("--run-id", required=True, help="durable run identifier")
     stop.add_argument("--reason", help="human-readable stop reason")
+    workers = commands.add_parser(
+        "workers",
+        help="inspect or change a work group's live concurrency target",
+        description="Inspect or change a durable work group's live concurrency target.",
+    )
+    worker_commands = workers.add_subparsers(dest="worker_command", required=True)
+    for name in ("get", "set"):
+        command = worker_commands.add_parser(name)
+        command.add_argument("--run-root", required=True, help="durable run repository root")
+        command.add_argument("--run-id", required=True, help="durable run identifier")
+        command.add_argument("--group-id", required=True, help="durable work group identifier")
+        if name == "set":
+            command.add_argument(
+                "--workers",
+                required=True,
+                type=int,
+                help="new positive target; in-flight units are not cancelled",
+            )
     return parser
 
 
@@ -67,14 +86,26 @@ def _emit(result: CommandResult, *, exit_code: int) -> int:
 
 
 def _help_command(arguments: list[str], *, prog: str) -> str:
-    command = (
-        arguments[0]
-        if arguments and arguments[0] in {"status", "stop", "validate"}
+    command = arguments[0] if arguments and arguments[0] in {
+        "status", "stop", "validate", "workers"
+    } else None
+    subcommand = (
+        arguments[1]
+        if command == "workers" and len(arguments) > 1 and arguments[1] in {"get", "set"}
         else None
     )
     return " ".join(
-        part for part in (prog, command, "--help") if part is not None
+        part for part in (prog, command, subcommand, "--help") if part is not None
     )
+
+
+def _worker_data(control: GroupWorkerControl) -> dict[str, object]:
+    return {
+        "group_id": control.group_id,
+        "target_workers": control.target_workers,
+        "capacity": control.capacity,
+        "revision": control.revision,
+    }
 
 
 def main(
@@ -104,6 +135,25 @@ def main(
                 },
             )
             return _emit(result, exit_code=0)
+        if args.command == "workers":
+            control = (
+                repository.group_workers(args.run_id, args.group_id)
+                if args.worker_command == "get"
+                else repository.set_group_workers(
+                    args.run_id, args.group_id, args.workers
+                )
+            )
+            return _emit(
+                CommandResult(
+                    CommandStatus.COMPLETED,
+                    CommandRun(
+                        args.run_id,
+                        repository.inspect(args.run_id).snapshot.revision,
+                    ),
+                    {"group_workers": _worker_data(control)},
+                ),
+                exit_code=0,
+            )
         if args.command == "validate":
             report = repository.validate(args.run_id)
             result = CommandResult(

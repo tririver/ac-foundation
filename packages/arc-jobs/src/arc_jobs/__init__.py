@@ -66,6 +66,7 @@ from .models import (
     VerifiedArtifact,
     WorkUnit,
 )
+from .group_workers import GroupWorkerControl
 from .protocol import (
     CommandArtifact,
     CommandError,
@@ -122,6 +123,7 @@ __all__ = [
     "GroupResult",
     "GroupUnitView",
     "GroupView",
+    "GroupWorkerControl",
     "IdempotencyConflictError",
     "ImmutableArtifactStore",
     "InvalidRunIdError",

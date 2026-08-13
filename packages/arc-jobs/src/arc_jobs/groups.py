@@ -166,10 +166,19 @@ class WorkGroupRunner:
         *,
         max_workers: int,
         failure_mode: FailureMode,
+        worker_capacity: int | None = None,
+        worker_target: Callable[[], int] | None = None,
     ) -> GroupExecutionResult:
         validate_simple_id(group_id, label="group id")
         if not isinstance(max_workers, int) or isinstance(max_workers, bool) or max_workers < 1:
             raise ValueError("max_workers must be at least 1")
+        capacity = max_workers if worker_capacity is None else worker_capacity
+        if (
+            not isinstance(capacity, int)
+            or isinstance(capacity, bool)
+            or capacity < max_workers
+        ):
+            raise ValueError("worker_capacity must be at least max_workers")
         unit_ids: set[str] = set()
         keys: dict[str, str] = {}
         for unit in units:
@@ -299,18 +308,33 @@ class WorkGroupRunner:
             failure_mode is FailureMode.FAIL_FAST
             and any(result.status != "succeeded" for result in results.values())
         )
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=capacity) as executor:
             in_flight: dict[Future[UnitResult | Paused], WorkUnit] = {}
             pauses: dict[str, Paused] = {}
             while pending or in_flight:
                 self.checkpoint()
-                while pending and len(in_flight) < max_workers and not stop_submitting:
+                target = max_workers if worker_target is None else worker_target()
+                if (
+                    not isinstance(target, int)
+                    or isinstance(target, bool)
+                    or not 1 <= target <= capacity
+                ):
+                    raise ValueError(
+                        f"worker target must be between 1 and {capacity}"
+                    )
+                while pending and len(in_flight) < target and not stop_submitting:
                     self.stop.raise_if_requested()
                     unit = pending.popleft()
                     in_flight[executor.submit(invoke, unit)] = unit
                 if not in_flight:
                     break
-                finished, _ = wait(tuple(in_flight), return_when=FIRST_COMPLETED)
+                # A bounded wait lets a scale-up take effect even when every
+                # current unit is long-running and none has completed yet.
+                finished, _ = wait(
+                    tuple(in_flight),
+                    timeout=0.1 if worker_target is not None else None,
+                    return_when=FIRST_COMPLETED,
+                )
                 for future in finished:
                     unit = in_flight.pop(future)
                     result = future.result()

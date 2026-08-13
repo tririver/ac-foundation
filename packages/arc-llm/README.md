@@ -47,6 +47,11 @@ is an admission target, not a hard ceiling: callers may set any positive
 the demand. The memory guard, provider-specific limits, and circuit breaker
 can reduce effective concurrency below the target.
 
+When that caller uses an `arc-jobs` work group, its pending-work demand may be
+changed live with `arc-jobs workers set`; see the ARC Jobs Quick Start. This
+changes the work-group target only. It does not raise or bypass the independent
+provider gate, memory guard, or circuit breaker.
+
 Set `<host-authority>` once per run: use `unrestricted` only when the host
 explicitly reports unrestricted authority; otherwise use `unknown`. Reuse the
 identical value when resuming that run.

@@ -26,6 +26,14 @@ from .errors import (
 )
 from .events import EventSink, EventWriter, _SinkFailureState
 from .groups import WorkGroupRunner, inspect_group
+from .group_workers import (
+    DEFAULT_DYNAMIC_WORKER_CAPACITY,
+    GroupWorkerControl,
+    initialize_group_workers,
+    read_group_workers,
+    set_group_workers,
+    validate_group_worker_controls,
+)
 from .identity import canonical_json_bytes, semantic_key, validate_simple_id
 from .lease import FileLease
 from .models import (
@@ -536,6 +544,39 @@ class RunRepository:
             root = root / f"recovery-{snapshot.recovery_epoch:04d}"
         return inspect_group(root, group_id)
 
+    def group_workers(self, run_id: str, group_id: str) -> GroupWorkerControl:
+        """Read a work group's durable runtime concurrency target."""
+
+        self.inspect(run_id)
+        control = read_group_workers(self.run_directory(run_id), group_id)
+        if control is None:
+            raise ValueError(f"work group {group_id!r} has not started")
+        return control
+
+    def set_group_workers(
+        self, run_id: str, group_id: str, target_workers: int
+    ) -> GroupWorkerControl:
+        """Change a running or resumable group's target without cancelling work."""
+
+        self.inspect(run_id)
+        previous, updated = set_group_workers(
+            self.run_directory(run_id), group_id, target_workers
+        )
+        if updated.revision != previous.revision:
+            EventWriter(
+                self.run_directory(run_id) / "events.jsonl", run_id=run_id
+            ).emit(
+                "group_workers_updated",
+                {
+                    "group_id": group_id,
+                    "previous_target_workers": previous.target_workers,
+                    "target_workers": updated.target_workers,
+                    "capacity": updated.capacity,
+                    "control_revision": updated.revision,
+                },
+            )
+        return updated
+
     def request_stop(self, run_id: str, *, reason: str | None = None) -> RunView:
         """Cooperatively pause the current attempt without affecting a later one."""
 
@@ -646,6 +687,7 @@ class RunRepository:
                 and view.snapshot.awaiting.request_ref is not None
             ):
                 artifacts.verify(view.snapshot.awaiting.request_ref)
+            validate_group_worker_controls(self.run_directory(run_id))
         except Exception as exc:
             issues.append(
                 ValidationIssue(
@@ -756,6 +798,12 @@ class RunContext:
                 group_root,
             )
         )
+        control = initialize_group_workers(
+            self.run_directory,
+            group_id,
+            target_workers=max_workers,
+            capacity=max(max_workers, DEFAULT_DYNAMIC_WORKER_CAPACITY),
+        )
         return WorkGroupRunner(
             current_root,
             stop=self.stop,
@@ -768,6 +816,10 @@ class RunContext:
             worker,
             max_workers=max_workers,
             failure_mode=failure_mode,
+            worker_capacity=control.capacity,
+            worker_target=lambda: (
+                read_group_workers(self.run_directory, group_id) or control
+            ).target_workers,
         )
 
     def inspect_group(self, group_id: str) -> GroupView:
