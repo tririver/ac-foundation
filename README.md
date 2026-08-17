@@ -63,6 +63,29 @@ codex plugin add arc@arc
 /plugin install arc
 ```
 
+### DeepSeek Harness
+
+Install the optional DSH bundle directly from GitHub:
+
+```bash
+dsh plugin --profile arc add github:tririver/arc
+```
+
+For local development, install a checkout instead:
+
+```bash
+dsh plugin --profile arc add /path/to/arc
+dsh --profile arc --dump-config
+```
+
+The adapter registers the existing ARC Skill and its resource tree. It targets
+Linux, macOS, and WSL because ARC's portable runtime launcher is Bash-based.
+The bundle has no dependencies and does not make Node.js or a JavaScript
+package manager a requirement for ARC users on other agent hosts. With DSH's
+default workspace-write sandbox, launch from a writable project directory and
+set `ARC_HOME="$PWD/.arc"` so the lazy ARC runtime is installed inside that
+workspace.
+
 ### Other coding agents
 
 Give your coding agent this repository and ask it to inspect the repository and
