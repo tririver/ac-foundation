@@ -86,6 +86,14 @@ default workspace-write sandbox, launch from a writable project directory and
 set `ARC_HOME="$PWD/.arc"` so the lazy ARC runtime is installed inside that
 workspace.
 
+The optional native bridge exposes DSH's configured `ctx.llm` service to
+ARC's `dsh` provider over an authenticated, per-process Unix socket. DSH keeps
+ownership of provider credentials, routing, retries, and streaming; ARC only
+receives normalized text, usage, and terminal events. In a DSH model shell,
+use `"$DSH_ARC_RUNTIME" arc-llm ...` when a bare `arc-llm` command is not on
+`PATH`. Set `ARC_DSH_PROVIDER` only when the desired DSH provider route is not
+`deepseek-official`.
+
 ### Other coding agents
 
 Give your coding agent this repository and ask it to inspect the repository and

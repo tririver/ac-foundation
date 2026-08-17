@@ -9,7 +9,7 @@ from typing import Mapping, Sequence
 from .errors import InvalidRequestError
 from .request import ModelSelection
 
-PROVIDERS = ("codex", "claude", "kimi")
+PROVIDERS = ("codex", "claude", "kimi", "dsh")
 
 DEFAULT_MODELS: Mapping[str, Mapping[str, str]] = {
     "codex": {
@@ -29,6 +29,12 @@ DEFAULT_MODELS: Mapping[str, Mapping[str, str]] = {
         "medium": "default",
         "high": "default",
         "xhigh": "default",
+    },
+    "dsh": {
+        "low": "deepseek-v4-flash",
+        "medium": "deepseek-v4-flash",
+        "high": "deepseek-v4-flash",
+        "xhigh": "deepseek-v4-flash",
     },
 }
 
@@ -60,6 +66,8 @@ def detect_host(
         ("CLAUDE_CODE", "claude"),
         ("CLAUDECODE", "claude"),
         ("KIMI_CODE", "kimi"),
+        ("DSH_SESSION_ID", "dsh"),
+        ("DSH_ARC_LLM_SOCKET", "dsh"),
     )
     for key, provider in indicators:
         if values.get(key):
