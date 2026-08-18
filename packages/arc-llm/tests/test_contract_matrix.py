@@ -66,6 +66,8 @@ def test_config_resolution_matrix_is_explicit_and_host_deterministic() -> None:
         ({"CLAUDE_CODE": "1"}, "claude", "CLAUDE_CODE"),
         ({"CLAUDECODE": "1"}, "claude", "CLAUDECODE"),
         ({"KIMI_CODE": "1"}, "kimi", "KIMI_CODE"),
+        ({"DSH_SESSION_ID": "session"}, "dsh", "DSH_SESSION_ID"),
+        ({"DSH_ARC_LLM_SOCKET": "/tmp/bridge.sock"}, "dsh", "DSH_ARC_LLM_SOCKET"),
     )
     for env, host, evidence in env_cases:
         detected_host = detect_host(env=env)
@@ -131,6 +133,12 @@ def test_config_resolution_matrix_is_explicit_and_host_deterministic() -> None:
             "medium": "default",
             "high": "default",
             "xhigh": "default",
+        },
+        "dsh": {
+            "low": "deepseek-v4-flash",
+            "medium": "deepseek-v4-flash",
+            "high": "deepseek-v4-flash",
+            "xhigh": "deepseek-v4-flash",
         },
     }
     with pytest.raises(InvalidRequestError, match="low, medium, high, or xhigh"):

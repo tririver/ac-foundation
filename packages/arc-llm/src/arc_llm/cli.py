@@ -128,7 +128,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument(
         "--provider",
-        choices=("auto", "codex", "claude", "kimi"),
+        choices=("auto", "codex", "claude", "kimi", "dsh"),
         default="auto",
         help="provider to diagnose (default: auto)",
     )
