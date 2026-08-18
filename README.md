@@ -51,6 +51,7 @@ https://chinaxiv.org/abs/202606.00234
 
 ### Codex
 
+In CLI (or if run in Codex, put prefix `!`), run:
 ```bash
 codex plugin marketplace add tririver/arc --ref stable
 codex plugin add arc@arc
@@ -58,6 +59,7 @@ codex plugin add arc@arc
 
 ### Claude Code
 
+In the Claude Code environment, run:
 ```text
 /plugin marketplace add tririver/arc@stable
 /plugin install arc
@@ -67,6 +69,15 @@ codex plugin add arc@arc
 
 Give your coding agent this repository and ask it to inspect the repository and
 install ARC for its environment.
+
+## Upgrade
+
+### Codex
+
+```bash
+codex plugin marketplace upgrade arc
+codex plugin add arc@arc
+```
 
 ## Start with ARC
 
