@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = ROOT / "packages"
-RELEASE = "1.0.3"
+RELEASE = "1.0.4"
 RELEASE_FAMILY = ".".join(RELEASE.split(".")[:2])
 
 ALLOWED = {
