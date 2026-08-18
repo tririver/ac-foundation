@@ -259,8 +259,15 @@ class EditableArtifactStore:
         combined = prefix if self.prefix is None else f"{self.prefix}/{prefix}"
         if combined.startswith("llm/tasks/"):
             # Provider task protocol records are ARC-managed execution state,
-            # not agent-editable scientific working artifacts.
-            return self.immutable.scoped(combined)
+            # not agent-editable scientific working artifacts. They still need
+            # a fresh immutable namespace when failed-run recovery freshens the
+            # corresponding task-state namespace.
+            immutable_prefix = (
+                combined
+                if self.recovery_epoch == 0
+                else f"recovery-{self.recovery_epoch}/{combined}"
+            )
+            return self.immutable.scoped(immutable_prefix)
         return EditableArtifactStore(
             self.immutable,
             self.working,

@@ -10,6 +10,7 @@ import pytest
 
 import arc_llm.api as api_module
 from arc_jobs import (
+    AtomicStateStore,
     ArtifactDigest,
     ArtifactSourceRef,
     decode_artifact_ref,
@@ -1503,6 +1504,69 @@ def test_standalone_resume_recovers_request_locators_before_task_state_exists(
         (adapter.requests[0].workspace / "host" / "control.json").read_text()
     )
     assert control["inputs"][0]["sha256"] == input_artifact.source.expected_digest.value
+
+
+def test_failed_setup_recovery_uses_fresh_protocol_and_workspace_namespaces(
+    tmp_path: Path,
+    adapter,
+    registry,
+    monkeypatch,
+) -> None:
+    repository = RunRepository(tmp_path)
+    input_artifact, source_path = _source_input(repository)
+    request = LLMRequest(
+        "failed-bootstrap",
+        "Review.",
+        _request().output,
+        ModelSelection("codex"),
+        inputs=(input_artifact,),
+    )
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_create = AtomicStateStore.create
+    fail_once = True
+
+    def fail_task_state_create(store, value):
+        nonlocal fail_once
+        if fail_once and store.path.name.startswith("llm-task-"):
+            fail_once = False
+            raise OSError("simulated state publication failure")
+        return original_create(store, value)
+
+    monkeypatch.setattr(AtomicStateStore, "create", fail_task_state_create)
+    failed = client.generate(request, run_root=tmp_path, run_id="llm-run")
+
+    assert failed.snapshot.status is RunStatus.FAILED
+    assert isinstance(failed.outcome, LLMFailed)
+    assert failed.outcome.error.code.value == "local_io"
+    assert adapter.start_calls == 0
+
+    # The canonical task input, not the caller's now-unavailable source,
+    # must support failed-run recovery.
+    source_path.unlink()
+
+    monkeypatch.setattr(AtomicStateStore, "create", original_create)
+    original_execution_document = executor._execution_document
+
+    def upgraded_execution_document(*args, **kwargs):
+        document = original_execution_document(*args, **kwargs)
+        document["runtime_revision"] = 2
+        return document
+
+    monkeypatch.setattr(executor, "_execution_document", upgraded_execution_document)
+    adapter.steps.append(_completed({"answer": 42}))
+    recovered = client.resume(run_root=tmp_path, run_id="llm-run")
+
+    assert recovered.snapshot.status is RunStatus.SUCCEEDED
+    assert recovered.snapshot.recovery_epoch == 1
+    assert isinstance(recovered.outcome, LLMCompleted)
+    assert recovered.outcome.value == {"answer": 42}
+    assert adapter.start_calls == 1
+    context = RunContext(repository, recovered.snapshot, resume_input=None)
+    state = executor._task_store(context, request.task_id).read()
+    assert state is not None
+    assert state.request_ref.artifact_id.startswith("recovery-1/llm/tasks/")
+    assert "recovery-0001" in adapter.requests[0].workspace.parts
 
 
 def test_standalone_run_without_task_or_invocation_fails_typed_recovery(

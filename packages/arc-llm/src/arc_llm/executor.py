@@ -2304,9 +2304,13 @@ class LLMTaskExecutor:
     ) -> Path:
         """Publish one self-contained, relative-path-only provider workspace."""
 
+        workspace_root = context.run_directory / "llm-workspaces"
+        if context.recovery_epoch:
+            workspace_root = (
+                workspace_root / f"recovery-{context.recovery_epoch:04d}"
+            )
         workspace = (
-            context.run_directory
-            / "llm-workspaces"
+            workspace_root
             / state.semantic_key.sha256
             / f"generation-{state.current.generation:04d}"
         )

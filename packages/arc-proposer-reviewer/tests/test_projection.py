@@ -365,6 +365,33 @@ def test_provider_failure_summary_rejects_non_arc_diagnostic_ids(
     assert summary.diagnostic_artifact_id is None
 
 
+def test_provider_failure_summary_accepts_recovery_epoch_diagnostic_id() -> None:
+    artifact_id = (
+        "recovery-2/llm/tasks/"
+        + "a" * 64
+        + "/generations/2/provider-failures/0-"
+        + "b" * 64
+        + ".json"
+    )
+    record = _PauseRecord(
+        "proposer",
+        "proposer-a",
+        1,
+        "private-task-id",
+        Awaiting(
+            ResumeReason.EXECUTION_INTERRUPTED,
+            "private-resume-key",
+            False,
+            details={"provider_failure": {"diagnostic_artifact_id": artifact_id}},
+        ),
+    )
+
+    summary = _provider_failure_summary(record)
+
+    assert summary is not None
+    assert summary.diagnostic_artifact_id == artifact_id
+
+
 def test_failed_group_unit_controls_loop_lifecycle(tmp_path: Path) -> None:
     repository, snapshot, loop = _running_repository(tmp_path)
     context = RunContext(

@@ -821,6 +821,50 @@ def test_failed_run_resumes_only_explicitly_into_new_recovery_epoch(tmp_path):
     ).exists()
 
 
+class RecoveringLLMProtocolArtifactHandler:
+    name = "recovering-llm-protocol-artifact.v1"
+
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, context):
+        self.calls += 1
+        ref = context.artifacts.scoped("llm/tasks/" + "a" * 64).publish_json(
+            "execution/1/recipe.json",
+            {"runtime_revision": self.calls},
+        )
+        if self.calls == 1:
+            return Failed(RunError("expected", "retry with changed runtime"))
+        return Succeeded(ref)
+
+
+def test_failed_recovery_freshens_immutable_llm_protocol_artifacts(tmp_path):
+    repository = RunRepository(tmp_path)
+    engine = RunEngine(repository)
+    handler = RecoveringLLMProtocolArtifactHandler()
+
+    failed = engine.execute(RunSpec("run-1", handler.name, {}), handler)
+    recovered = engine.resume("run-1", handler)
+
+    assert failed.status is RunStatus.FAILED
+    assert recovered.status is RunStatus.SUCCEEDED
+    assert recovered.result_ref is not None
+    assert recovered.result_ref.artifact_id == (
+        "recovery-1/llm/tasks/" + "a" * 64 + "/execution/1/recipe.json"
+    )
+    immutable = ImmutableArtifactStore(
+        repository.run_directory("run-1"), repository_root=repository.root
+    )
+    original = immutable.find(
+        "llm/tasks/" + "a" * 64 + "/execution/1/recipe.json"
+    )
+    assert original is not None
+    assert json.loads(immutable.read_bytes(original)) == {"runtime_revision": 1}
+    assert not (
+        repository.working_state("run-1").artifacts_directory / "llm"
+    ).exists()
+
+
 def test_legacy_v2_failed_run_lazy_materializes_working_state_on_resume(tmp_path):
     repository = RunRepository(tmp_path)
     engine = RunEngine(repository)

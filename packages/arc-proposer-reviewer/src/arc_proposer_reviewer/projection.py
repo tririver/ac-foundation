@@ -994,6 +994,7 @@ def _provider_failure_summary(
         diagnostic_artifact_id is not None
         and re.fullmatch(
             (
+                r"(?:recovery-[1-9][0-9]*/)?"
                 r"llm/tasks/[0-9a-f]{64}/generations/[1-9][0-9]*/"
                 r"provider-failures/[0-9]+-[0-9a-f]{64}\.json"
             ),
