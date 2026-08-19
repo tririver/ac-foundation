@@ -11,6 +11,7 @@ from arc_llm import (
     NativeResumeHandle,
     OutputInvalidError,
     ProviderFailure,
+    ProviderInputFile,
     ProviderRequest,
     ProviderResumeRequest,
     ProviderTerminalKind,
@@ -169,6 +170,42 @@ def test_codex_direct_start_and_resume_keep_workspace_cwd_but_only_start_uses_cw
         "--dangerously-bypass-approvals-and-sandbox",
     ]
     assert "thread-1" in resume["argv"]
+
+
+def test_codex_bounded_profile_attaches_images_without_host_bypass(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    image = Path("inputs/0000-page.png")
+    (workspace / image).write_bytes(b"png")
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n',
+        last_message=b'{"ok":true}',
+    )
+    adapter = CodexAdapter(binary="fake-codex", runner=runner, env={})
+
+    adapter.start(
+        ProviderRequest(
+            "Review page.",
+            "model",
+            None,
+            {"effective_host_mode": "direct", "execution_profile": "bounded"},
+            3,
+            workspace,
+            inputs=(ProviderInputFile("page", "image/png", image),),
+        ),
+        Observer(),
+        Stop(),
+    )
+
+    argv = runner.calls[0]["argv"]
+    assert "--dangerously-bypass-approvals-and-sandbox" not in argv
+    assert "--ignore-user-config" in argv
+    assert "--ignore-rules" in argv
+    assert argv[argv.index("--sandbox") + 1] == "read-only"
+    assert argv[argv.index("--disable") + 1] == "multi_agent"
+    assert argv[argv.index("--image") + 1] == str(image)
+    assert adapter.capabilities().config_isolation.value == "inherited"
 
 
 def test_codex_projects_native_schema_but_selects_only_last_message(

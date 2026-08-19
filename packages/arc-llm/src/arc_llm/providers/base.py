@@ -74,6 +74,13 @@ class ProviderUsage:
 
 
 @dataclass(frozen=True)
+class ProviderInputFile:
+    input_id: str
+    media_type: str
+    path: Path
+
+
+@dataclass(frozen=True)
 class ProviderRequest:
     prompt: str
     model: str
@@ -82,6 +89,7 @@ class ProviderRequest:
     idle_timeout_seconds: float | None
     workspace: Path
     environment: Mapping[str, str] | None = None
+    inputs: tuple[ProviderInputFile, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -92,6 +100,7 @@ class ProviderResumeRequest:
     idle_timeout_seconds: float | None
     workspace: Path
     environment: Mapping[str, str] | None = None
+    inputs: tuple[ProviderInputFile, ...] = ()
 
 
 @dataclass(frozen=True)

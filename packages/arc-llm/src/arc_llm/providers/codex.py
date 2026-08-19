@@ -51,7 +51,7 @@ class CodexAdapter:
             native_resume=True,
             structured_output=StructuredOutputMode.NATIVE,
             usage=UsageAvailability.COMPLETE,
-            config_isolation=IsolationMode.ISOLATED,
+            config_isolation=IsolationMode.INHERITED,
             tool_isolation=IsolationMode.EXPLICIT,
             cooperative_stop=True,
             provider_persistence=True,
@@ -63,7 +63,21 @@ class CodexAdapter:
 
     def start(self, request: ProviderRequest, observer: Any, stop: Any) -> ProviderExecution:
         argv = [self.binary, "exec", "--json"]
-        if request.capabilities.get("effective_host_mode") == "direct":
+        if request.capabilities.get("execution_profile") == "bounded":
+            argv.extend(
+                [
+                    "--ignore-user-config",
+                    "--ignore-rules",
+                    "--sandbox",
+                    "read-only",
+                    "--disable",
+                    "multi_agent",
+                ]
+            )
+            for item in request.inputs:
+                if item.media_type.startswith("image/"):
+                    argv.extend(["--image", str(item.path)])
+        elif request.capabilities.get("effective_host_mode") == "direct":
             argv.extend(
                 ["--dangerously-bypass-approvals-and-sandbox", "-C", str(request.workspace)]
             )
@@ -179,7 +193,21 @@ class CodexAdapter:
         stop: Any,
     ) -> ProviderExecution:
         argv = [self.binary, "exec", "resume", "--json"]
-        if request.capabilities.get("effective_host_mode") == "direct":
+        if request.capabilities.get("execution_profile") == "bounded":
+            argv.extend(
+                [
+                    "--ignore-user-config",
+                    "--ignore-rules",
+                    "-c",
+                    'sandbox_mode="read-only"',
+                    "--disable",
+                    "multi_agent",
+                ]
+            )
+            for item in request.inputs:
+                if item.media_type.startswith("image/"):
+                    argv.extend(["--image", str(item.path)])
+        elif request.capabilities.get("effective_host_mode") == "direct":
             # `codex exec resume` does not accept `-C`.  `_run` already
             # launches the process in the controlled workspace, so the resume
             # invocation has the same working directory as `start` without

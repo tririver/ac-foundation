@@ -79,6 +79,7 @@ from .progress import DurableProviderObserver, message_preview
 from .providers import (
     NativeResumeHandle,
     ProviderExecution,
+    ProviderInputFile,
     ProviderRegistry,
     ProviderRequest,
     ProviderResumeRequest,
@@ -101,6 +102,7 @@ from .recovery import (
 from .request import (
     RESUME_SCHEMA_VERSION,
     LLMExecutionOptions,
+    LLMExecutionProfile,
     LLMRequest,
     JsonOutput,
     ModelSelection,
@@ -708,6 +710,7 @@ class LLMTaskExecutor:
                         options.limits.idle_timeout_seconds,
                         workspace,
                         options.runtime_environment.apply_to(),
+                        self._provider_input_files(request),
                     ),
                     observer,
                     context.stop,
@@ -783,6 +786,7 @@ class LLMTaskExecutor:
                         options.limits.idle_timeout_seconds,
                         workspace,
                         options.runtime_environment.apply_to(),
+                        self._provider_input_files(request),
                     ),
                     observer,
                     context.stop,
@@ -2166,7 +2170,24 @@ class LLMTaskExecutor:
             "effective_host_mode": mode.value,
             "arc_environment": options.runtime_environment.execution_document(),
             "host_broker": broker_execution_document(options.host_broker),
+            "execution_profile": options.profile.value,
         }
+
+    @classmethod
+    def _provider_input_files(
+        cls, request: LLMRequest
+    ) -> tuple[ProviderInputFile, ...]:
+        return tuple(
+            ProviderInputFile(
+                item.input_id,
+                item.media_type,
+                Path(
+                    f"inputs/{index:04d}-{item.input_id}"
+                    f"{cls._input_suffix(item.media_type)}"
+                ),
+            )
+            for index, item in enumerate(request.inputs)
+        )
 
     @staticmethod
     def _uses_host_turn(
@@ -2175,6 +2196,7 @@ class LLMTaskExecutor:
     ) -> bool:
         return (
             isinstance(request.output, (TextOutput, JsonOutput))
+            and options.profile is not LLMExecutionProfile.BOUNDED
             and effective_host_mode(options.host_authority).value == "brokered"
         )
 

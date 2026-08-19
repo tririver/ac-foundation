@@ -29,6 +29,11 @@ RESUME_SCHEMA_VERSION = "arc.llm.resume_input.v3"
 DEFAULT_MAX_PARALLEL_PROVIDER_CALLS = 100
 
 
+class LLMExecutionProfile(StrEnum):
+    STANDARD = "standard"
+    BOUNDED = "bounded"
+
+
 def _frozen_mapping(value: Mapping[str, Any]) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise InvalidRequestError("Expected a JSON object.")
@@ -166,12 +171,15 @@ class LLMExecutionOptions:
     host_authority: Any = None
     runtime_environment: Any = None
     host_broker: Any = None
+    profile: LLMExecutionProfile = LLMExecutionProfile.STANDARD
 
     def __post_init__(self) -> None:
         from .host import ArcRuntimeEnvironment, HostAuthority
 
         if not isinstance(self.internet, bool):
             raise InvalidRequestError("internet must be a boolean.")
+        if not isinstance(self.profile, LLMExecutionProfile):
+            raise InvalidRequestError("profile must be an LLMExecutionProfile.")
         authority = HostAuthority.UNKNOWN if self.host_authority is None else self.host_authority
         if not isinstance(authority, HostAuthority):
             raise InvalidRequestError("host_authority must be a HostAuthority.")

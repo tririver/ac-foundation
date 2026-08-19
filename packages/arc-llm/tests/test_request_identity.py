@@ -13,6 +13,7 @@ from arc_llm import (
     InvalidRequestError,
     JsonOutput,
     LLMExecutionOptions,
+    LLMExecutionProfile,
     LLMInputArtifact,
     LLMRequest,
     ModelSelection,
@@ -168,6 +169,11 @@ def test_model_constraints_and_json_booleans_are_strict() -> None:
         ModelSelection("codex", "exact", "high")
     with pytest.raises(InvalidRequestError):
         LLMExecutionOptions(internet="false")  # type: ignore[arg-type]
+    with pytest.raises(InvalidRequestError):
+        LLMExecutionOptions(profile="bounded")  # type: ignore[arg-type]
+    assert LLMExecutionOptions(
+        profile=LLMExecutionProfile.BOUNDED
+    ).profile is LLMExecutionProfile.BOUNDED
 
 
 def test_operational_limits_do_not_change_semantic_key() -> None:
