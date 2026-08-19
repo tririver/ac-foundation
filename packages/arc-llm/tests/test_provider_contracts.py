@@ -675,7 +675,7 @@ def test_direct_authority_enables_only_documented_provider_permission_flags(
 
 def test_default_registry_has_no_media_delivery_selection_surface() -> None:
     registry = default_registry()
-    assert registry.names() == ("claude", "codex", "kimi")
+    assert registry.names() == ("claude", "codex", "dsh", "kimi")
     assert not hasattr(registry, "delivery_modes")
     assert not hasattr(registry, "supporting")
 

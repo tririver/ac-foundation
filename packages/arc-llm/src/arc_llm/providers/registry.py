@@ -35,10 +35,12 @@ class ProviderRegistry:
 def default_registry() -> ProviderRegistry:
     from .claude import ClaudeAdapter
     from .codex import CodexAdapter
+    from .dsh import DshAdapter
     from .kimi import KimiAdapter
 
     registry = ProviderRegistry()
     registry.register("codex", CodexAdapter)
     registry.register("claude", ClaudeAdapter)
     registry.register("kimi", KimiAdapter)
+    registry.register("dsh", DshAdapter)
     return registry
