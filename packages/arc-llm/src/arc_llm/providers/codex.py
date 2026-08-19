@@ -33,7 +33,7 @@ from .process import ProcessRunner
 
 class CodexAdapter:
     name = "codex"
-    compatibility_version = "codex-jsonl.v5-ordered-terminal"
+    compatibility_version = "codex-jsonl.v6-bounded-image-access"
 
     def __init__(
         self,
