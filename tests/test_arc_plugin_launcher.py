@@ -22,6 +22,7 @@ CORE_TOOLS = (
     "arc-domain",
     "arc-llm",
     "arc-proposer-reviewer",
+    "arc-ocr-proofread",
     "arc-translate",
     "arc-companion",
     "arc-jobs",
@@ -552,6 +553,7 @@ def test_runtime_fingerprint_covers_ref_constraints_python_and_local_content(
         "arc-paper",
         "arc-render",
         "arc-domain",
+        "arc-ocr-proofread",
         "arc-translate",
         "arc-companion",
     ):
@@ -926,6 +928,7 @@ def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> 
         "arc-paper",
         "arc-render",
         "arc-domain",
+        "arc-ocr-proofread",
         "arc-translate",
         "arc-companion",
     ):
@@ -980,6 +983,7 @@ def test_auto_local_separates_checkout_identity_from_fallback_pin(
         "arc-paper",
         "arc-render",
         "arc-domain",
+        "arc-ocr-proofread",
         "arc-translate",
         "arc-companion",
     ):

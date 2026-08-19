@@ -17,6 +17,7 @@ ALLOWED = {
     "arc_paper": {"arc_jobs", "arc_llm"},
     "arc_render": {"arc_paper"},
     "arc_domain": {"arc_jobs", "arc_llm", "arc_paper"},
+    "arc_ocr_proofread": {"arc_jobs", "arc_llm", "arc_paper"},
     "arc_translate": {"arc_jobs", "arc_llm", "arc_paper", "arc_render"},
     "arc_companion": {
         "arc_jobs",

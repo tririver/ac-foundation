@@ -101,6 +101,21 @@ def test_domain_has_no_render_translate_or_companion_dependency():
         assert not (_import_roots(tree) & forbidden), path.relative_to(ROOT)
 
 
+def test_ocr_proofread_uses_core_concurrency_and_has_no_upper_layer_dependency():
+    forbidden = {
+        "threading",
+        "concurrent",
+        "fcntl",
+        "arc_proposer_reviewer",
+        "arc_render",
+        "arc_domain",
+        "arc_translate",
+        "arc_companion",
+    }
+    for path, tree in _trees("arc-ocr-proofread"):
+        assert not (_import_roots(tree) & forbidden), path.relative_to(ROOT)
+
+
 def test_companion_uses_arc_jobs_concurrency_and_has_no_domain_dependency():
     forbidden = {"threading", "concurrent", "fcntl", "arc_domain"}
     for path, tree in _trees("arc-companion"):
