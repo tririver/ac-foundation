@@ -172,7 +172,7 @@ def test_codex_direct_start_and_resume_keep_workspace_cwd_but_only_start_uses_cw
     assert "thread-1" in resume["argv"]
 
 
-def test_codex_bounded_profile_attaches_images_without_host_bypass(
+def test_codex_bounded_profile_attaches_images_without_shell_or_host_bypass(
     tmp_path: Path,
 ) -> None:
     workspace = _workspace(tmp_path)
@@ -184,10 +184,24 @@ def test_codex_bounded_profile_attaches_images_without_host_bypass(
     )
     adapter = CodexAdapter(binary="fake-codex", runner=runner, env={})
 
-    adapter.start(
+    started = adapter.start(
         ProviderRequest(
             "Review page.",
             "model",
+            None,
+            {"effective_host_mode": "direct", "execution_profile": "bounded"},
+            3,
+            workspace,
+            inputs=(ProviderInputFile("page", "image/png", image),),
+        ),
+        Observer(),
+        Stop(),
+    )
+    assert started.native_handle is not None
+    adapter.resume(
+        started.native_handle,
+        ProviderResumeRequest(
+            "Review page again.",
             None,
             {"effective_host_mode": "direct", "execution_profile": "bounded"},
             3,
@@ -202,10 +216,59 @@ def test_codex_bounded_profile_attaches_images_without_host_bypass(
     assert "--dangerously-bypass-approvals-and-sandbox" not in argv
     assert "--ignore-user-config" in argv
     assert "--ignore-rules" in argv
-    assert argv[argv.index("--sandbox") + 1] == "read-only"
-    assert argv[argv.index("--disable") + 1] == "multi_agent"
+    assert argv[argv.index("--sandbox") + 1] == "danger-full-access"
+    assert [argv[index + 1] for index, item in enumerate(argv) if item == "--disable"] == [
+        "shell_tool",
+        "multi_agent",
+    ]
     assert argv[argv.index("--image") + 1] == str(image)
+    resume_argv = runner.calls[1]["argv"]
+    assert "--dangerously-bypass-approvals-and-sandbox" not in resume_argv
+    assert 'sandbox_mode="danger-full-access"' in resume_argv
+    assert [
+        resume_argv[index + 1]
+        for index, item in enumerate(resume_argv)
+        if item == "--disable"
+    ] == ["shell_tool", "multi_agent"]
+    assert resume_argv[resume_argv.index("--image") + 1] == str(image)
     assert adapter.capabilities().config_isolation.value == "inherited"
+
+
+def test_codex_rejects_output_when_required_image_cannot_be_loaded(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    image = Path("inputs/0000-page.png")
+    (workspace / image).write_bytes(b"png")
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n'
+        b'{"type":"turn.completed"}\n',
+        last_message=b'{"checks":"passed"}',
+        stderr=(
+            b"ERROR unable to locate image at `inputs/0000-page.png`: "
+            b"fs sandbox helper failed\n"
+        ),
+    )
+
+    execution = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest(
+            "Review page.",
+            "model",
+            None,
+            {"execution_profile": "bounded"},
+            3,
+            workspace,
+            inputs=(ProviderInputFile("page", "image/png", image),),
+        ),
+        Observer(),
+        Stop(),
+    )
+
+    assert execution.terminal_kind is ProviderTerminalKind.FAILED
+    assert execution.candidates == ()
+    assert execution.failure is not None
+    assert execution.failure.category is FailureCategory.LOCAL_IO
+    assert execution.failure.details["code"] == "input_attachment_unavailable"
 
 
 def test_codex_projects_native_schema_but_selects_only_last_message(

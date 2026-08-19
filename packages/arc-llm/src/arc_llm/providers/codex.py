@@ -69,7 +69,9 @@ class CodexAdapter:
                     "--ignore-user-config",
                     "--ignore-rules",
                     "--sandbox",
-                    "read-only",
+                    "danger-full-access",
+                    "--disable",
+                    "shell_tool",
                     "--disable",
                     "multi_agent",
                 ]
@@ -91,6 +93,9 @@ class CodexAdapter:
             request.environment,
             observer,
             stop,
+            has_image_inputs=any(
+                item.media_type.startswith("image/") for item in request.inputs
+            ),
         )
 
     def _run(
@@ -103,6 +108,8 @@ class CodexAdapter:
         environment: Mapping[str, str] | None,
         observer: Any,
         stop: Any,
+        *,
+        has_image_inputs: bool = False,
     ) -> ProviderExecution:
         schema_path: Path | None = None
         output_path: Path | None = None
@@ -160,6 +167,18 @@ class CodexAdapter:
                 **execution.diagnostics,
                 "last_message": final_message[1],
             }
+            if has_image_inputs and _image_input_unavailable(diagnostics):
+                return replace(
+                    execution,
+                    terminal_kind=ProviderTerminalKind.FAILED,
+                    candidates=(),
+                    failure=ProviderFailure(
+                        "Codex could not access a required image input.",
+                        category=FailureCategory.LOCAL_IO,
+                        details={"code": "input_attachment_unavailable"},
+                    ),
+                    diagnostics=diagnostics,
+                )
             candidates = (
                 ()
                 if final_message[0] is None
@@ -199,7 +218,9 @@ class CodexAdapter:
                     "--ignore-user-config",
                     "--ignore-rules",
                     "-c",
-                    'sandbox_mode="read-only"',
+                    'sandbox_mode="danger-full-access"',
+                    "--disable",
+                    "shell_tool",
                     "--disable",
                     "multi_agent",
                 ]
@@ -223,6 +244,9 @@ class CodexAdapter:
             request.environment,
             observer,
             stop,
+            has_image_inputs=any(
+                item.media_type.startswith("image/") for item in request.inputs
+            ),
         )
 
 
@@ -502,6 +526,11 @@ def _read_last_message(path: Path) -> tuple[str | None, str]:
     if not message.strip():
         return None, "empty"
     return message, "present"
+
+
+def _image_input_unavailable(diagnostics: Mapping[str, Any]) -> bool:
+    stderr = diagnostics.get("stderr_tail")
+    return isinstance(stderr, str) and "unable to locate image at" in stderr.lower()
 
 
 def _integer(value: Any) -> int | None:
