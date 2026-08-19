@@ -217,19 +217,20 @@ def test_codex_bounded_profile_attaches_images_without_shell_or_host_bypass(
     assert "--ignore-user-config" in argv
     assert "--ignore-rules" in argv
     assert argv[argv.index("--sandbox") + 1] == "danger-full-access"
+    assert "default_tools_enabled=false" in argv
     assert [argv[index + 1] for index, item in enumerate(argv) if item == "--disable"] == [
-        "shell_tool",
         "multi_agent",
     ]
     assert argv[argv.index("--image") + 1] == str(image)
     resume_argv = runner.calls[1]["argv"]
     assert "--dangerously-bypass-approvals-and-sandbox" not in resume_argv
     assert 'sandbox_mode="danger-full-access"' in resume_argv
+    assert "default_tools_enabled=false" in resume_argv
     assert [
         resume_argv[index + 1]
         for index, item in enumerate(resume_argv)
         if item == "--disable"
-    ] == ["shell_tool", "multi_agent"]
+    ] == ["multi_agent"]
     assert resume_argv[resume_argv.index("--image") + 1] == str(image)
     assert adapter.capabilities().config_isolation.value == "inherited"
 

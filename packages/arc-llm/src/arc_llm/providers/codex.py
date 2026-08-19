@@ -33,7 +33,7 @@ from .process import ProcessRunner
 
 class CodexAdapter:
     name = "codex"
-    compatibility_version = "codex-jsonl.v6-bounded-image-access"
+    compatibility_version = "codex-jsonl.v7-bounded-tool-free"
 
     def __init__(
         self,
@@ -70,8 +70,8 @@ class CodexAdapter:
                     "--ignore-rules",
                     "--sandbox",
                     "danger-full-access",
-                    "--disable",
-                    "shell_tool",
+                    "-c",
+                    "default_tools_enabled=false",
                     "--disable",
                     "multi_agent",
                 ]
@@ -219,8 +219,8 @@ class CodexAdapter:
                     "--ignore-rules",
                     "-c",
                     'sandbox_mode="danger-full-access"',
-                    "--disable",
-                    "shell_tool",
+                    "-c",
+                    "default_tools_enabled=false",
                     "--disable",
                     "multi_agent",
                 ]
