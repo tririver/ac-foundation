@@ -283,19 +283,42 @@ class ArcDocumentService:
         text_only: bool = False,
     ) -> CachedSourceRange:
         parsed, _ = self._resolve_cached_document(document)
-        if start_line < 1 or end_line < start_line:
+        if (
+            isinstance(start_line, bool)
+            or not isinstance(start_line, int)
+            or isinstance(end_line, bool)
+            or not isinstance(end_line, int)
+            or start_line < 1
+            or end_line < start_line
+        ):
             raise CachedDocumentError(
-                "invalid_source_range", "source range requires start_line <= end_line"
+                "invalid_source_range",
+                "source range requires one-based start_line <= end_line",
+            )
+        if not isinstance(text_only, bool):
+            raise CachedDocumentError(
+                "invalid_text_only",
+                "text_only must be a boolean",
             )
         if parsed.source.source_format is SourceFormat.PDF:
             raise CachedDocumentError(
-                "cached_source_not_text", "raw source ranges are unavailable for PDF"
+                "cached_source_not_text",
+                "raw source ranges are unavailable for PDF sources",
             )
-        text = self.repository.read_bytes(parsed.source).decode("utf-8")
-        lines = text.splitlines()
-        if end_line > len(lines):
+        payload = self.repository.read_bytes(parsed.source)
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
             raise CachedDocumentError(
-                "source_range_out_of_bounds", "source range exceeds source length"
+                "cached_source_not_utf8",
+                "cached source is not valid UTF-8 text",
+            ) from exc
+        lines = text.splitlines()
+        total_lines = len(lines)
+        if end_line > total_lines:
+            raise CachedDocumentError(
+                "source_range_out_of_bounds",
+                f"source range ends at {end_line}, but source has {total_lines} lines",
             )
         selected_lines = lines[start_line - 1 : end_line]
         if text_only and parsed.source.source_format is SourceFormat.MARKDOWN:
@@ -309,7 +332,7 @@ class ArcDocumentService:
             document=document,
             start_line=start_line,
             end_line=end_line,
-            total_lines=len(lines),
+            total_lines=total_lines,
             text="\n".join(selected_lines),
         )
 
@@ -398,9 +421,22 @@ class ArcDocumentService:
     def _resolve_cached_document(
         self, reference: CachedDocumentRef
     ) -> tuple[ParsedDocument, tuple[str, ...]]:
+        if not isinstance(reference, CachedDocumentRef):
+            raise CachedDocumentError(
+                "invalid_cached_document_ref",
+                "document must be a CachedDocumentRef",
+            )
         source = self.repository.get(
             reference.source_format, reference.source_sha256
         )
+        if (
+            source.size != reference.source_size
+            or source.media_type != reference.media_type
+        ):
+            raise CachedDocumentError(
+                "cached_document_source_mismatch",
+                "cached source metadata does not match the document reference",
+            )
         if self.parser.parser_contract_for(source) != reference.parser_contract:
             raise CachedDocumentError(
                 "cached_document_parser_contract_mismatch",
