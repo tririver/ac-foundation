@@ -17,6 +17,7 @@ SKILL = BASE_PLUGIN / "skills/arc"
 CORE_LAUNCHER = SKILL / "scripts/arc-runtime"
 CORE_BIN = BASE_PLUGIN / "bin"
 CORE_TOOLS = (
+    "arc-document",
     "arc-paper",
     "arc-render",
     "arc-domain",
@@ -79,10 +80,11 @@ def _runtime_dir(runtime_home: Path, launcher: Path = CORE_LAUNCHER) -> Path:
     return Path(values["runtime"])
 
 
-def test_doctor_defaults_to_launch_directory_paper_cache_only(
+def test_doctor_defaults_to_launch_directory_arc_caches_only(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.delenv("ARC_HOME", raising=False)
+    monkeypatch.delenv("ARC_DOCUMENT_CACHE", raising=False)
     monkeypatch.delenv("ARC_PAPER_CACHE", raising=False)
     runtime_home = tmp_path / "runtime-home"
     home = tmp_path / "home"
@@ -90,6 +92,9 @@ def test_doctor_defaults_to_launch_directory_paper_cache_only(
     assert result.returncode == 1, result.stderr
     values = dict(line.split("=", 1) for line in result.stdout.splitlines())
     assert values["arc_home"] == str(home / ".arc")
+    assert values["document_cache"] == str(
+        tmp_path / ".arc" / "cache" / "arc-document"
+    )
     assert values["paper_cache"] == str(tmp_path / ".arc" / "cache" / "arc-paper")
     assert "domain_cache" not in values
     assert "llm_cache" not in values
@@ -114,6 +119,9 @@ def test_local_checkout_launch_uses_ignored_checkout_cache(tmp_path: Path) -> No
     assert result.returncode == 1, result.stderr
     values = dict(line.split("=", 1) for line in result.stdout.splitlines())
     assert values["paper_cache"] == str(ROOT / "local" / "cache" / "arc-paper")
+    assert values["document_cache"] == str(
+        ROOT / "local" / "cache" / "arc-document"
+    )
 
 
 def test_doctor_preserves_explicit_paper_cache(tmp_path: Path) -> None:
@@ -127,6 +135,19 @@ def test_doctor_preserves_explicit_paper_cache(tmp_path: Path) -> None:
     assert result.returncode == 1, result.stderr
     values = dict(line.split("=", 1) for line in result.stdout.splitlines())
     assert values["paper_cache"] == str(explicit)
+
+
+def test_doctor_preserves_explicit_document_cache(tmp_path: Path) -> None:
+    runtime_home = tmp_path / "runtime-home"
+    explicit = tmp_path / "explicit-document-cache"
+    result = _run(
+        runtime_home,
+        "doctor",
+        extra_env={"ARC_DOCUMENT_CACHE": str(explicit)},
+    )
+    assert result.returncode == 1, result.stderr
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert values["document_cache"] == str(explicit)
 
 
 def _write_fake_runtime_tool(bin_dir: Path, name: str, prefix: str = "cached") -> None:
@@ -465,6 +486,10 @@ def test_first_core_use_lazy_installs_only_core_packages(tmp_path: Path) -> None
         in install_calls[1]
     )
     assert (
+        f"arc-document @ git+https://github.com/tririver/arc.git@{bundled_ref}"
+        in install_calls[1]
+    )
+    assert (
         f"arc-render @ git+https://github.com/tririver/arc.git@{bundled_ref}"
         in install_calls[1]
     )
@@ -549,6 +574,7 @@ def test_runtime_fingerprint_covers_ref_constraints_python_and_local_content(
     for package in (
         "arc-jobs",
         "arc-llm",
+        "arc-document",
         "arc-proposer-reviewer",
         "arc-paper",
         "arc-render",
@@ -924,6 +950,7 @@ def test_configured_local_checkout_installs_without_git_urls(tmp_path: Path) -> 
     for package in (
         "arc-jobs",
         "arc-llm",
+        "arc-document",
         "arc-proposer-reviewer",
         "arc-paper",
         "arc-render",
@@ -979,6 +1006,7 @@ def test_auto_local_separates_checkout_identity_from_fallback_pin(
     for package in (
         "arc-jobs",
         "arc-llm",
+        "arc-document",
         "arc-proposer-reviewer",
         "arc-paper",
         "arc-render",

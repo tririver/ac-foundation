@@ -53,8 +53,8 @@ fi
 default_repo_root="$(CDPATH= cd -- "$plugin_root/../.." 2>/dev/null && pwd -P || printf '%s' "$plugin_root")"
 repo_root="${ARC_INSTALL_REPO_ROOT:-$default_repo_root}"
 
-core_tools="arc-paper arc-render arc-domain arc-llm arc-proposer-reviewer arc-ocr-proofread arc-translate arc-companion arc-jobs"
-core_packages="arc-jobs arc-llm arc-proposer-reviewer arc-paper arc-render arc-domain arc-ocr-proofread arc-translate arc-companion"
+core_tools="arc-document arc-paper arc-render arc-domain arc-llm arc-proposer-reviewer arc-ocr-proofread arc-translate arc-companion arc-jobs"
+core_packages="arc-jobs arc-llm arc-document arc-proposer-reviewer arc-paper arc-render arc-domain arc-ocr-proofread arc-translate arc-companion"
 
 is_true() {
   case "${1:-}" in
@@ -325,6 +325,15 @@ else
   source_ref="$install_ref"
   source_fingerprint="git:repo=${install_repo};ref=${install_ref}"
 fi
+if [ -z "${ARC_DOCUMENT_CACHE:-}" ]; then
+  ARC_DOCUMENT_CACHE="${launch_cwd}/.arc/cache/arc-document"
+  if [ "$resolved_source" = "local" ]; then
+    case "${launch_cwd}/" in
+      "${source_root}/"*) ARC_DOCUMENT_CACHE="${source_root}/local/cache/arc-document" ;;
+    esac
+  fi
+fi
+export ARC_DOCUMENT_CACHE
 if [ -z "${ARC_PAPER_CACHE:-}" ]; then
   ARC_PAPER_CACHE="${launch_cwd}/.arc/cache/arc-paper"
   if [ "$resolved_source" = "local" ]; then
@@ -710,6 +719,7 @@ if [ "$management_command" = "doctor" ]; then
   printf 'constraints_sha256=%s\n' "$constraints_hash"
   printf 'runtime=%s\n' "$runtime_dir"
   printf 'arc_home=%s\n' "$ARC_HOME"
+  printf 'document_cache=%s\n' "$ARC_DOCUMENT_CACHE"
   printf 'paper_cache=%s\n' "$ARC_PAPER_CACHE"
   printf 'venv=%s\n' "$venv_dir"
   printf 'ready_file=%s\n' "$ready_file"

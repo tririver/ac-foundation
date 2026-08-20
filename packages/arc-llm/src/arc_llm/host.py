@@ -39,6 +39,7 @@ class HostResponseStatus(StrEnum):
 _ARC_ENVIRONMENT_KEYS = (
     "ARC_HOME",
     "ARC_RUNTIME_HOME",
+    "ARC_DOCUMENT_CACHE",
     "ARC_PAPER_CACHE",
     "PATH",
 )
@@ -55,7 +56,7 @@ class ArcRuntimeEnvironment:
         if set(raw) != set(_ARC_ENVIRONMENT_KEYS):
             raise InvalidRequestError(
                 "ARC runtime environment must contain exactly ARC_HOME, "
-                "ARC_RUNTIME_HOME, ARC_PAPER_CACHE, and PATH."
+                "ARC_RUNTIME_HOME, ARC_DOCUMENT_CACHE, ARC_PAPER_CACHE, and PATH."
             )
         if any(value is not None and not isinstance(value, str) for value in raw.values()):
             raise InvalidRequestError("ARC runtime environment values must be strings or null.")

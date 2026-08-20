@@ -72,6 +72,7 @@ Packages:
 - `arc-jobs`: durable job execution.
 - `arc-llm`: provider and model calls.
 - `arc-proposer-reviewer`: proposal and review orchestration.
+- `arc-document`: provider-neutral source storage, parsing, search, and rich-document contracts.
 - `arc-paper`: paper access, caching, and summaries.
 - `arc-domain`: domain discovery, typed summaries, package views, and
   evidence-bearing domain artifacts.

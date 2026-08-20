@@ -233,6 +233,7 @@ def test_runtime_authority_and_environment_are_explicit_runtime_state() -> None:
         {
             "ARC_HOME": "/arc-home",
             "ARC_RUNTIME_HOME": "/runtime",
+            "ARC_DOCUMENT_CACHE": "/documents",
             "ARC_PAPER_CACHE": "/cache",
             "PATH": "/bin",
         }
@@ -249,6 +250,7 @@ def test_runtime_authority_and_environment_are_explicit_runtime_state() -> None:
         "UNRELATED": "kept",
         "ARC_HOME": "/arc-home",
         "ARC_RUNTIME_HOME": "/runtime",
+        "ARC_DOCUMENT_CACHE": "/documents",
         "ARC_PAPER_CACHE": "/cache",
         "PATH": "/bin",
     }

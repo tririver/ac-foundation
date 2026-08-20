@@ -63,27 +63,21 @@ version_paths=(
   "plugins/arc/.codex-plugin/plugin.json"
   "plugins/arc/.claude-plugin/plugin.json"
   "plugins/arc/skills/arc/scripts/runtime-constraints.txt"
-  "packages/arc-llm/pyproject.toml"
-  "packages/arc-jobs/pyproject.toml"
-  "packages/arc-proposer-reviewer/pyproject.toml"
-  "packages/arc-paper/pyproject.toml"
-  "packages/arc-render/pyproject.toml"
-  "packages/arc-domain/pyproject.toml"
-  "packages/arc-ocr-proofread/pyproject.toml"
-  "packages/arc-translate/pyproject.toml"
-  "packages/arc-companion/pyproject.toml"
-  "packages/arc-llm/src/arc_llm/__init__.py"
-  "packages/arc-jobs/src/arc_jobs/__init__.py"
-  "packages/arc-proposer-reviewer/src/arc_proposer_reviewer/__init__.py"
-  "packages/arc-ocr-proofread/src/arc_ocr_proofread/__init__.py"
-  "packages/arc-translate/src/arc_translate/__init__.py"
-  "packages/arc-companion/src/arc_companion/__init__.py"
-  "packages/arc-paper/src/arc_paper/__init__.py"
   "packages/arc-paper/tests/test_import.py"
   "packages/arc-paper/tests/test_package_metadata.py"
   "packages/arc-llm/tests/test_contract_matrix.py"
   "tests/architecture/test_package_dependencies.py"
 )
+for pyproject in packages/arc-*/pyproject.toml; do
+  package_dir="${pyproject%/pyproject.toml}"
+  package_name="${package_dir##*/}"
+  module_name="${package_name//-/_}"
+  version_paths+=("$pyproject")
+  init_path="$package_dir/src/$module_name/__init__.py"
+  if [ -e "$init_path" ] && grep -q '^__version__[[:space:]]*=' "$init_path"; then
+    version_paths+=("$init_path")
+  fi
+done
 install_ref_path="plugins/arc/skills/arc/.arc-install-ref"
 
 existing_version_paths=()
@@ -297,17 +291,12 @@ from pathlib import Path
 version = sys.argv[1]
 internal_range = sys.argv[2]
 root = Path(sys.argv[3])
-packages = [
-    "arc-llm",
-    "arc-jobs",
-    "arc-proposer-reviewer",
-    "arc-paper",
-    "arc-render",
-    "arc-domain",
-    "arc-ocr-proofread",
-    "arc-translate",
-    "arc-companion",
-]
+packages = sorted(
+    path.parent.name
+    for path in (root / "packages").glob("arc-*/pyproject.toml")
+)
+if not packages:
+    raise SystemExit("no ARC packages discovered")
 
 if (root / "VERSION").read_text(encoding="utf-8").strip() != version:
     raise SystemExit("root VERSION mismatch")
