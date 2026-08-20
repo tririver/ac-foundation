@@ -7,8 +7,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGES = ROOT / "packages"
-RELEASE = "1.1.0"
-RELEASE_FAMILY = ".".join(RELEASE.split(".")[:2])
+RELEASE = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+_RELEASE_PARTS = RELEASE.split(".")
+assert len(_RELEASE_PARTS) == 3 and all(
+    part.isdigit() for part in _RELEASE_PARTS
+), "VERSION must use SemVer core format X.Y.Z"
+_RELEASE_MAJOR, _RELEASE_MINOR, _RELEASE_PATCH = map(int, _RELEASE_PARTS)
+RELEASE_FAMILY = f"{_RELEASE_MAJOR}.{_RELEASE_MINOR}"
+NEXT_RELEASE_FAMILY = f"{_RELEASE_MAJOR}.{_RELEASE_MINOR + 1}"
 
 ALLOWED = {
     "arc_jobs": set(),
@@ -40,7 +46,8 @@ PROJECT_URLS = {
     "Issues": "https://github.com/tririver/arc/issues",
 }
 ARC_DEPENDENCY = re.compile(
-    rf"^(arc-[a-z0-9-]+)>={re.escape(RELEASE_FAMILY)},<1\.1$"
+    rf"^(arc-[a-z0-9-]+)>={re.escape(RELEASE_FAMILY)},"
+    rf"<{re.escape(NEXT_RELEASE_FAMILY)}$"
 )
 
 
@@ -97,7 +104,7 @@ def _declared(project: dict) -> set[str]:
         match = ARC_DEPENDENCY.fullmatch(dependency)
         assert match, (
             f"ARC dependency {dependency!r} must use the unified "
-            f">={RELEASE_FAMILY},<1.1 release train"
+            f">={RELEASE_FAMILY},<{NEXT_RELEASE_FAMILY} release train"
         )
         edges.add(match.group(1).replace("-", "_"))
     return edges
@@ -106,7 +113,6 @@ def _declared(project: dict) -> set[str]:
 def test_all_packages_use_root_release_and_known_dependency_rows():
     projects = _projects()
     assert set(projects) == set(ALLOWED)
-    assert (ROOT / "VERSION").read_text(encoding="utf-8").strip() == RELEASE
     for module, (_, project) in projects.items():
         assert project["version"] == RELEASE, module
 

@@ -66,7 +66,6 @@ version_paths=(
   "packages/arc-paper/tests/test_import.py"
   "packages/arc-paper/tests/test_package_metadata.py"
   "packages/arc-llm/tests/test_contract_matrix.py"
-  "tests/architecture/test_package_dependencies.py"
 )
 for pyproject in packages/arc-*/pyproject.toml; do
   package_dir="${pyproject%/pyproject.toml}"
@@ -261,8 +260,6 @@ for path in paths:
             r'(observed\["version"\]\s*==\s*")[^"]+(")',
             rf"\g<1>{version}\2",
         )
-    elif path.name == "test_package_dependencies.py":
-        replace_once(path, r'^(RELEASE\s*=\s*")[^"]+(")', rf"\g<1>{version}\2")
 PY
 
 version_changed=1
