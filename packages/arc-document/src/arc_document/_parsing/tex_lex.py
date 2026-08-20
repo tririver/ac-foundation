@@ -11,8 +11,12 @@ def normalize_tex(value: str) -> str:
 
     value = re.sub(r"(?<!\\)%[^\n]*", "", value)
     value = re.sub(r"\\(?:label|tag)\s*\{[^{}]*\}", "", value)
+    # Remove only outer display wrappers.  Content environments such as
+    # ``array`` and ``matrix`` carry layout semantics and must survive into the
+    # RichDocument and renderer.
     value = re.sub(
-        r"\\begin\s*\{[^{}]+\*?\}|\\end\s*\{[^{}]+\*?\}",
+        r"\\begin\s*\{(?:equation|align|gather|multline|eqnarray)\*?\}"
+        r"|\\end\s*\{(?:equation|align|gather|multline|eqnarray)\*?\}",
         "",
         value,
     )
