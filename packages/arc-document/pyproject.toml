@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arc-document"
-version = "1.0.5"
+version = "1.1.0"
 description = "Content-addressed document ingestion, parsing, search, and rich-document contracts for ARC."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "ARC" }]
 requires-python = ">=3.11"
 dependencies = [
-  "arc-jobs>=1.0,<1.1",
-  "arc-llm>=1.0,<1.1",
+  "arc-jobs>=1.1,<1.2",
+  "arc-llm>=1.1,<1.2",
   "beautifulsoup4>=4.12",
   "jsonschema>=4.22",
   "lxml>=5.0"

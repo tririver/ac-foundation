@@ -94,7 +94,7 @@ from .storage import (
 )
 from .working import WorkingState
 
-__version__ = "1.0.6"
+__version__ = "1.1.0"
 
 __all__ = [
     "ArcJobsError",

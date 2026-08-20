@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "arc-proposer-reviewer"
-version = "1.0.6"
+version = "1.1.0"
 description = "Typed proposer-reviewer orchestration for ARC."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "ARC" }]
 requires-python = ">=3.11"
 dependencies = [
-  "arc-jobs>=1.0,<1.1",
-  "arc-llm>=1.0,<1.1",
+  "arc-jobs>=1.1,<1.2",
+  "arc-llm>=1.1,<1.2",
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
