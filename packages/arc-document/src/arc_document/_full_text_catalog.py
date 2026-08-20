@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,13 +36,36 @@ def _origin_document_id(source: SourceArtifact) -> str:
 
     value = str(source.origin.metadata.get("document_id") or "").strip()
     return value
-_ENTRY_FIELDS = {
-    "schema_version",
-    "kind",
-    "document_ids",
-    "local_source_identity",
-    "representations",
-}
+
+
+def _valid_document_id(value: str) -> bool:
+    return bool(value.strip())
+
+
+@dataclass(frozen=True)
+class FullTextCatalogDialect:
+    """Persistence vocabulary for one identified-document catalog."""
+
+    schema_version: str
+    admin_schema_version: str
+    directory: str
+    identified_kind: str
+    identifier_field: str
+    admin_prefix: str
+    identify_source: Callable[[SourceArtifact], str]
+    validate_identifier: Callable[[str], bool]
+
+
+DOCUMENT_FULL_TEXT_CATALOG_DIALECT = FullTextCatalogDialect(
+    schema_version=FULL_TEXT_CATALOG_SCHEMA,
+    admin_schema_version=FULL_TEXT_CATALOG_ADMIN_SCHEMA,
+    directory="document-full-text-catalog",
+    identified_kind="identified",
+    identifier_field="document_ids",
+    admin_prefix="document",
+    identify_source=_origin_document_id,
+    validate_identifier=_valid_document_id,
+)
 _REPRESENTATION_FIELDS = {
     "source_identity",
     "parser_contract",
@@ -142,8 +165,14 @@ class FullTextCatalogAdminEntry:
 class FullTextCatalog:
     """Atomic per-entry locator index for materialized full text."""
 
-    def __init__(self, root: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        root: str | Path | None = None,
+        *,
+        _dialect: FullTextCatalogDialect = DOCUMENT_FULL_TEXT_CATALOG_DIALECT,
+    ) -> None:
         self.root = resolve_cache_root(root)
+        self._dialect = _dialect
 
     def record(
         self,
@@ -161,8 +190,10 @@ class FullTextCatalog:
             parsed_cache_key=parsed_cache_key,
             document_digest=document.document_digest,
         )
-        locator_kind, locator_identity, document_id = _locator_identity(source)
-        locator_key = _locator_key(locator_kind, locator_identity)
+        locator_kind, locator_identity, document_id = _locator_identity(
+            source, self._dialect
+        )
+        locator_key = _locator_key(locator_kind, locator_identity, self._dialect)
         path = self._entry_path(locator_key)
         with self._entry_lock(locator_key):
             previous = self._read_path(path)
@@ -192,7 +223,7 @@ class FullTextCatalog:
                     local_source_identity=locator_identity,
                     representations=tuple(by_format.values()),
                 )
-            payload = _canonical_json_bytes(_entry_document(entry))
+            payload = _canonical_json_bytes(_entry_document(entry, self._dialect))
             try:
                 unchanged = path.read_bytes() == payload
             except OSError:
@@ -202,7 +233,7 @@ class FullTextCatalog:
                     path.parent / "admin.json",
                     _canonical_json_bytes(
                         {
-                            "schema_version": FULL_TEXT_CATALOG_ADMIN_SCHEMA,
+                            "schema_version": self._dialect.admin_schema_version,
                             "cached_at": _utc_now(),
                         }
                     ),
@@ -213,7 +244,7 @@ class FullTextCatalog:
     def current_entries(self) -> tuple[FullTextCatalogEntry, ...]:
         """Return only strict current locators; damaged entries are ignored."""
 
-        entries_root = self.root / "document-full-text-catalog" / "v2" / "entries"
+        entries_root = self.root / self._dialect.directory / "v2" / "entries"
         if not entries_root.is_dir():
             return ()
         entries = tuple(
@@ -226,7 +257,7 @@ class FullTextCatalog:
     def admin_entries(self) -> tuple[FullTextCatalogAdminEntry, ...]:
         """Return current locators with their last successful publication time."""
 
-        entries_root = self.root / "document-full-text-catalog" / "v2" / "entries"
+        entries_root = self.root / self._dialect.directory / "v2" / "entries"
         if not entries_root.is_dir():
             return ()
         entries: list[FullTextCatalogAdminEntry] = []
@@ -239,7 +270,7 @@ class FullTextCatalog:
                 continue
             entries.append(
                 FullTextCatalogAdminEntry(
-                    entry_id=_admin_entry_id(entry),
+                    entry_id=_admin_entry_id(entry, self._dialect),
                     entry=entry,
                     cached_at=cached_at,
                 )
@@ -256,7 +287,7 @@ class FullTextCatalog:
         if selected is None:
             return False
         removed = False
-        for locator_key in sorted(_locator_keys(selected.entry)):
+        for locator_key in sorted(_locator_keys(selected.entry, self._dialect)):
             path = self._entry_path(locator_key)
             with self._entry_lock(locator_key):
                 if path.parent.exists():
@@ -289,15 +320,14 @@ class FullTextCatalog:
             if self._read_admin(path.parent) is None:
                 return None
             value = json.loads(path.read_text(encoding="utf-8"))
-            entry = _entry_from_document(value)
-            if path.parent.name not in _locator_keys(entry):
+            entry = _entry_from_document(value, self._dialect)
+            if path.parent.name not in _locator_keys(entry, self._dialect):
                 return None
             return entry
         except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
             return None
 
-    @staticmethod
-    def _read_admin(entry_dir: Path) -> str | None:
+    def _read_admin(self, entry_dir: Path) -> str | None:
         try:
             value = json.loads(
                 (entry_dir / "admin.json").read_text(encoding="utf-8")
@@ -306,7 +336,7 @@ class FullTextCatalog:
                 not isinstance(value, dict)
                 or set(value) != _ADMIN_FIELDS
                 or value.get("schema_version")
-                != FULL_TEXT_CATALOG_ADMIN_SCHEMA
+                != self._dialect.admin_schema_version
                 or not isinstance(value.get("cached_at"), str)
                 or not value["cached_at"]
                 or not _is_utc_timestamp(value["cached_at"])
@@ -325,7 +355,7 @@ class FullTextCatalog:
     def _entry_path(self, locator_key: str) -> Path:
         return (
             self.root
-            / "document-full-text-catalog"
+            / self._dialect.directory
             / "v2"
             / "entries"
             / locator_key[:2]
@@ -337,7 +367,7 @@ class FullTextCatalog:
     def _entry_lock(self, locator_key: str) -> Iterator[None]:
         path = (
             self.root
-            / "document-full-text-catalog"
+            / self._dialect.directory
             / "v2"
             / "locks"
             / f"{locator_key}.lock"
@@ -348,18 +378,26 @@ class FullTextCatalog:
 
 def _locator_identity(
     source: SourceArtifact,
+    dialect: FullTextCatalogDialect,
 ) -> tuple[str, str | dict[str, Any], str]:
-    document_id = _origin_document_id(source)
+    document_id = dialect.identify_source(source)
     if document_id:
         canonical = document_id
+        if not dialect.validate_identifier(canonical):
+            raise ValueError("catalog source identifier is invalid")
         return "identified", canonical, canonical
     identity = _source_identity(source)
     return "local", identity, ""
 
 
-def _locator_key(kind: str, identity: str | Mapping[str, Any]) -> str:
+def _locator_key(
+    kind: str,
+    identity: str | Mapping[str, Any],
+    dialect: FullTextCatalogDialect,
+) -> str:
+    stored_kind = dialect.identified_kind if kind == "identified" else kind
     return hashlib.sha256(
-        _canonical_json_bytes({"kind": kind, "identity": identity})
+        _canonical_json_bytes({"kind": stored_kind, "identity": identity})
     ).hexdigest()
 
 
@@ -375,22 +413,30 @@ def _entry_matches_locator(
     return dict(entry.local_source_identity or {}) == dict(identity)
 
 
-def _locator_keys(entry: FullTextCatalogEntry) -> set[str]:
+def _locator_keys(
+    entry: FullTextCatalogEntry,
+    dialect: FullTextCatalogDialect,
+) -> set[str]:
     if entry.kind == "identified":
         return {
-            _locator_key("identified", document_id)
+            _locator_key("identified", document_id, dialect)
             for document_id in entry.document_ids
         }
     return {
-        _locator_key("local", dict(entry.local_source_identity or {}))
+        _locator_key("local", dict(entry.local_source_identity or {}), dialect)
     }
 
 
-def _entry_document(entry: FullTextCatalogEntry) -> dict[str, Any]:
+def _entry_document(
+    entry: FullTextCatalogEntry,
+    dialect: FullTextCatalogDialect,
+) -> dict[str, Any]:
     return {
-        "schema_version": FULL_TEXT_CATALOG_SCHEMA,
-        "kind": entry.kind,
-        "document_ids": list(entry.document_ids),
+        "schema_version": dialect.schema_version,
+        "kind": (
+            dialect.identified_kind if entry.kind == "identified" else entry.kind
+        ),
+        dialect.identifier_field: list(entry.document_ids),
         "local_source_identity": (
             dict(entry.local_source_identity)
             if entry.local_source_identity is not None
@@ -408,17 +454,32 @@ def _entry_document(entry: FullTextCatalogEntry) -> dict[str, Any]:
     }
 
 
-def _entry_from_document(value: object) -> FullTextCatalogEntry:
-    if not isinstance(value, Mapping) or set(value) != _ENTRY_FIELDS:
+def _entry_from_document(
+    value: object,
+    dialect: FullTextCatalogDialect,
+) -> FullTextCatalogEntry:
+    entry_fields = {
+        "schema_version",
+        "kind",
+        dialect.identifier_field,
+        "local_source_identity",
+        "representations",
+    }
+    if not isinstance(value, Mapping) or set(value) != entry_fields:
         raise ValueError("catalog locator has invalid fields")
-    if value.get("schema_version") != FULL_TEXT_CATALOG_SCHEMA:
+    if value.get("schema_version") != dialect.schema_version:
         raise ValueError("catalog locator has unsupported schema")
-    document_ids = value.get("document_ids")
+    stored_kind = value.get("kind")
+    if stored_kind not in {dialect.identified_kind, "local"}:
+        raise ValueError("catalog locator has invalid kind")
+    document_ids = value.get(dialect.identifier_field)
     representations = value.get("representations")
     if not isinstance(document_ids, list) or not all(
         isinstance(item, str) for item in document_ids
     ):
-        raise ValueError("catalog document_ids must be strings")
+        raise ValueError(f"catalog {dialect.identifier_field} must be strings")
+    if any(not dialect.validate_identifier(item) for item in document_ids):
+        raise ValueError("catalog identifier is invalid")
     if not isinstance(representations, list):
         raise ValueError("catalog representations must be a list")
     decoded: list[FullTextRepresentation] = []
@@ -437,7 +498,7 @@ def _entry_from_document(value: object) -> FullTextCatalogEntry:
     if local_identity is not None and not isinstance(local_identity, Mapping):
         raise ValueError("catalog local identity must be an object or null")
     return FullTextCatalogEntry(
-        kind=value.get("kind"),
+        kind="identified" if stored_kind == dialect.identified_kind else "local",
         document_ids=tuple(document_ids),
         local_source_identity=local_identity,
         representations=tuple(decoded),
@@ -488,9 +549,12 @@ def _entry_sort_key(entry: FullTextCatalogEntry) -> tuple[str, str]:
     )
 
 
-def _admin_entry_id(entry: FullTextCatalogEntry) -> str:
+def _admin_entry_id(
+    entry: FullTextCatalogEntry,
+    dialect: FullTextCatalogDialect,
+) -> str:
     if entry.kind == "identified":
-        return f"document:{entry.document_ids[0]}"
+        return f"{dialect.admin_prefix}:{entry.document_ids[0]}"
     identity = entry.local_source_identity or {}
     return (
         f"local:{identity.get('source_format', '')}:"
@@ -530,8 +594,10 @@ def _is_sha256(value: object) -> bool:
 __all__ = [
     "FULL_TEXT_CATALOG_ADMIN_SCHEMA",
     "FULL_TEXT_CATALOG_SCHEMA",
+    "DOCUMENT_FULL_TEXT_CATALOG_DIALECT",
     "FullTextCatalog",
     "FullTextCatalogAdminEntry",
+    "FullTextCatalogDialect",
     "FullTextCatalogEntry",
     "FullTextRepresentation",
 ]

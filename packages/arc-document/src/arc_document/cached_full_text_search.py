@@ -5,7 +5,7 @@ from __future__ import annotations
 import heapq
 import json
 import re
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
@@ -14,7 +14,6 @@ from typing import Protocol
 from ._cache_root import resolve_cache_root
 from ._full_text_catalog import (
     FullTextCatalog,
-    FullTextCatalogEntry,
     FullTextRepresentation,
 )
 from ._parsed_document_cache import PARSER_CONTRACT, ParsedDocumentCache
@@ -105,17 +104,27 @@ class CandidateSelector(Protocol):
     ) -> tuple[Path, ...]: ...
 
 
+class _CatalogEntry(Protocol):
+    kind: str
+    representations: tuple[FullTextRepresentation, ...]
+
+
+class _CatalogReader(Protocol):
+    def current_entries(self) -> tuple[_CatalogEntry, ...]: ...
+
+
 @dataclass(frozen=True)
 class _SelectedDocument:
     source_kind: str
-    document_ids: tuple[str, ...]
+    identifiers: tuple[str, ...]
+    identified: bool
     representation: FullTextRepresentation
     path: Path
 
     @property
     def stable_identity(self) -> tuple[str, ...]:
-        if self.source_kind == "identified":
-            return (self.source_kind, *self.document_ids)
+        if self.identified:
+            return (self.source_kind, *self.identifiers)
         identity = self.representation.source_identity
         return (
             self.source_kind,
@@ -162,10 +171,17 @@ class CachedFullTextSearcher:
         root: str | Path | None = None,
         *,
         candidate_selector: CandidateSelector | None = None,
+        _catalog: _CatalogReader | None = None,
+        _identified_kind: str = "identified",
+        _entry_identifiers: Callable[[_CatalogEntry], tuple[str, ...]] | None = None,
     ) -> None:
         self.root = resolve_cache_root(root)
-        self.catalog = FullTextCatalog(self.root)
+        self.catalog = _catalog or FullTextCatalog(self.root)
         self.candidate_selector = candidate_selector or RipgrepCandidateSelector()
+        self._identified_kind = _identified_kind
+        self._entry_identifiers = _entry_identifiers or (
+            lambda entry: entry.document_ids  # type: ignore[attr-defined]
+        )
 
     def search(
         self,
@@ -337,7 +353,10 @@ class CachedFullTextSearcher:
         selected: list[_SelectedDocument] = []
         warnings: list[str] = []
         for entry in self.catalog.current_entries():
-            representation = _preferred_current_representation(entry)
+            representation = _preferred_current_representation(
+                entry,
+                identified_kind=self._identified_kind,
+            )
             if representation is None:
                 warnings.append(_STALE_PARSER_CONTRACT_WARNING)
                 continue
@@ -360,7 +379,8 @@ class CachedFullTextSearcher:
             selected.append(
                 _SelectedDocument(
                     source_kind=entry.kind,
-                    document_ids=entry.document_ids,
+                    identifiers=self._entry_identifiers(entry),
+                    identified=entry.kind == self._identified_kind,
                     representation=representation,
                     path=path,
                 )
@@ -369,7 +389,7 @@ class CachedFullTextSearcher:
         merged: dict[tuple[str, str], _SelectedDocument] = {}
         local: list[_SelectedDocument] = []
         for item in selected:
-            if item.source_kind != "identified":
+            if not item.identified:
                 local.append(item)
                 continue
             key = (
@@ -382,9 +402,9 @@ class CachedFullTextSearcher:
             else:
                 merged[key] = replace(
                     previous,
-                    document_ids=tuple(
+                    identifiers=tuple(
                         sorted(
-                            set(previous.document_ids).union(item.document_ids),
+                            set(previous.identifiers).union(item.identifiers),
                             key=str.casefold,
                         )
                     ),
@@ -415,7 +435,9 @@ class CachedFullTextSearcher:
 
 
 def _preferred_current_representation(
-    entry: FullTextCatalogEntry,
+    entry: _CatalogEntry,
+    *,
+    identified_kind: str = "identified",
 ) -> FullTextRepresentation | None:
     """Choose the current HTML/PDF projection without mutating stale locators."""
 
@@ -424,7 +446,7 @@ def _preferred_current_representation(
     )
     if not current:
         return None
-    if entry.kind == "identified":
+    if entry.kind == identified_kind:
         by_format = {item.source_format: item for item in current}
         if "html" in by_format:
             return by_format["html"]
@@ -454,7 +476,7 @@ def _document_occurrences(
         document,
         terms,
         source_kind=selected.source_kind,
-        document_ids=selected.document_ids,
+        document_ids=selected.identifiers,
         case_sensitive=case_sensitive,
     )
 
@@ -840,8 +862,8 @@ def _display_title(
             title = " ".join(line.split())
             if title:
                 return title
-    if selected.document_ids:
-        return ", ".join(selected.document_ids)
+    if selected.identifiers:
+        return ", ".join(selected.identifiers)
     representation = selected.representation
     return (
         f"local {representation.source_format} "
@@ -853,7 +875,7 @@ def _cached_document(selected: _SelectedDocument) -> CachedFullTextDocument:
     identity = selected.representation.source_identity
     return CachedFullTextDocument(
         source_kind=selected.source_kind,
-        document_ids=selected.document_ids,
+        document_ids=selected.identifiers,
         document=CachedDocumentRef(
             source_format=identity["source_format"],
             source_sha256=identity["artifact_digest"],
