@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup, Tag
 
 from .._parsing import ParseError, normalize_tex
 from .._parsing.html_source import (
+    html_heading_is_document_metadata,
     html_roots,
     html_source_position,
 )
@@ -902,7 +903,7 @@ def _parse_html(artifact: SourceArtifact, text: str) -> ParsedDocument:
         tag
         for root in roots
         for tag in root.find_all(re.compile(r"^h[1-6]$"))
-        if isinstance(tag, Tag)
+        if isinstance(tag, Tag) and not html_heading_is_document_metadata(tag)
     ]
     sections: list[ParsedSection] = []
     if headings:

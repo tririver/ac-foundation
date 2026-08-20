@@ -255,7 +255,7 @@ def _reconcile_pdf(
         )
 
     entries: list[ReconciliationEntry] = []
-    warnings: list[str] = []
+    warning_counts: dict[tuple[str, ReconciliationStatus], int] = {}
     raw_pages = [page.text for page in validator.pages]
     for section in primary.sections:
         title = _fingerprint(section.title)
@@ -315,9 +315,8 @@ def _reconcile_pdf(
             )
         )
         if status is not ReconciliationStatus.VERIFIED:
-            warnings.append(
-                f"PDF section evidence {status.value} for {section.section_id}"
-            )
+            key = ("section", status)
+            warning_counts[key] = warning_counts.get(key, 0) + 1
 
     for span in primary.math_spans:
         pages_by_label = _pages_for_printed_label(raw_pages, span.source_label)
@@ -355,8 +354,14 @@ def _reconcile_pdf(
             )
         )
         if status is not ReconciliationStatus.VERIFIED:
-            warnings.append(f"PDF math evidence {status.value} for {span.span_id}")
-    return tuple(entries), tuple(warnings)
+            key = ("math", status)
+            warning_counts[key] = warning_counts.get(key, 0) + 1
+    warnings = tuple(
+        f"PDF {kind} evidence {status.value}: {count} source subjects; "
+        "inspect the reconciliation report for exact diagnostics"
+        for (kind, status), count in warning_counts.items()
+    )
+    return tuple(entries), warnings
 
 
 def _pages_for_exact_section_title(pages: list[str], title: str) -> list[int]:

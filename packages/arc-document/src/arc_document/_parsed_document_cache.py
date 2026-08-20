@@ -28,7 +28,7 @@ from .source_repository import SourceRepository
 from .sources import SourceArtifact, SourceFormat, SourceOrigin, SourceOriginKind
 
 
-PARSER_CONTRACT = "arc.document.parser.v5"
+PARSER_CONTRACT = "arc.document.parser.v6"
 PARSED_DOCUMENT_CACHE_SCHEMA = "arc.document.parsed_document_cache.v1"
 DERIVED_CACHE_REBUILT_WARNING = (
     "parsed-document derived cache was corrupt and was rebuilt from verified source"

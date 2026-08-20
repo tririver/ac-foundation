@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 from .._parsing import ParseError, normalize_tex
 from .._parsing.html_source import (
+    html_heading_is_document_metadata,
     html_roots,
     html_source_position,
     rich_html_selector,
@@ -85,6 +86,7 @@ class _RawBlock:
     kind: RichBlockKind
     locator: SourceLocator
     payload: Mapping[str, Any]
+    section_reset_to_level: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1029,6 +1031,7 @@ def _parse_html(
     else:
         events = _html_visible_body_events(roots[0])
     output: list[_RawBlock] = []
+    pending_section_reset: int | None = None
     for ordinal, event in enumerate(events):
         node = event.locator_node if isinstance(event, _HTMLFallback) else event
         line_start, column_start, line_end, column_end = (
@@ -1043,6 +1046,7 @@ def _parse_html(
             selector=rich_html_selector(node, ordinal),
             source_id=str(node.get("id") or ""),
         )
+        event_output_start = len(output)
         if isinstance(event, _HTMLFallback):
             _append_html_fallback_blocks(
                 output,
@@ -1050,8 +1054,28 @@ def _parse_html(
                 values=event.values,
                 import_asset=import_asset,
             )
+            pending_section_reset = _apply_section_reset_to_first_new_block(
+                output, event_output_start, pending_section_reset
+            )
             continue
         if re.fullmatch(r"h[1-6]", node.name or ""):
+            if html_heading_is_document_metadata(node):
+                pending_section_reset = 1
+                values = tuple(
+                    value
+                    for value in node.next_siblings
+                    if isinstance(value, (Tag, NavigableString))
+                )
+                _append_html_fallback_blocks(
+                    output,
+                    locator=locator,
+                    values=values,
+                    import_asset=import_asset,
+                )
+                pending_section_reset = _apply_section_reset_to_first_new_block(
+                    output, event_output_start, pending_section_reset
+                )
+                continue
             output.append(
                 _RawBlock(
                     RichBlockKind.HEADING,
@@ -1098,6 +1122,9 @@ def _parse_html(
                     locator=locator,
                     node=node,
                     import_asset=import_asset,
+                )
+                pending_section_reset = _apply_section_reset_to_first_new_block(
+                    output, event_output_start, pending_section_reset
                 )
                 continue
             caption = node.find("caption")
@@ -1156,7 +1183,27 @@ def _parse_html(
                         },
                     )
                 )
+        pending_section_reset = _apply_section_reset_to_first_new_block(
+            output, event_output_start, pending_section_reset
+        )
     return output
+
+
+def _apply_section_reset_to_first_new_block(
+    output: list[_RawBlock],
+    start: int,
+    reset_to_level: int | None,
+) -> int | None:
+    if reset_to_level is None or len(output) <= start:
+        return reset_to_level
+    block = output[start]
+    output[start] = _RawBlock(
+        kind=block.kind,
+        locator=block.locator,
+        payload=block.payload,
+        section_reset_to_level=reset_to_level,
+    )
+    return None
 
 
 def _append_html_paragraph_blocks(
@@ -1924,6 +1971,13 @@ def _finalize_document(
         )
     ).hexdigest()[:20]
     for ordinal, raw in enumerate(raw_blocks):
+        if raw.section_reset_to_level is not None:
+            while stack and stack[-1][0] > raw.section_reset_to_level:
+                _level, closed_section_id = stack.pop()
+                for spec in reversed(section_specs):
+                    if spec["section_id"] == closed_section_id:
+                        spec["block_end"] = ordinal
+                        break
         if raw.kind is RichBlockKind.HEADING:
             level = int(raw.payload["level"])
             title = str(raw.payload["text"])
@@ -1996,7 +2050,12 @@ def _finalize_document(
             for other in section_specs[ordinal + 1 :]
             if len(other["path"]) <= len(spec["path"])
         ]
-        block_end = min(following) if following else len(blocks)
+        block_end = int(
+            spec.get(
+                "block_end",
+                min(following) if following else len(blocks),
+            )
+        )
         sections.append(
             RichSection(
                 section_id=str(spec["section_id"]),
