@@ -12,8 +12,8 @@ import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { createServer } from 'node:net'
 
-export const REQUEST_SCHEMA_VERSION = 'arc.dsh-llm.request.v1'
-export const EVENT_SCHEMA_VERSION = 'arc.dsh-llm.event.v1'
+export const REQUEST_SCHEMA_VERSION = 'ac.dsh-llm.request.v1'
+export const EVENT_SCHEMA_VERSION = 'ac.dsh-llm.event.v1'
 
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
@@ -24,17 +24,17 @@ function defaultDshHome() {
 export function resolveBridgePaths({ socketPath, tokenPath } = {}) {
   const resolvedSocketPath =
     socketPath ||
-    process.env.DSH_ARC_LLM_SOCKET ||
+    process.env.DSH_AC_LLM_SOCKET ||
     join(
       defaultDshHome(),
       'runtime',
-      `arc-llm-${process.pid}-${randomBytes(6).toString('hex')}.sock`,
+      `ac-llm-${process.pid}-${randomBytes(6).toString('hex')}.sock`,
     )
   return {
     socketPath: resolvedSocketPath,
     tokenPath:
       tokenPath ||
-      process.env.DSH_ARC_LLM_TOKEN_FILE ||
+      process.env.DSH_AC_LLM_TOKEN_FILE ||
       `${resolvedSocketPath}.token`,
   }
 }
@@ -222,9 +222,9 @@ async function handleRequest(socket, value, token, llm, controllers) {
   }
 }
 
-export function startArcLlmBridge({ llm, socketPath, tokenPath } = {}) {
+export function startAcLlmBridge({ llm, socketPath, tokenPath } = {}) {
   if (!llm || typeof llm.prepareCall !== 'function') {
-    throw new Error('ARC DSH bridge requires the native DSH llm service.')
+    throw new Error('AC DSH bridge requires the native DSH llm service.')
   }
 
   const paths = resolveBridgePaths({ socketPath, tokenPath })
@@ -286,7 +286,7 @@ export function startArcLlmBridge({ llm, socketPath, tokenPath } = {}) {
     readyReject = reject
   })
   server.on('error', (error) => {
-    console.error(`[arc-dsh] LLM bridge error: ${error.message}`)
+    console.error(`[ac-dsh] LLM bridge error: ${error.message}`)
     readyReject(error)
   })
   let listening = false

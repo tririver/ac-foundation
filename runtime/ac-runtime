@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+export AC_RUNTIME_LAUNCHER_NAME="$(basename -- "$0")"
+python_bin="${AC_INSTALL_PYTHON_BIN:-python3}"
+
+if ! command -v "$python_bin" >/dev/null 2>&1; then
+  printf '%s requires Python 3.11 or newer: %s not found\n' \
+    "$AC_RUNTIME_LAUNCHER_NAME" "$python_bin" >&2
+  exit 127
+fi
+
+exec "$python_bin" "$script_dir/ac_runtime.py" "$@"

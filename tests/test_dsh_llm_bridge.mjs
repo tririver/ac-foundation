@@ -6,13 +6,13 @@ import { createConnection } from 'node:net'
 import assert from 'node:assert/strict'
 import {
   resolveBridgePaths,
-  startArcLlmBridge,
+  startAcLlmBridge,
   REQUEST_SCHEMA_VERSION,
-} from '../plugins/arc/dsh/llm-bridge.js'
+} from '../dsh/llm-bridge.js'
 
-const root = mkdtempSync(join(tmpdir(), 'arc-dsh-bridge-'))
-const socketPath = join(root, 'arc-llm.sock')
-const tokenPath = join(root, 'arc-llm.token')
+const root = mkdtempSync(join(tmpdir(), 'ac-dsh-bridge-'))
+const socketPath = join(root, 'ac-llm.sock')
+const tokenPath = join(root, 'ac-llm.token')
 chmodSync(root, 0o755)
 let prepareConfig
 const llm = {
@@ -46,7 +46,7 @@ const llm = {
   },
 }
 
-const bridge = startArcLlmBridge({ llm, socketPath, tokenPath })
+const bridge = startAcLlmBridge({ llm, socketPath, tokenPath })
 try {
   await bridge.ready
   assert.equal(statSync(root).mode & 0o777, 0o755)
@@ -54,7 +54,7 @@ try {
   assert.equal(statSync(tokenPath).mode & 0o777, 0o600)
   assert.notEqual(resolveBridgePaths().socketPath, resolveBridgePaths().socketPath)
   assert.throws(
-    () => startArcLlmBridge({ llm, socketPath, tokenPath }),
+    () => startAcLlmBridge({ llm, socketPath, tokenPath }),
     /Refusing to replace existing bridge path/,
   )
   const health = await request(socketPath, {
@@ -96,9 +96,9 @@ try {
   rmSync(root, { recursive: true, force: true })
 }
 
-const abortRoot = mkdtempSync(join(tmpdir(), 'arc-dsh-bridge-abort-'))
-const abortSocketPath = join(abortRoot, 'arc-llm.sock')
-const abortTokenPath = join(abortRoot, 'arc-llm.token')
+const abortRoot = mkdtempSync(join(tmpdir(), 'ac-dsh-bridge-abort-'))
+const abortSocketPath = join(abortRoot, 'ac-llm.sock')
+const abortTokenPath = join(abortRoot, 'ac-llm.token')
 let aborted = false
 const blockingLlm = {
   async prepareCall(config) {
@@ -127,7 +127,7 @@ const blockingLlm = {
     }
   },
 }
-const blockingBridge = startArcLlmBridge({
+const blockingBridge = startAcLlmBridge({
   llm: blockingLlm,
   socketPath: abortSocketPath,
   tokenPath: abortTokenPath,

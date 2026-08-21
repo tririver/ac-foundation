@@ -1,7 +1,6 @@
 # Reference snapshots, caches and local tests
 0_ref/
 cache/
-arc-tests/
 local/
 .worktrees/
 .understandignore
@@ -15,7 +14,7 @@ superpowers/
 !.env.example
 llm-providers.json
 llm-providers.local.json
-.arc-llm-providers.json
+.ac-llm-providers.json
 
 # NPM, PNPM
 
