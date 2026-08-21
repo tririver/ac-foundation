@@ -280,9 +280,19 @@ def test_codex_projects_native_schema_but_selects_only_last_message(
         "type": "object",
         "required": ["item"],
         "properties": {
-            "item": {"const": "guide"},
-            "values": {"type": "array", "uniqueItems": True},
+            "item": {
+                "const": "guide",
+                "minLength": 1,
+                "pattern": "guide",
+            },
+            "values": {
+                "type": "array",
+                "uniqueItems": True,
+                "minItems": 1,
+                "maxItems": 2,
+            },
         },
+        "allOf": [{"properties": {"item": {"minLength": 1}}}],
     }
     runner = FakeRunner(
         b'{"type":"thread.started","thread_id":"thread-1"}\n'
@@ -298,7 +308,16 @@ def test_codex_projects_native_schema_but_selects_only_last_message(
 
     native = runner.output_schemas[0]
     assert native["properties"]["item"]["type"] == "string"
-    assert "uniqueItems" not in native["properties"]["values"]
+    serialized_native = json.dumps(native)
+    for unsupported in (
+        "allOf",
+        "maxItems",
+        "minItems",
+        "minLength",
+        "pattern",
+        "uniqueItems",
+    ):
+        assert f'"{unsupported}"' not in serialized_native
     assert len(result.candidates) == 1
     assert result.candidates[0].text == '{"item":"guide","values":[1,1]}'
     assert (

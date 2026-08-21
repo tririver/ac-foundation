@@ -33,7 +33,7 @@ from .process import ProcessRunner
 
 class CodexAdapter:
     name = "codex"
-    compatibility_version = "codex-jsonl.v7-bounded-tool-free"
+    compatibility_version = "codex-jsonl.v8-bounded-tool-free"
 
     def __init__(
         self,
@@ -402,30 +402,50 @@ def _is_invalid_request(code: str | None, message: str | None) -> bool:
     )
 
 
-_SCHEMA_SINGLE_CHILDREN = frozenset(
-    {
-        "additionalItems",
-        "additionalProperties",
-        "contains",
-        "contentSchema",
-        "else",
-        "if",
-        "items",
-        "not",
-        "propertyNames",
-        "then",
-        "unevaluatedItems",
-        "unevaluatedProperties",
-    }
-)
-_SCHEMA_ARRAY_CHILDREN = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+_SCHEMA_SINGLE_CHILDREN = frozenset({"additionalProperties", "items"})
+_SCHEMA_ARRAY_CHILDREN = frozenset({"anyOf"})
 _SCHEMA_MAP_CHILDREN = frozenset(
     {
         "$defs",
         "definitions",
-        "dependentSchemas",
-        "patternProperties",
         "properties",
+    }
+)
+_CODEX_UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
+    {
+        "$schema",
+        "additionalItems",
+        "allOf",
+        "contains",
+        "contentEncoding",
+        "contentMediaType",
+        "contentSchema",
+        "default",
+        "dependencies",
+        "dependentRequired",
+        "dependentSchemas",
+        "else",
+        "examples",
+        "format",
+        "if",
+        "maxContains",
+        "maxItems",
+        "maxLength",
+        "maxProperties",
+        "minContains",
+        "minItems",
+        "minLength",
+        "minProperties",
+        "not",
+        "oneOf",
+        "pattern",
+        "patternProperties",
+        "prefixItems",
+        "propertyNames",
+        "then",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+        "uniqueItems",
     }
 )
 
@@ -448,7 +468,7 @@ def _project_schema_node(schema: Any) -> Any:
     projected = {
         key: deepcopy(value)
         for key, value in schema.items()
-        if key not in {"$schema", "default", "uniqueItems"}
+        if key not in _CODEX_UNSUPPORTED_SCHEMA_KEYWORDS
     }
     for key in _SCHEMA_SINGLE_CHILDREN:
         if key not in schema:
@@ -469,16 +489,6 @@ def _project_schema_node(schema: Any) -> Any:
                 child_key: _project_schema_node(child)
                 for child_key, child in value.items()
             }
-    dependencies = schema.get("dependencies")
-    if isinstance(dependencies, Mapping):
-        projected["dependencies"] = {
-            key: (
-                _project_schema_node(value)
-                if isinstance(value, Mapping)
-                else deepcopy(value)
-            )
-            for key, value in dependencies.items()
-        }
     if "const" in schema and "type" not in schema:
         value_type = _const_json_type(schema["const"])
         if value_type is not None:
