@@ -21,6 +21,7 @@ from .._parsing.html_source import (
 from .._parsing.html_equations import (
     html_displayed_equation_label,
     html_equation_table_units,
+    html_math_tex as _html_math_tex,
 )
 from .._parsing.markdown_lex import (
     markdown_column_width as _markdown_column_width,
@@ -34,9 +35,8 @@ from .._parsing.markdown_lex import (
 )
 from .._parsing.tex_lex import (
     scan_tex_heading as _scan_tex_heading,
-    scan_tex_balanced_text as _scan_tex_balanced_text,
-    skip_tex_whitespace as _skip_tex_whitespace,
     tex_structural_text as _tex_structural_text,
+    unwrap_texorpdfstring as _unwrap_texorpdfstring,
 )
 from ..sources import SourceArtifact, SourceFormat
 from .models import (
@@ -855,34 +855,7 @@ def _parse_tex(artifact: SourceArtifact, text: str) -> ParsedDocument:
 
 
 def _tex_heading_text(value: str) -> str:
-    cursor = 0
-    output: list[str] = []
-    marker = r"\texorpdfstring"
-    while True:
-        start = value.find(marker, cursor)
-        if start < 0:
-            output.append(value[cursor:])
-            break
-        output.append(value[cursor:start])
-        argument = _skip_tex_whitespace(value, start + len(marker))
-        if argument >= len(value) or value[argument] != "{":
-            output.append(marker)
-            cursor = start + len(marker)
-            continue
-        first, after_first = _scan_tex_balanced_text(
-            value, argument, opening="{", closing="}"
-        )
-        second_start = _skip_tex_whitespace(value, after_first)
-        if second_start >= len(value) or value[second_start] != "{":
-            output.append(value[start:after_first])
-            cursor = after_first
-            continue
-        _, after_second = _scan_tex_balanced_text(
-            value, second_start, opening="{", closing="}"
-        )
-        output.append(first)
-        cursor = after_second
-    title = "".join(output)
+    title = _unwrap_texorpdfstring(value)
     title = title.replace(r"\{", "\0OPEN\0").replace(r"\}", "\0CLOSE\0")
     title = re.sub(
         r"\\(?:textbf|textit|emph|mathrm|mathbf|mathcal)\{([^{}]*)\}",
@@ -1052,20 +1025,6 @@ def _html_is_equation_table(node: Tag) -> bool:
         "equation" in str(class_name).casefold()
         for class_name in node.get("class") or ()
     )
-
-
-def _html_math_tex(node: Tag) -> str:
-    tex = str(node.get("alttext") or node.get("alt") or "")
-    if not tex:
-        annotation = node.find(
-            "annotation", attrs={"encoding": re.compile("tex", re.I)}
-        )
-        tex = (
-            annotation.get_text(" ", strip=True)
-            if isinstance(annotation, Tag)
-            else ""
-        )
-    return normalize_tex(tex or node.get_text(" ", strip=True))
 
 
 def _markdown_explicit_term_fields(text: str) -> list[dict[str, object]]:

@@ -165,6 +165,39 @@ def scan_tex_balanced_text(
     return value[cursor + 1 :], len(value)
 
 
+def unwrap_texorpdfstring(value: str) -> str:
+    """Replace each valid ``\\texorpdfstring`` with its TeX argument."""
+
+    cursor = 0
+    output: list[str] = []
+    marker = r"\texorpdfstring"
+    while True:
+        start = value.find(marker, cursor)
+        if start < 0:
+            output.append(value[cursor:])
+            break
+        output.append(value[cursor:start])
+        argument = skip_tex_whitespace(value, start + len(marker))
+        if argument >= len(value) or value[argument] != "{":
+            output.append(marker)
+            cursor = start + len(marker)
+            continue
+        first, after_first = scan_tex_balanced_text(
+            value, argument, opening="{", closing="}"
+        )
+        second_start = skip_tex_whitespace(value, after_first)
+        if second_start >= len(value) or value[second_start] != "{":
+            output.append(value[start:after_first])
+            cursor = after_first
+            continue
+        _, after_second = scan_tex_balanced_text(
+            value, second_start, opening="{", closing="}"
+        )
+        output.append(first)
+        cursor = after_second
+    return "".join(output)
+
+
 def scan_tex_heading(
     lines: list[str],
     index: int,
@@ -236,4 +269,5 @@ __all__ = [
     "skip_tex_whitespace",
     "tex_structural_text",
     "tex_without_comments",
+    "unwrap_texorpdfstring",
 ]

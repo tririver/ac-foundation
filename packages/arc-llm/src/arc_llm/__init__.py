@@ -80,6 +80,13 @@ from .request import (
     request_to_document,
     resume_input_to_document,
 )
+from .workflow_support import (
+    LLMTaskExecutor,
+    awaiting_from_pause,
+    execute_or_resume_matching,
+    run_error_from_failure,
+    semantic_retry_request,
+)
 
 __version__ = "1.1.0"
 
@@ -121,6 +128,7 @@ __all__ = [
     "LLMRunResult",
     "LLMRunView",
     "LLMTaskOutcome",
+    "LLMTaskExecutor",
     "LLMTaskService",
     "ModelSelection",
     "NativeResumeHandle",
@@ -152,7 +160,11 @@ __all__ = [
     "IsolationMode",
     "decode_request",
     "decode_resume_input",
+    "awaiting_from_pause",
+    "execute_or_resume_matching",
     "request_to_document",
     "resume_input_to_document",
     "resume_input_matches",
+    "run_error_from_failure",
+    "semantic_retry_request",
 ]

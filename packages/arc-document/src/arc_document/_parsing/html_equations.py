@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from bs4 import Tag
 
+from .tex_lex import normalize_tex
+
 
 _TAG_CLASS_RE = re.compile(r"(?:^|\s)ltx_tag(?:\s|$)")
 
@@ -147,6 +149,22 @@ def html_displayed_equation_label(math: Tag) -> str:
     return ""
 
 
+def html_math_tex(node: Tag) -> str:
+    """Read the preferred TeX projection from one HTML MathML node."""
+
+    tex = str(node.get("alttext") or node.get("alt") or "")
+    if not tex:
+        annotation = node.find(
+            "annotation", attrs={"encoding": re.compile("tex", re.I)}
+        )
+        tex = (
+            annotation.get_text(" ", strip=True)
+            if isinstance(annotation, Tag)
+            else ""
+        )
+    return normalize_tex(tex or node.get_text(" ", strip=True))
+
+
 def _row_equation_labels(row: Tag) -> list[str]:
     return [
         _normalize_displayed_equation_label(tag.get_text(" ", strip=True))
@@ -173,5 +191,6 @@ __all__ = [
     "HtmlEquationUnit",
     "html_displayed_equation_label",
     "html_equation_table_units",
+    "html_math_tex",
     "html_top_level_math_nodes",
 ]

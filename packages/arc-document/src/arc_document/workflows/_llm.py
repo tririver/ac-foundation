@@ -1,39 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-import hashlib
-from typing import Any, Mapping, Protocol
+from dataclasses import dataclass
+from typing import Mapping
 
-from arc_jobs import (
-    Awaiting,
-    JsonValue,
-    RunContext,
-    RunError,
-    canonical_json_bytes,
-)
+from arc_jobs import JsonValue, RunContext
 from arc_llm import (
     LLMCompleted,
-    LLMExecutionOptions,
-    LLMFailed,
     LLMRequest,
-    LLMTaskOutcome,
+    LLMTaskExecutor,
     ModelSelection,
     ProviderUsage,
     ResumeInput,
+    awaiting_from_pause,
     decode_resume_input,
-    resume_input_matches,
+    execute_or_resume_matching,
+    run_error_from_failure,
+    semantic_retry_request as _shared_semantic_retry_request,
 )
 
-
-class TaskService(Protocol):
-    def execute_or_resume(
-        self,
-        context: RunContext,
-        request: LLMRequest,
-        *,
-        input: ResumeInput | None = None,
-        options: Any = ...,
-    ) -> LLMTaskOutcome: ...
+TaskService = LLMTaskExecutor
 
 
 class DocumentWorkflowError(RuntimeError):
@@ -52,31 +37,12 @@ def semantic_retry_request(
 ) -> LLMRequest:
     """Create one deterministic fresh task after package semantic validation."""
 
-    bounded_feedback = feedback.strip()[:4000]
-    identity = {
-        "schema_version": "arc.document.semantic_output_retry.v1",
-        "source_task_id": request.task_id,
-        "validator_contract": validator_contract,
-        "feedback": bounded_feedback,
-    }
-    digest = hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
-    task_id = (
-        f"{request.task_id[:72]}-semantic-retry-{digest[:24]}"
+    return _shared_semantic_retry_request(
+        request,
+        identity_schema_version="arc.document.semantic_output_retry.v1",
+        validator_contract=validator_contract,
+        feedback=feedback,
     )
-    prompt = "\n\n".join(
-        (
-            request.prompt,
-            (
-                "ARC package validation found that the previous JSON response "
-                "was structurally valid but unusable. Produce a complete fresh "
-                "response for the original task; do not merely describe or patch "
-                "the prior response."
-            ),
-            f"Validator contract: {validator_contract}",
-            f"Validation feedback:\n{bounded_feedback}",
-        )
-    )
-    return replace(request, task_id=task_id, prompt=prompt)
 
 
 @dataclass(frozen=True)
@@ -95,19 +61,7 @@ class LLMCallProvenance:
         }
 
 
-def execute_routed(
-    service: TaskService,
-    context: RunContext,
-    request: LLMRequest,
-    *,
-    resume_input: ResumeInput | None,
-    options: LLMExecutionOptions,
-) -> LLMTaskOutcome:
-    if resume_input is not None and resume_input_matches(request, resume_input):
-        return service.execute_or_resume(
-            context, request, input=resume_input, options=options
-        )
-    return service.execute_or_resume(context, request, options=options)
+execute_routed = execute_or_resume_matching
 
 
 def outer_resume_input(
@@ -152,25 +106,6 @@ def usage_document(
         "output_tokens": value.output_tokens,
         "cached_input_tokens": value.cached_input_tokens,
     }
-
-
-def awaiting_from_pause(outcome: Any) -> Awaiting:
-    return Awaiting(
-        outcome.reason,
-        outcome.resume_key,
-        outcome.input_required,
-        outcome.request_ref,
-        outcome.response_contract,
-        outcome.details,
-    )
-
-
-def run_error_from_failure(outcome: LLMFailed) -> RunError:
-    return RunError(
-        outcome.error.code.value,
-        str(outcome.error),
-        outcome.error.details,
-    )
 
 
 __all__ = [

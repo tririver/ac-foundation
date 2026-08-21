@@ -5,8 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
-import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
@@ -20,6 +18,7 @@ from arc_jobs import (
     SemanticKeyDigest,
     StateConflictError,
     StoppedError,
+    atomic_write_bytes,
     encode_artifact_ref,
 )
 
@@ -2468,25 +2467,9 @@ class LLMTaskExecutor:
 
     @staticmethod
     def _publish_workspace_file(path: Path, content: bytes) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists() and path.read_bytes() == content:
             return
-        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        temporary_path = Path(temporary)
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary_path, path)
-            if os.name != "nt":
-                directory_descriptor = os.open(path.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory_descriptor)
-                finally:
-                    os.close(directory_descriptor)
-        finally:
-            temporary_path.unlink(missing_ok=True)
+        atomic_write_bytes(path, content)
 
     @staticmethod
     def _task_namespace(task_id: str) -> str:
