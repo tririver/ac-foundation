@@ -4,6 +4,7 @@ __version__ = "1.1.0"
 
 from .cached_document import *
 from .cached_full_text_search import *
+from .cache_admin import *
 from ._full_text_catalog import (
     DOCUMENT_FULL_TEXT_CATALOG_DIALECT,
     FULL_TEXT_CATALOG_ADMIN_SCHEMA,

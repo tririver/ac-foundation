@@ -82,6 +82,9 @@ class ArcDocumentService:
             self.repository, pdf_text_extractor=pdf_text_extractor
         )
         self._document_structure_cache = DocumentStructureCache(root)
+        from .cache_admin import DocumentCacheAdministrator
+
+        self.cache_administrator = DocumentCacheAdministrator(root)
         self._keyword_task_service = keyword_task_service
         self._term_inventory_store: object | None = None
 
@@ -419,6 +422,35 @@ class ArcDocumentService:
         self, document: ParsedDocument, selector: str | int
     ) -> ParsedSection:
         return _select_section(document, selector)
+
+    def list_cache(
+        self,
+        *,
+        document_ids: Sequence[str] = (),
+        entry_ids: Sequence[str] = (),
+        since_seconds: int | None = None,
+    ):
+        return self.cache_administrator.list(
+            document_ids=document_ids,
+            entry_ids=entry_ids,
+            since_seconds=since_seconds,
+        )
+
+    def remove_cache(
+        self,
+        *,
+        document_ids: Sequence[str] = (),
+        entry_ids: Sequence[str] = (),
+        dry_run: bool = True,
+    ):
+        try:
+            return self.cache_administrator.remove(
+                document_ids=document_ids,
+                entry_ids=entry_ids,
+                dry_run=dry_run,
+            )
+        except ValueError as exc:
+            raise self._input_error(str(exc)) from exc
 
     def _resolve_cached_document(
         self, reference: CachedDocumentRef
