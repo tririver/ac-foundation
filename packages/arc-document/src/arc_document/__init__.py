@@ -4,6 +4,16 @@ __version__ = "1.1.0"
 
 from .cached_document import *
 from .cached_full_text_search import *
+from ._full_text_catalog import (
+    DOCUMENT_FULL_TEXT_CATALOG_DIALECT,
+    FULL_TEXT_CATALOG_ADMIN_SCHEMA,
+    FULL_TEXT_CATALOG_SCHEMA,
+    FullTextCatalog,
+    FullTextCatalogAdminEntry,
+    FullTextCatalogDialect,
+    FullTextCatalogEntry,
+    FullTextRepresentation,
+)
 from .document_search import *
 from .document_structure import *
 from .epub import *

@@ -127,7 +127,7 @@ class ArcDocumentService:
         policy: ValidationPolicy | str | None = None,
     ) -> ParseOutcome:
         if validator_formats and len(validator_formats) != len(validator_paths):
-            raise DocumentInputError(
+            raise self._input_error(
                 "validator_formats must be empty or match validator_paths"
             )
         primary = self.repository.import_path(
@@ -178,7 +178,7 @@ class ArcDocumentService:
         elif isinstance(source, SourceArtifact):
             artifact = source
         else:
-            raise DocumentInputError(
+            raise self._input_error(
                 "cached document source must be a SourceArtifact or ParsedDocument"
             )
         document, _ = self.parser.materialize_source(artifact)
@@ -258,7 +258,9 @@ class ArcDocumentService:
                 warnings,
             )
         overlay = self._resolve_cached_structure(document, structure)
-        entry = _select_structure_entry(overlay.entries, selector)
+        entry = _select_structure_entry(
+            overlay.entries, selector, error_factory=self._input_error
+        )
         source_range = self.read_cached_source_range(
             document, entry.source_line_start, entry.source_line_end
         )
@@ -455,12 +457,23 @@ class ArcDocumentService:
         document: CachedDocumentRef,
         structure: CachedDocumentStructureRef,
     ):
+        if not isinstance(structure, CachedDocumentStructureRef):
+            raise self._input_error(
+                "structure must be a CachedDocumentStructureRef"
+            )
         if structure.document != document:
             raise DocumentStructureError(
                 "document_structure_source_mismatch",
                 "document structure overlay belongs to a different source",
             )
         return self._document_structure_cache.read(structure)
+
+    def _input_error(
+        self, message: str, *, code: str = "invalid_request"
+    ) -> DocumentInputError:
+        """Construct the package-specific invalid-input error for subclasses."""
+
+        return DocumentInputError(message, code=code)
 
     def _cached_document_ref(
         self, source: SourceArtifact, document: ParsedDocument
@@ -478,18 +491,23 @@ class ArcDocumentService:
 __all__ = ["ArcDocumentService", "DocumentInputError", "default_cache_root"]
 
 
-def _select_structure_entry(entries, selector: str | int):
+def _select_structure_entry(
+    entries,
+    selector: str | int,
+    *,
+    error_factory=DocumentInputError,
+):
     if isinstance(selector, bool):
-        raise DocumentInputError("section selector cannot be boolean")
+        raise error_factory("section selector cannot be boolean")
     if isinstance(selector, int):
         if selector < 0 or selector >= len(entries):
-            raise DocumentInputError(
+            raise error_factory(
                 "section ordinal is outside the document structure"
             )
         return entries[selector]
     normalized = " ".join(str(selector).split()).casefold()
     if not normalized:
-        raise DocumentInputError("section selector is empty")
+        raise error_factory("section selector is empty")
     exact_ids = [item for item in entries if item.section_id == selector]
     if exact_ids:
         return exact_ids[0]
@@ -499,11 +517,11 @@ def _select_structure_entry(entries, selector: str | int):
         if " ".join(item.title.split()).casefold() == normalized
     ]
     if not matches:
-        raise DocumentInputError(
+        raise error_factory(
             f"document structure section not found: {selector}"
         )
     if len(matches) > 1:
-        raise DocumentInputError(
+        raise error_factory(
             f"document structure section title is ambiguous: {selector}"
         )
     return matches[0]
