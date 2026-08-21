@@ -12,6 +12,8 @@ EXPECTED = {
     "ac-llm": {"ac-jobs"},
     "ac-proposer-reviewer": {"ac-jobs", "ac-llm"},
 }
+VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+MAJOR = int(VERSION.split(".")[0])
 
 
 def _project(package: str) -> dict[str, object]:
@@ -26,7 +28,7 @@ def test_package_set_metadata_and_dependency_graph() -> None:
     for package, internal_dependencies in EXPECTED.items():
         project = _project(package)
         assert project["name"] == package
-        assert project["version"] == "2.0.0"
+        assert project["version"] == VERSION
         assert project["authors"] == [{"name": "AC Foundation"}]
         assert project["urls"] == {
             "Homepage": "https://github.com/tririver/ac-foundation",
@@ -41,7 +43,7 @@ def test_package_set_metadata_and_dependency_graph() -> None:
         assert dependencies == internal_dependencies
         for dependency in project.get("dependencies", []):
             if dependency.startswith("ac-"):
-                assert dependency.endswith(">=2,<3")
+                assert dependency.endswith(f">={MAJOR},<{MAJOR + 1}")
 
 
 def test_foundation_has_no_product_plugin_or_skill() -> None:
@@ -63,7 +65,7 @@ def test_build_and_release_scripts_cover_every_foundation_package() -> None:
         encoding="utf-8"
     )
     assert "packages/ac-*/pyproject.toml" in build
-    assert "packages/ac-*/pyproject.toml" in check
+    assert '"$root/scripts/build-packages.sh"' in check
     for package in EXPECTED:
         assert f'"{package}"' in release
     assert "plugins/" not in release
@@ -74,6 +76,6 @@ def test_canonical_runtime_and_dsh_bridge_are_ac_owned() -> None:
     bootstrap = (ROOT / "runtime/ac_runtime.py").read_text(encoding="utf-8")
     bridge = (ROOT / "dsh/llm-bridge.js").read_text(encoding="utf-8")
     assert "AC_RUNTIME_LAUNCHER_NAME" in launcher
-    assert 'LOCK_SCHEMA = "ac.runtime_sources.v1"' in bootstrap
+    assert 'LOCK_SCHEMA = "ac.runtime_sources.v2"' in bootstrap
     assert "ac.dsh-llm.request.v1" in bridge
     assert "arc.dsh-llm" not in bridge

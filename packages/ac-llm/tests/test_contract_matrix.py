@@ -177,7 +177,8 @@ print(json.dumps({
     )
     observed = json.loads(completed.stdout)
     exports = set(observed["exports"])
-    assert observed["version"] == "2.0.0"
+    expected_version = (root / "VERSION").read_text(encoding="utf-8").strip()
+    assert observed["version"] == expected_version
     assert {"LLMClient", "LLMTaskService", "LLMRequest"} <= exports
     assert not {
         "run_json",

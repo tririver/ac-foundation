@@ -20,14 +20,13 @@ SPEC.loader.exec_module(RUNTIME)
 
 def _lock(commit: str = "a" * 40) -> dict[str, object]:
     return {
-        "schema_version": "ac.runtime_sources.v1",
+        "schema_version": "ac.runtime_sources.v2",
         "profile": "test-product",
         "sources": [
             {
                 "id": "foundation",
                 "repository": "https://github.com/example/foundation.git",
                 "commit": commit,
-                "version": ">=2,<3",
                 "packages": ["ac-jobs"],
                 "tools": ["ac-jobs"],
                 "local_root_env": "AC_FOUNDATION_REPO_ROOT",
@@ -37,14 +36,13 @@ def _lock(commit: str = "a" * 40) -> dict[str, object]:
     }
 
 
-def test_source_lock_requires_full_sha_and_major_range(tmp_path: Path) -> None:
+def test_source_lock_requires_full_sha(tmp_path: Path) -> None:
     path = tmp_path / "runtime-sources.json"
     path.write_text(json.dumps(_lock()), encoding="utf-8")
     lock = RUNTIME.load_lock(path)
 
     assert lock.profile == "test-product"
     assert lock.tools == ("ac-jobs",)
-    assert lock.sources[0].version == ">=2,<3"
 
     path.write_text(json.dumps(_lock("abc123")), encoding="utf-8")
     with pytest.raises(RUNTIME.RuntimeConfigError, match="full Git SHA"):
@@ -58,7 +56,6 @@ def test_source_lock_rejects_duplicate_package_ownership(tmp_path: Path) -> None
             "id": "product",
             "repository": "https://github.com/example/product.git",
             "commit": "b" * 40,
-            "version": ">=2,<3",
             "packages": ["ac-jobs"],
             "tools": ["product-tool"],
             "local_root_env": "AC_PRODUCT_REPO_ROOT",
@@ -71,11 +68,15 @@ def test_source_lock_rejects_duplicate_package_ownership(tmp_path: Path) -> None
         RUNTIME.load_lock(path)
 
 
-def test_runtime_environment_owns_only_generic_ac_defaults(
+def test_runtime_environment_reports_product_defaults(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "runtime-sources.json"
-    path.write_text(json.dumps(_lock()), encoding="utf-8")
+    document = _lock()
+    document["environment_defaults"] = {
+        "PRODUCT_CACHE": "{cwd}/.product/cache"
+    }
+    path.write_text(json.dumps(document), encoding="utf-8")
     lock = RUNTIME.load_lock(path)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("AC_HOME", str(tmp_path / "home"))
@@ -88,10 +89,44 @@ def test_runtime_environment_owns_only_generic_ac_defaults(
         "AC_HOME",
         "AC_RUNTIME_HOME",
         "AC_DOCUMENT_CACHE",
+        "PRODUCT_CACHE",
     }
     assert environment["AC_DOCUMENT_CACHE"] == str(
         tmp_path / ".ac/cache/ac-document"
     )
+    assert environment["PRODUCT_CACHE"] == str(tmp_path / ".product/cache")
+
+
+def test_source_lock_rejects_repository_userinfo(tmp_path: Path) -> None:
+    document = _lock()
+    document["sources"][0]["repository"] = (  # type: ignore[index]
+        "https://secret@example.com/foundation.git"
+    )
+    path = tmp_path / "runtime-sources.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(RUNTIME.RuntimeConfigError, match="HTTPS Git URL"):
+        RUNTIME.load_lock(path)
+
+
+def test_logged_command_failure_does_not_expose_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Failed:
+        returncode = 1
+        stdout = ""
+        stderr = "https://token@example.com/repository.git failed"
+
+    monkeypatch.setattr(RUNTIME.subprocess, "run", lambda *args, **kwargs: Failed())
+    log = tmp_path / "install.log"
+
+    with pytest.raises(RuntimeError, match="exit status 1") as raised:
+        RUNTIME._run_logged(
+            ["git", "https://token@example.com/repository.git"], log
+        )
+
+    assert "token" not in str(raised.value)
+    assert "token" not in log.read_text(encoding="utf-8")
 
 
 def test_install_creates_console_scripts_at_their_final_venv_path(

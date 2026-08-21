@@ -14,8 +14,9 @@ or a checked-out Skill.
   `ac.*`, `ac_*`, `ac-*`, and `AC_*` respectively.
 - Runtime state defaults to `~/.ac`; project document cache defaults to
   `.ac/cache/ac-document`.
-- Provider runtime inheritance is limited to `AC_HOME`, `AC_RUNTIME_HOME`,
-  `AC_DOCUMENT_CACHE`, and `PATH`.
+- Durable runtime identity reports only AC-owned paths and checked-in product
+  defaults. Provider subprocesses still inherit the live process environment
+  so normal credential and provider configuration mechanisms keep working.
 - The canonical product runtime bootstrap and DSH LLM bridge live here.
   Product repositories may carry generated, checksum-verified copies.
 

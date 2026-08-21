@@ -12,14 +12,14 @@ import socket
 import subprocess
 import sys
 import time
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
 LAUNCHER_VERSION = 1
-LOCK_SCHEMA = "ac.runtime_sources.v1"
+LOCK_SCHEMA = "ac.runtime_sources.v2"
 COMMIT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
-VERSION_RANGE_RE = re.compile(r">=([1-9][0-9]*),<([1-9][0-9]*)")
 IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9-]*")
 
 
@@ -32,7 +32,6 @@ class Source:
     source_id: str
     repository: str
     commit: str
-    version: str
     packages: tuple[str, ...]
     tools: tuple[str, ...]
     local_root_env: str
@@ -104,7 +103,6 @@ def load_lock(path: Path) -> RuntimeLock:
             "id",
             "repository",
             "commit",
-            "version",
             "packages",
             "tools",
             "local_root_env",
@@ -114,7 +112,6 @@ def load_lock(path: Path) -> RuntimeLock:
         source_id = _string(item["id"], f"sources[{index}].id")
         repository = _string(item["repository"], f"sources[{index}].repository")
         commit = _string(item["commit"], f"sources[{index}].commit").lower()
-        version = _string(item["version"], f"sources[{index}].version")
         packages = _string_list(item["packages"], f"sources[{index}].packages")
         tools = _string_list(item["tools"], f"sources[{index}].tools")
         local_root_env = _string(
@@ -122,13 +119,19 @@ def load_lock(path: Path) -> RuntimeLock:
         )
         if not IDENTIFIER_RE.fullmatch(source_id):
             raise RuntimeConfigError(f"invalid source id: {source_id}")
-        if not repository.startswith("https://") or not repository.endswith(".git"):
+        parsed_repository = urlsplit(repository)
+        if (
+            parsed_repository.scheme != "https"
+            or not parsed_repository.hostname
+            or parsed_repository.username is not None
+            or parsed_repository.password is not None
+            or parsed_repository.query
+            or parsed_repository.fragment
+            or not parsed_repository.path.endswith(".git")
+        ):
             raise RuntimeConfigError(f"source repository must be an HTTPS Git URL: {repository}")
         if not COMMIT_RE.fullmatch(commit):
             raise RuntimeConfigError(f"source commit must be a full Git SHA: {commit}")
-        match = VERSION_RANGE_RE.fullmatch(version)
-        if match is None or int(match.group(2)) != int(match.group(1)) + 1:
-            raise RuntimeConfigError(f"source version must be one major range: {version}")
         if not local_root_env.startswith("AC_"):
             raise RuntimeConfigError("local_root_env must be AC-owned")
         if seen_packages.intersection(packages) or seen_tools.intersection(tools):
@@ -140,7 +143,6 @@ def load_lock(path: Path) -> RuntimeLock:
                 source_id,
                 repository,
                 commit,
-                version,
                 packages,
                 tools,
                 local_root_env,
@@ -228,13 +230,15 @@ def _runtime_environment(lock: RuntimeLock, roots: dict[str, Path] | None) -> di
                     cache = root / "local" / "cache" / "ac-document"
                     break
         os.environ["AC_DOCUMENT_CACHE"] = str(cache)
-    for key, value in lock.environment_defaults.items():
-        os.environ.setdefault(key, _expand_default(value, cwd=cwd, ac_home=ac_home))
-    return {
+    environment = {
         "AC_HOME": str(ac_home),
         "AC_RUNTIME_HOME": str(runtime_home),
         "AC_DOCUMENT_CACHE": os.environ["AC_DOCUMENT_CACHE"],
     }
+    for key, value in lock.environment_defaults.items():
+        os.environ.setdefault(key, _expand_default(value, cwd=cwd, ac_home=ac_home))
+        environment[key] = os.environ[key]
+    return environment
 
 
 def _fingerprint(
@@ -382,7 +386,7 @@ def _run_logged(command: list[str], log_path: Path) -> None:
     log_path.write_text(output, encoding="utf-8")
     os.chmod(log_path, 0o600)
     if completed.returncode != 0:
-        raise subprocess.CalledProcessError(completed.returncode, command)
+        raise RuntimeError(f"command failed with exit status {completed.returncode}")
 
 
 def _install(

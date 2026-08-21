@@ -49,8 +49,12 @@ if observed != expected:
 current = (root / "VERSION").read_text(encoding="utf-8").strip()
 if tuple(map(int, version.split("."))) <= tuple(map(int, current.split("."))):
     raise SystemExit(f"release version must be newer than {current}: {version}")
-major = int(version.split(".")[0])
-internal_range = f">={major},<{major + 1}"
+current_major = int(current.split(".")[0])
+target_major = int(version.split(".")[0])
+current_range = f">={current_major},<{current_major + 1}"
+target_range = f">={target_major},<{target_major + 1}"
+
+updates: list[tuple[Path, str, Path, str]] = []
 
 for path in projects:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -58,12 +62,12 @@ for path in projects:
         raise SystemExit(f"{path} version differs from VERSION")
     dependencies = data["project"].get("dependencies", [])
     for dependency in dependencies:
-        if dependency.startswith("ac-") and internal_range not in dependency:
+        if dependency.startswith("ac-") and current_range not in dependency:
             raise SystemExit(
-                f"{path} internal dependency must use {internal_range}: {dependency}"
+                f"{path} internal dependency must use {current_range}: {dependency}"
             )
     text = path.read_text(encoding="utf-8")
-    text, count = re.subn(
+    updated_text, count = re.subn(
         rf'(?m)^version = "{re.escape(current)}"$',
         f'version = "{version}"',
         text,
@@ -71,11 +75,11 @@ for path in projects:
     )
     if count != 1:
         raise SystemExit(f"could not update project version in {path}")
-    path.write_text(text, encoding="utf-8")
+    updated_text = updated_text.replace(current_range, target_range)
 
     init_path = next((path.parent / "src").glob("*/__init__.py"))
     init_text = init_path.read_text(encoding="utf-8")
-    init_text, count = re.subn(
+    updated_init, count = re.subn(
         rf'(?m)^__version__ = "{re.escape(current)}"$',
         f'__version__ = "{version}"',
         init_text,
@@ -83,15 +87,18 @@ for path in projects:
     )
     if count != 1:
         raise SystemExit(f"could not update __version__ in {init_path}")
-    init_path.write_text(init_text, encoding="utf-8")
+    updates.append((path, updated_text, init_path, updated_init))
 
 (root / "VERSION").write_text(version + "\n", encoding="utf-8")
+for path, text, init_path, init_text in updates:
+    path.write_text(text, encoding="utf-8")
+    init_path.write_text(init_text, encoding="utf-8")
 PY
 
 source_path="$(find "$root/packages" -mindepth 2 -maxdepth 2 -type d -name src -print | paste -sd: -)"
 PYTHONPATH="$source_path" "$python_bin" -m pytest --import-mode=importlib \
   "$root"/packages/*/tests "$root/tests"
-PATH="$(dirname "$(command -v "$python_bin")"):$PATH" "$root/scripts/build-packages.sh"
+PYTHON="$python_bin" "$root/scripts/build-packages.sh"
 
 printf 'Prepared AC Foundation %s. Review and commit; create tag v%s only after publication approval.\n' \
   "$version" "$version"
