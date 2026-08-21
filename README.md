@@ -112,14 +112,13 @@ codex plugin add arc@arc
 
 ## Start with ARC
 
-After installing ARC, ask for any `arc-paper` outcome directly; naming ARC is
-optional. This includes LLM-backed paper summaries and keyword extraction:
+After installing ARC, ask for any academic `arc-paper` outcome directly;
+naming ARC is optional. This includes LLM-backed paper summaries:
 
 ```text
 Summarize arXiv:0911.3380.
 Find its references and papers that cite it.
 Show the context around equation 2.30.
-Build a keyword inventory for this paper.
 ```
 
 Explicitly name ARC for other capabilities, including the longer managed
@@ -130,6 +129,7 @@ Use ARC to build a domain from arXiv:0911.3380 with new papers since 2024.
 Use ARC to develop and review ideas from the resulting domain.
 Use ARC to check this calculation.
 Use ARC to translate this source.
+Use ARC to build a keyword inventory from this local document.
 ```
 
 An installed ARC plugin exposes its bundled Skill and manuals to the agent.

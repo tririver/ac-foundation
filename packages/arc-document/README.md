@@ -9,5 +9,6 @@ identifiers and providers belong to `arc-paper`.
 
 ```bash
 arc-document --help
+arc-document export-rich-document source.md --output-dir publication
 python -m pytest packages/arc-document/tests
 ```

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 import re
+
+from arc_jobs import JsonValue, RunStatus
+from arc_llm import LLMExecutionOptions, ModelSelection
 
 from ._cache_root import resolve_cache_root
 from .cached_document import (
@@ -28,6 +31,7 @@ from .document_structure import (
     CachedDocumentStructureRef,
     DocumentStructureError,
     DocumentStructureCache,
+    DocumentStructureOverlay,
     reconstruct_document_structure,
 )
 from .parse import DocumentParserService, PDFTextExtractor, ParsedDocument
@@ -451,6 +455,92 @@ class ArcDocumentService:
             )
         except ValueError as exc:
             raise self._input_error(str(exc)) from exc
+
+    def extract_keywords(
+        self,
+        source: SourceArtifact | ParsedDocument | object,
+        *,
+        project_dir: str | Path,
+        structure: (
+            CachedDocumentStructureRef | DocumentStructureOverlay | None
+        ) = None,
+        section_ids: Sequence[str] | None = None,
+        approx_count: int = 50,
+        model: ModelSelection = ModelSelection(tier="medium"),
+        run_id: str | None = None,
+        resume_input: Mapping[str, JsonValue] | None = None,
+        options: LLMExecutionOptions = LLMExecutionOptions(),
+    ):
+        """Extract a cache-aware approximate keyword view."""
+
+        from .rich_document import RichDocument, RichDocumentParserService
+        from .terms import KeywordResult
+        from .workflows.keywords import (
+            KeywordExtractionError,
+            KeywordExtractionPaused,
+            KeywordExtractionRunner,
+        )
+
+        if isinstance(source, SourceArtifact):
+            document: ParsedDocument | RichDocument
+            if structure is None:
+                document = self.parser.parse_source(source)
+            else:
+                document = RichDocumentParserService(self.repository).parse(
+                    SourceBundle(primary=source)
+                ).document
+        elif isinstance(source, (ParsedDocument, RichDocument)):
+            document = source
+        else:
+            raise self._input_error(
+                "keyword source must be a repository SourceArtifact, "
+                "ParsedDocument, or RichDocument"
+            )
+        overlay: DocumentStructureOverlay | None
+        if isinstance(structure, CachedDocumentStructureRef):
+            overlay = self._resolve_cached_structure(
+                structure.document, structure
+            )
+        elif isinstance(structure, DocumentStructureOverlay):
+            overlay = structure
+        elif structure is None:
+            overlay = None
+        else:
+            raise self._input_error(
+                "structure must be a cached structure reference or overlay"
+            )
+        if overlay is not None and isinstance(document, ParsedDocument):
+            raise self._input_error(
+                "structured keyword extraction requires a rich text document"
+            )
+        runner = KeywordExtractionRunner(
+            project_dir,
+            store=self.term_inventory_store,
+            task_service=self._keyword_task_service,
+        )
+        snapshot = runner.execute(
+            document,
+            structure=overlay,
+            section_ids=section_ids,
+            approx_count=approx_count,
+            model=model,
+            run_id=run_id,
+            resume_input=resume_input,
+            options=options,
+        )
+        if snapshot.status is RunStatus.SUCCEEDED:
+            result: KeywordResult = runner.read_result(snapshot)
+            return result
+        if snapshot.status is RunStatus.PAUSED:
+            raise KeywordExtractionPaused(snapshot)
+        if snapshot.status is RunStatus.FAILED and snapshot.error is not None:
+            raise KeywordExtractionError(
+                snapshot.error.code, snapshot.error.message
+            )
+        raise KeywordExtractionError(
+            "keyword_extraction_incomplete",
+            "keyword extraction ended without a terminal result",
+        )
 
     def resolve_cached_document(
         self, reference: CachedDocumentRef

@@ -18,6 +18,9 @@ def test_document_registry_has_stable_ids_and_safe_projection() -> None:
     assert OPERATION_REGISTRY["import-source"].operation_id == (
         "arc-document.import-source.v1"
     )
+    assert OPERATION_REGISTRY["extract-keywords"].operation_id == (
+        "arc-document.extract-keywords.v1"
+    )
     document = registry_document()
     assert document["schema_version"] == "arc.document.operation_registry.v1"
     assert "cache-list" not in {

@@ -2,6 +2,7 @@
 
 from .handler import ProposerReviewerHandler
 from .models import (
+    BATCH_SCHEMA_VERSION,
     BatchFailurePolicy,
     BatchRequest,
     BatchResult,
@@ -13,6 +14,7 @@ from .models import (
     RevisionContextMode,
     WorkerSpec,
 )
+from .protocol import decode_batch_result
 from .service import ProposerReviewerService
 from .runner import BatchInputPayload, BatchRunner
 from .projection import (
@@ -31,6 +33,7 @@ __version__ = "1.1.0"
 
 __all__ = [
     "BatchFailurePolicy",
+    "BATCH_SCHEMA_VERSION",
     "BatchInputPayload",
     "BatchInspection",
     "BatchProjection",
@@ -50,6 +53,7 @@ __all__ = [
     "ProposerReviewerHandler",
     "ProposerReviewerService",
     "inspect_batch",
+    "decode_batch_result",
     "read_batch_round",
     "read_batch_trace",
     "WorkerSpec",

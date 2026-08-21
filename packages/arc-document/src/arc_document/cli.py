@@ -14,10 +14,12 @@ from arc_jobs import (
     CommandStatus,
     CommandWarning,
     command_result_json,
+    command_result_from_snapshot,
     run_control_main,
 )
 
 from .registry import dispatch_operation, to_json_value
+from .workflows.keywords import KeywordExtractionPaused
 
 
 class _UsageError(ValueError):
@@ -89,6 +91,28 @@ def _parser() -> _Parser:
     exported.add_argument("--validator")
     exported.add_argument("--source-format", choices=("html", "markdown", "tex", "pdf"))
     _cache_root(exported)
+
+    keywords = commands.add_parser("extract-keywords")
+    keywords.add_argument("source")
+    keywords.add_argument("--project-dir", required=True)
+    keywords.add_argument("--approx-count", type=int, default=50)
+    keywords.add_argument("--llm-provider", default="auto")
+    keywords.add_argument("--model")
+    keywords.add_argument(
+        "--model-tier",
+        choices=("low", "medium", "high", "xhigh"),
+        default="medium",
+    )
+    keywords.add_argument("--run-id")
+    keywords.add_argument("--resume-input", type=_json_object)
+    keywords.add_argument("--structure-ref", type=_json_object)
+    keywords.add_argument("--section-id", action="append", dest="section_ids")
+    keywords.add_argument(
+        "--host-authority",
+        choices=("unknown", "restricted", "unrestricted"),
+        default="unknown",
+    )
+    _cache_root(keywords)
 
     reconstructed = commands.add_parser("reconstruct-cached-structure")
     _cached_document(reconstructed)
@@ -204,6 +228,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             exit_code=0,
         )
+    except KeywordExtractionPaused as exc:
+        return _emit(command_result_from_snapshot(exc.snapshot), exit_code=0)
     except _HelpRequested:
         return 0
     except _UsageError as exc:

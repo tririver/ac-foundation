@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from arc_llm import HostAuthority, LLMExecutionOptions, ModelSelection
+
 from .cached_document import cached_document_ref_from_document
 from .document_structure import cached_document_structure_ref_from_document
 from .operation_registry import (
@@ -123,6 +125,45 @@ def _export_rich_document(
         output_dir=output_dir,
         validator=validator,
         source_format=source_format,
+    )
+
+
+def _extract_keywords(
+    source: str,
+    project_dir: str,
+    structure_ref: Mapping[str, Any] | None = None,
+    section_ids: Sequence[str] | None = None,
+    approx_count: int = 50,
+    cache_root: str | None = None,
+    llm_provider: str = "auto",
+    model: str | None = None,
+    model_tier: str = "medium",
+    run_id: str | None = None,
+    resume_input: Mapping[str, Any] | None = None,
+    host_authority: str = HostAuthority.UNKNOWN.value,
+) -> Any:
+    document_service = _service(cache_root)
+    artifact = document_service.resolve_local_source(source)
+    return document_service.extract_keywords(
+        artifact,
+        project_dir=project_dir,
+        structure=(
+            cached_document_structure_ref_from_document(structure_ref)
+            if structure_ref is not None
+            else None
+        ),
+        section_ids=section_ids,
+        approx_count=approx_count,
+        model=ModelSelection(
+            provider=llm_provider,
+            model=model,
+            tier=model_tier,
+        ),
+        run_id=run_id,
+        resume_input=resume_input,
+        options=LLMExecutionOptions(
+            host_authority=HostAuthority(host_authority)
+        ),
     )
 
 
@@ -327,6 +368,45 @@ _OPERATIONS = (
         _export_rich_document,
         effects=frozenset(
             {OperationEffect.CACHE_WRITE, OperationEffect.ARBITRARY_LOCAL_PATH}
+        ),
+    ),
+    _spec(
+        "extract-keywords",
+        object_schema(
+            {
+                "source": _NONEMPTY_STRING,
+                "project_dir": _NONEMPTY_STRING,
+                "structure_ref": {"type": ["object", "null"]},
+                "section_ids": {
+                    "type": ["array", "null"],
+                    "items": _NONEMPTY_STRING,
+                    "minItems": 1,
+                },
+                "approx_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200,
+                },
+                "cache_root": _NULLABLE_STRING,
+                "llm_provider": _NONEMPTY_STRING,
+                "model": _NULLABLE_STRING,
+                "model_tier": {"enum": ["low", "medium", "high", "xhigh"]},
+                "run_id": _NULLABLE_STRING,
+                "resume_input": {"type": ["object", "null"]},
+                "host_authority": {
+                    "enum": ["unknown", "restricted", "unrestricted"]
+                },
+            },
+            required=("source", "project_dir"),
+        ),
+        _extract_keywords,
+        effects=frozenset(
+            {
+                OperationEffect.NETWORK,
+                OperationEffect.CACHE_WRITE,
+                OperationEffect.ARBITRARY_LOCAL_PATH,
+                OperationEffect.RECURSIVE_LLM,
+            }
         ),
     ),
     _spec(
