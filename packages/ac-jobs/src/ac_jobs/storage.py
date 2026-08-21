@@ -103,6 +103,34 @@ def atomic_write_json(
     atomic_write_bytes(path, canonical_json_bytes(value) + b"\n")
 
 
+def file_matches_sha256(
+    path: str | Path,
+    digest: str,
+    size: int,
+) -> bool:
+    """Return whether one regular file has the expected size and SHA-256."""
+
+    path = Path(path)
+    if (
+        len(digest) != 64
+        or any(char not in "0123456789abcdef" for char in digest)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or size < 0
+    ):
+        return False
+    try:
+        if not path.is_file() or path.stat().st_size != size:
+            return False
+        hasher = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest() == digest
+    except OSError:
+        return False
+
+
 def read_json_object(path: Path) -> dict[str, JsonValue]:
     try:
         value = json.loads(path.read_bytes().decode("utf-8"))

@@ -63,42 +63,13 @@ def test_batch_request_round_trips_with_closed_worker_shape() -> None:
     assert decode_batch_request(encoded) == original
 
 
-def test_v4_request_decodes_with_final_reviewer_enabled_by_default() -> None:
-    legacy = encode_batch_request(request())
-    legacy["schema_version"] = "ac.proposer_reviewer.batch.v4"
-    del legacy["loops"][0]["review_final_round"]  # type: ignore[index]
-    del legacy["loops"][0]["revision_context_mode"]  # type: ignore[index]
-    del legacy["loops"][0]["input_ids"]  # type: ignore[index]
+@pytest.mark.parametrize("version", ("v4", "v5", "v6"))
+def test_obsolete_batch_schemas_are_rejected(version: str) -> None:
+    document = encode_batch_request(request())
+    document["schema_version"] = f"ac.proposer_reviewer.batch.{version}"
 
-    decoded = decode_batch_request(legacy)
-
-    assert decoded.schema_version == BATCH_SCHEMA_VERSION
-    assert decoded.loops[0].review_final_round is True
-    assert encode_batch_request(decoded)["schema_version"] == BATCH_SCHEMA_VERSION
-    assert encode_batch_request(decoded)["loops"][0]["review_final_round"] is True  # type: ignore[index]
-
-
-def test_v5_request_decodes_with_feedback_only_revision_context_by_default() -> None:
-    legacy = encode_batch_request(request())
-    legacy["schema_version"] = "ac.proposer_reviewer.batch.v5"
-    del legacy["loops"][0]["revision_context_mode"]  # type: ignore[index]
-    del legacy["loops"][0]["input_ids"]  # type: ignore[index]
-
-    decoded = decode_batch_request(legacy)
-
-    assert decoded.schema_version == BATCH_SCHEMA_VERSION
-    assert decoded.loops[0].revision_context_mode is RevisionContextMode.FEEDBACK_ONLY
-
-
-def test_v6_request_decodes_with_all_inputs_inherited_by_default() -> None:
-    legacy = encode_batch_request(request())
-    legacy["schema_version"] = "ac.proposer_reviewer.batch.v6"
-    del legacy["loops"][0]["input_ids"]  # type: ignore[index]
-
-    decoded = decode_batch_request(legacy)
-
-    assert decoded.schema_version == BATCH_SCHEMA_VERSION
-    assert decoded.loops[0].input_ids is None
+    with pytest.raises(RequestValidationError, match="batch.v7"):
+        decode_batch_request(document)
 
 
 def test_full_review_envelope_revision_context_round_trips() -> None:

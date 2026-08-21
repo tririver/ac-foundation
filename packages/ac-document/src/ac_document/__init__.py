@@ -34,6 +34,7 @@ from .source_repository import *
 from .sources import *
 from .terms import *
 from .workflows import *
+from . import workflow_support
 
 __all__ = [
     "AcDocumentService",
@@ -197,6 +198,7 @@ __all__ = [
     "VisualReviewOutcome",
     "VisualReviewService",
     "VisualSpanReview",
+    "workflow_support",
     "apply_visual_equation_labels",
     "build_keyword_terms",
     "build_visual_page_review_inputs",

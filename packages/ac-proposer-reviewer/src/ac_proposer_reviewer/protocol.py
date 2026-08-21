@@ -9,9 +9,6 @@ from ac_llm import LLMInputArtifact, ModelSelection
 from .identity import worker_contract_document
 from .models import (
     BATCH_SCHEMA_VERSION,
-    LEGACY_BATCH_SCHEMA_VERSION_V6,
-    LEGACY_BATCH_SCHEMA_VERSION_V4,
-    LEGACY_BATCH_SCHEMA_VERSION_V5,
     RESULT_SCHEMA_VERSION,
     BatchFailurePolicy,
     BatchRequest,
@@ -29,19 +26,9 @@ from .validation import RequestValidationError, validate_batch_request
 def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
     _exact(document, {"schema_version", "batch_id", "loops", "inputs", "failure_policy"}, ())
     schema_version = _required_text(document, "schema_version", ())
-    if schema_version not in {
-        BATCH_SCHEMA_VERSION,
-        LEGACY_BATCH_SCHEMA_VERSION_V6,
-        LEGACY_BATCH_SCHEMA_VERSION_V5,
-        LEGACY_BATCH_SCHEMA_VERSION_V4,
-    }:
+    if schema_version != BATCH_SCHEMA_VERSION:
         raise RequestValidationError(
-            (
-                "schema_version must be "
-                f"{BATCH_SCHEMA_VERSION}, {LEGACY_BATCH_SCHEMA_VERSION_V6}, "
-                f"{LEGACY_BATCH_SCHEMA_VERSION_V5}, or "
-                f"{LEGACY_BATCH_SCHEMA_VERSION_V4}"
-            ),
+            f"schema_version must be {BATCH_SCHEMA_VERSION}",
             ("schema_version",),
         )
     batch_id = _required_text(document, "batch_id", ())
@@ -55,7 +42,6 @@ def decode_batch_request(document: Mapping[str, JsonValue]) -> BatchRequest:
         _decode_loop(
             value,
             ("loops", index),
-            schema_version=schema_version,
         )
         for index, value in enumerate(raw_loops)
     )
@@ -119,8 +105,6 @@ def decode_batch_result(document: Mapping[str, JsonValue]) -> BatchResult:
 def _decode_loop(
     value: JsonValue,
     path: tuple[str | int, ...],
-    *,
-    schema_version: str,
 ) -> LoopSpec:
     document = _object(value, path)
     fields = {
@@ -132,12 +116,7 @@ def _decode_loop(
         "allow_early_stop",
         "on_proposer_failure",
     }
-    if schema_version != LEGACY_BATCH_SCHEMA_VERSION_V4:
-        fields.add("review_final_round")
-    if schema_version in {BATCH_SCHEMA_VERSION, LEGACY_BATCH_SCHEMA_VERSION_V6}:
-        fields.add("revision_context_mode")
-    if schema_version == BATCH_SCHEMA_VERSION:
-        fields.add("input_ids")
+    fields.update({"review_final_round", "revision_context_mode", "input_ids"})
     _exact(document, fields, path)
     raw_context = document["context"]
     if not isinstance(raw_context, Mapping):
@@ -151,25 +130,17 @@ def _decode_loop(
     max_rounds = document["max_rounds"]
     if type(max_rounds) is not int:
         raise RequestValidationError("must be an integer", path + ("max_rounds",))
-    review_final_round = (
-        True
-        if schema_version == LEGACY_BATCH_SCHEMA_VERSION_V4
-        else document["review_final_round"]
-    )
+    review_final_round = document["review_final_round"]
     if type(review_final_round) is not bool:
         raise RequestValidationError(
             "must be a boolean", path + ("review_final_round",)
         )
-    revision_context_mode = (
-        RevisionContextMode.FEEDBACK_ONLY
-        if schema_version not in {BATCH_SCHEMA_VERSION, LEGACY_BATCH_SCHEMA_VERSION_V6}
-        else _enum(
-            RevisionContextMode,
-            document["revision_context_mode"],
-            path + ("revision_context_mode",),
-        )
+    revision_context_mode = _enum(
+        RevisionContextMode,
+        document["revision_context_mode"],
+        path + ("revision_context_mode",),
     )
-    raw_input_ids = document.get("input_ids")
+    raw_input_ids = document["input_ids"]
     if raw_input_ids is not None and (
         not isinstance(raw_input_ids, list)
         or any(not isinstance(item, str) for item in raw_input_ids)

@@ -7,11 +7,7 @@ from typing import Literal, Mapping
 from ac_jobs import JsonValue, RunError
 from ac_llm import LLMExecutionOptions, LLMInputArtifact, ModelSelection
 
-# Batch schema v7 adds optional per-loop batch input selection.
 BATCH_SCHEMA_VERSION = "ac.proposer_reviewer.batch.v7"
-LEGACY_BATCH_SCHEMA_VERSION_V6 = "ac.proposer_reviewer.batch.v6"
-LEGACY_BATCH_SCHEMA_VERSION_V5 = "ac.proposer_reviewer.batch.v5"
-LEGACY_BATCH_SCHEMA_VERSION_V4 = "ac.proposer_reviewer.batch.v4"
 REVIEW_SCHEMA_VERSION = "ac.proposer_reviewer.review.v1"
 RESULT_SCHEMA_VERSION = "ac.proposer_reviewer.result.v1"
 

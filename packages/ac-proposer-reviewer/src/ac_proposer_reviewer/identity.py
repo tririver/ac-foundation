@@ -85,11 +85,10 @@ def loop_semantic_projection(
         "allow_early_stop": loop.allow_early_stop,
         "on_proposer_failure": loop.on_proposer_failure.value,
     }
-    # Omitting the default preserves semantic keys for v4 requests and runs.
+    # Omitting this default preserves stable task identities across releases.
     if not loop.review_final_round:
         projection["review_final_round"] = False
-    # The default does not alter a revision prompt, so omitting it preserves
-    # task identities for durable v4/v5 batches that may be resumed.
+    # This default does not alter a revision prompt; omit it from identity.
     if loop.revision_context_mode is not RevisionContextMode.FEEDBACK_ONLY:
         projection["revision_context_mode"] = loop.revision_context_mode.value
     return projection

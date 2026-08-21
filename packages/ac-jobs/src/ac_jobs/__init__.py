@@ -91,6 +91,7 @@ from .storage import (
     ImmutableArtifactStore,
     atomic_write_bytes,
     atomic_write_json,
+    file_matches_sha256,
 )
 from .working import WorkingState
 
@@ -177,6 +178,7 @@ __all__ = [
     "encode_command_result",
     "encode_progress_event",
     "file_lease",
+    "file_matches_sha256",
     "resume_from_awaiting",
     "run_control_main",
     "semantic_key",
