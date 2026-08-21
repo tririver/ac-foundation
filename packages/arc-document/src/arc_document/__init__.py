@@ -1,6 +1,6 @@
 """Provider-neutral document infrastructure for ARC."""
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 from .cached_document import *
 from .cached_full_text_search import *
