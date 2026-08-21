@@ -1,151 +1,238 @@
-"""Small JSON CLI for local document import and rich-document export."""
+"""Typed JSON command protocol for provider-neutral document operations."""
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, is_dataclass
-from enum import Enum
 import json
-from collections.abc import Sequence
-from pathlib import Path
+import sys
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-from .cached_document import cached_document_ref_from_document
-from .document_structure import cached_document_structure_ref_from_document
-from .service import ArcDocumentService
+from arc_jobs import (
+    CommandError,
+    CommandResult,
+    CommandStatus,
+    CommandWarning,
+    command_result_json,
+    run_control_main,
+)
+
+from .registry import dispatch_operation, to_json_value
 
 
-def _json_object(value: str):
-    document = json.loads(value)
+class _UsageError(ValueError):
+    pass
+
+
+class _HelpRequested(Exception):
+    pass
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise _UsageError(message)
+
+    def exit(self, status: int = 0, message: str | None = None) -> None:
+        if status == 0:
+            raise _HelpRequested
+        super().exit(status, message)
+
+
+def _json_object(value: str) -> dict[str, Any]:
+    try:
+        document = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError(
+            f"value must be a JSON object: {exc.msg}"
+        ) from exc
     if not isinstance(document, dict):
         raise argparse.ArgumentTypeError("value must be a JSON object")
     return document
 
 
-def _json_default(value):
-    if isinstance(value, Enum):
-        return value.value
-    if is_dataclass(value):
-        return asdict(value)
-    raise TypeError(f"unsupported JSON value: {type(value).__name__}")
+def _cache_root(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--cache-root")
 
 
-def _cached_document_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--document-ref", required=True, type=_json_object
+def _cached_document(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--document-ref", required=True, type=_json_object)
+    parser.add_argument("--structure-ref", type=_json_object)
+    _cache_root(parser)
+
+
+def _parser() -> _Parser:
+    parser = _Parser(
+        prog="arc-document",
+        description="Import, parse, search, and administer local documents.",
     )
-    parser.add_argument("--cache-root", type=Path)
+    commands = parser.add_subparsers(dest="command")
 
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="arc-document")
-    commands = parser.add_subparsers(dest="command", required=True)
     imported = commands.add_parser("import-source")
-    imported.add_argument("source", type=Path)
-    imported.add_argument("--cache-root", type=Path)
+    imported.add_argument("path")
+    imported.add_argument("--source-format", choices=("html", "markdown", "tex", "pdf"))
+    _cache_root(imported)
+
+    parsed = commands.add_parser("parse-local")
+    parsed.add_argument("primary_path")
+    parsed.add_argument("--validator", action="append", default=[])
+    parsed.add_argument("--validator-format", action="append", default=[])
+    parsed.add_argument("--primary-format", choices=("html", "markdown", "tex", "pdf"))
+    parsed.add_argument(
+        "--policy",
+        choices=("none", "deterministic_only", "visual_all_pages"),
+    )
+    _cache_root(parsed)
+
     exported = commands.add_parser("export-rich-document")
-    exported.add_argument("source", type=Path)
-    exported.add_argument("--output-dir", type=Path, required=True)
-    exported.add_argument("--validator", type=Path)
-    exported.add_argument("--cache-root", type=Path)
+    exported.add_argument("source")
+    exported.add_argument("--output-dir", required=True)
+    exported.add_argument("--validator")
+    exported.add_argument("--source-format", choices=("html", "markdown", "tex", "pdf"))
+    _cache_root(exported)
+
+    reconstructed = commands.add_parser("reconstruct-cached-structure")
+    _cached_document(reconstructed)
+    reconstructed.add_argument(
+        "--outline-document-ref", required=True, type=_json_object
+    )
+
     source_range = commands.add_parser("read-cached-source-range")
-    _cached_document_arguments(source_range)
-    source_range.add_argument("--text-only", action="store_true")
+    _cached_document(source_range)
     source_range.add_argument("start_line", type=int)
     source_range.add_argument("end_line", type=int)
+    source_range.add_argument("--text-only", action="store_true")
+
     toc = commands.add_parser("get-table-of-contents")
-    _cached_document_arguments(toc)
-    toc.add_argument("--structure-ref", type=_json_object)
+    _cached_document(toc)
+
     section = commands.add_parser("get-section")
-    _cached_document_arguments(section)
-    section.add_argument("selector")
-    section.add_argument("--structure-ref", type=_json_object)
-    full_text = commands.add_parser("search-full-text")
-    _cached_document_arguments(full_text)
-    full_text.add_argument("--term", action="append", required=True)
-    full_text.add_argument("--limit", type=int, default=100)
-    full_text.add_argument("--context-lines", type=int, default=0)
-    full_text.add_argument("--case-sensitive", action="store_true")
+    _cached_document(section)
+    section_selector = section.add_mutually_exclusive_group(required=True)
+    section_selector.add_argument("selector", nargs="?")
+    section_selector.add_argument("--ordinal", type=int)
+
+    for name in ("search-full-text", "search-equations"):
+        search = commands.add_parser(name)
+        _cached_document(search)
+        search.add_argument("--term", action="append", required=True)
+        search.add_argument("--limit", type=int, default=100)
+        search.add_argument("--case-sensitive", action="store_true")
+        if name == "search-full-text":
+            search.add_argument("--context-lines", type=int, default=0)
+
+    cache = commands.add_parser("cache")
+    cache_commands = cache.add_subparsers(dest="cache_command", required=True)
+    listed = cache_commands.add_parser("list")
+    listed.add_argument("--document-id", action="append", default=[])
+    listed.add_argument("--entry-id", action="append", default=[])
+    listed.add_argument("--since-seconds", type=int)
+    _cache_root(listed)
+    removed = cache_commands.add_parser("remove")
+    removed.add_argument("--document-id", action="append", default=[])
+    removed.add_argument("--entry-id", action="append", default=[])
+    removed.add_argument("--yes", action="store_true")
+    _cache_root(removed)
     return parser
 
 
+def _parameters(args: argparse.Namespace) -> dict[str, Any]:
+    values = vars(args).copy()
+    command = values.pop("command")
+    cache_command = values.pop("cache_command", None)
+    if command == "cache":
+        values["document_ids"] = values.pop("document_id")
+        values["entry_ids"] = values.pop("entry_id")
+        if cache_command == "remove":
+            values["dry_run"] = not values.pop("yes")
+    if command == "parse-local":
+        values["validator_paths"] = values.pop("validator")
+        values["validator_formats"] = values.pop("validator_format")
+    if command == "get-section":
+        ordinal = values.pop("ordinal")
+        if ordinal is not None:
+            values["selector"] = ordinal
+        elif values["selector"].isdecimal():
+            values["selector"] = int(values["selector"])
+    if command.startswith("search-"):
+        values["terms"] = values.pop("term")
+        values.setdefault("context_lines", 0)
+    return values
+
+
+def _result_data(value: Any) -> Mapping[str, Any]:
+    encoded = to_json_value(value)
+    if isinstance(encoded, Mapping):
+        return dict(encoded)
+    return {"result": encoded}
+
+
+def _emit(result: CommandResult, *, exit_code: int) -> int:
+    sys.stdout.write(command_result_json(result) + "\n")
+    return exit_code
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    service = ArcDocumentService(cache_root=args.cache_root)
-    if args.command == "import-source":
-        source = service.import_source(args.source)
-        result = {
-            "source_format": source.source_format.value,
-            "artifact_digest": source.artifact_digest,
-            "size": source.size,
-            "media_type": source.media_type,
-        }
-    elif args.command == "export-rich-document":
-        result = service.export_rich_document(
-            args.source,
-            output_dir=args.output_dir,
-            validator=args.validator,
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] in {"status", "stop", "validate"}:
+        return run_control_main(arguments, prog="arc-document")
+    parser = _parser()
+    try:
+        args = parser.parse_args(arguments)
+        if args.command is None:
+            parser.print_help()
+            return 0
+        operation = (
+            f"cache-{args.cache_command}"
+            if args.command == "cache"
+            else args.command
         )
-    else:
-        reference = cached_document_ref_from_document(args.document_ref)
-        if args.command == "read-cached-source-range":
-            result = service.read_cached_source_range(
-                reference,
-                args.start_line,
-                args.end_line,
-                text_only=args.text_only,
-            )
-        elif args.command == "get-table-of-contents":
-            structure = (
-                cached_document_structure_ref_from_document(
-                    args.structure_ref
-                )
-                if args.structure_ref is not None
-                else None
-            )
-            result = service.get_cached_table_of_contents(
-                reference, structure=structure
-            )
-        elif args.command == "get-section":
-            structure = (
-                cached_document_structure_ref_from_document(
-                    args.structure_ref
-                )
-                if args.structure_ref is not None
-                else None
-            )
-            selector = (
-                int(args.selector)
-                if args.selector.isdecimal()
-                else args.selector
-            )
-            result = service.get_cached_section(
-                reference, selector, structure=structure
-            )
-        else:
-            parsed, _warnings = service._resolve_cached_document(reference)
-            result = {
-                "terms": args.term,
-                "results": [
-                    service.search_full_text(
-                        parsed,
-                        term,
-                        limit=args.limit,
-                        context_lines=args.context_lines,
-                        case_sensitive=args.case_sensitive,
-                    )
-                    for term in args.term
-                ],
-            }
-    print(
-        json.dumps(
-            result,
-            ensure_ascii=False,
-            sort_keys=True,
-            default=_json_default,
+        value = dispatch_operation(operation, _parameters(args))
+        raw_warnings = (
+            value.get("warnings", ())
+            if isinstance(value, Mapping)
+            else getattr(value, "warnings", ())
         )
-    )
-    return 0
+        warnings = tuple(
+            CommandWarning("document_warning", str(item))
+            for item in raw_warnings
+        )
+        return _emit(
+            CommandResult(
+                CommandStatus.COMPLETED,
+                data=_result_data(value),
+                warnings=warnings,
+            ),
+            exit_code=0,
+        )
+    except _HelpRequested:
+        return 0
+    except _UsageError as exc:
+        return _emit(
+            CommandResult(
+                CommandStatus.FAILED,
+                error=CommandError("invalid_request", str(exc)),
+            ),
+            exit_code=2,
+        )
+    except OSError as exc:
+        return _emit(
+            CommandResult(
+                CommandStatus.FAILED,
+                error=CommandError("local_io_error", str(exc)),
+            ),
+            exit_code=1,
+        )
+    except Exception as exc:
+        code = getattr(exc, "code", None) or "internal_error"
+        message = str(getattr(exc, "message", str(exc)))
+        return _emit(
+            CommandResult(
+                CommandStatus.FAILED,
+                error=CommandError(str(code), message),
+            ),
+            exit_code=1,
+        )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

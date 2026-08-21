@@ -18,7 +18,16 @@ from ._full_text_catalog import (
 from .document_search import *
 from .document_structure import *
 from .epub import *
+from .operation_registry import *
 from .parse import *
+from .registry import (
+    OPERATION_REGISTRY,
+    REGISTRY_SCHEMA_VERSION,
+    dispatch_operation,
+    get_operation,
+    registry_document,
+    resolve_operations,
+)
 from .rich_document import *
 from .service import ArcDocumentService, DocumentInputError, default_cache_root
 from .source_repository import *

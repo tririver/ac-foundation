@@ -155,4 +155,5 @@ def test_cli_reads_content_addressed_source_range(
     ) == 0
 
     result = json.loads(capsys.readouterr().out)
-    assert result["text"] == "\nAlpha."
+    assert result["status"] == "completed"
+    assert result["data"]["text"] == "\nAlpha."

@@ -452,6 +452,13 @@ class ArcDocumentService:
         except ValueError as exc:
             raise self._input_error(str(exc)) from exc
 
+    def resolve_cached_document(
+        self, reference: CachedDocumentRef
+    ) -> tuple[ParsedDocument, tuple[str, ...]]:
+        """Reopen and verify one immutable cached document reference."""
+
+        return self._resolve_cached_document(reference)
+
     def _resolve_cached_document(
         self, reference: CachedDocumentRef
     ) -> tuple[ParsedDocument, tuple[str, ...]]:
