@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ac-jobs"
+version = "2.0.0"
+description = "Durable, protocol-neutral run kernel for AC Foundation packages."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "AC Foundation" }]
+requires-python = ">=3.11"
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/tririver/ac-foundation"
+Repository = "https://github.com/tririver/ac-foundation"
+Issues = "https://github.com/tririver/ac-foundation/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+ac-jobs = "ac_jobs.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ac_jobs"]

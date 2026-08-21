@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ac-llm"
+version = "2.0.0"
+description = "Reusable host LLM execution helpers for AC Foundation tools."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "AC Foundation" }]
+requires-python = ">=3.11"
+dependencies = [
+  "ac-jobs>=2,<3",
+  "json-repair>=0.59,<1",
+  "jsonschema>=4,<5",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/tririver/ac-foundation"
+Repository = "https://github.com/tririver/ac-foundation"
+Issues = "https://github.com/tririver/ac-foundation/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+ac-llm = "ac_llm.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ac_llm"]

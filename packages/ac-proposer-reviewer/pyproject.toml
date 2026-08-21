@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ac-proposer-reviewer"
+version = "2.0.0"
+description = "Typed proposer-reviewer orchestration for AC Foundation."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "AC Foundation" }]
+requires-python = ">=3.11"
+dependencies = [
+  "ac-jobs>=2,<3",
+  "ac-llm>=2,<3",
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/tririver/ac-foundation"
+Repository = "https://github.com/tririver/ac-foundation"
+Issues = "https://github.com/tririver/ac-foundation/issues"
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+ac-proposer-reviewer = "ac_proposer_reviewer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ac_proposer_reviewer"]
