@@ -395,9 +395,6 @@ def _install(
     identity: dict[str, Any],
 ) -> None:
     venv = runtime_dir / "venv"
-    temporary = runtime_dir / f"venv.tmp.{os.getpid()}"
-    if temporary.exists():
-        shutil.rmtree(temporary)
     if venv.exists():
         shutil.rmtree(venv)
     requirements = _requirements(lock, mode, roots)
@@ -406,19 +403,18 @@ def _install(
     log_path = runtime_dir / "install.log"
     try:
         if uv:
-            _run_logged([uv, "venv", str(temporary), "--python", ">=3.11"], log_path)
-            command = [uv, "pip", "install", "--python", str(temporary / "bin/python")]
+            _run_logged([uv, "venv", str(venv), "--python", ">=3.11"], log_path)
+            command = [uv, "pip", "install", "--python", str(venv / "bin/python")]
         else:
-            _run_logged([sys.executable, "-m", "venv", str(temporary)], log_path)
-            command = [str(temporary / "bin/python"), "-m", "pip", "install"]
+            _run_logged([sys.executable, "-m", "venv", str(venv)], log_path)
+            command = [str(venv / "bin/python"), "-m", "pip", "install"]
         if constraints_path.is_file():
             command.extend(["--constraint", str(constraints_path)])
         command.extend(requirements)
         _run_logged(command, log_path)
         for tool in lock.tools:
-            if not (temporary / "bin" / tool).is_file():
+            if not (venv / "bin" / tool).is_file():
                 raise RuntimeError(f"installed runtime lacks command: {tool}")
-        os.replace(temporary, venv)
         _atomic_json(
             runtime_dir / "install.ok",
             {
@@ -432,8 +428,8 @@ def _install(
         if failure.exists():
             failure.unlink()
     except Exception as exc:
-        if temporary.exists():
-            shutil.rmtree(temporary)
+        if venv.exists():
+            shutil.rmtree(venv)
         _atomic_json(
             runtime_dir / "install.failed",
             {

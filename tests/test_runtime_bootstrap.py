@@ -92,3 +92,44 @@ def test_runtime_environment_owns_only_generic_ac_defaults(
     assert environment["AC_DOCUMENT_CACHE"] == str(
         tmp_path / ".ac/cache/ac-document"
     )
+
+
+def test_install_creates_console_scripts_at_their_final_venv_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock_path = tmp_path / "runtime-sources.json"
+    lock_path.write_text(json.dumps(_lock()), encoding="utf-8")
+    lock = RUNTIME.load_lock(lock_path)
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    foundation = tmp_path / "foundation"
+    constraints = tmp_path / "missing-constraints.txt"
+
+    def fake_run(command: list[str], _log_path: Path) -> None:
+        if command[1:3] == ["-m", "venv"]:
+            venv = Path(command[-1])
+            (venv / "bin").mkdir(parents=True)
+            (venv / "bin/python").write_text("", encoding="utf-8")
+            return
+        python = Path(command[0])
+        (python.parent / "ac-jobs").write_text(
+            f"#!{python}\n", encoding="utf-8"
+        )
+
+    monkeypatch.setattr(RUNTIME.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(RUNTIME, "_run_logged", fake_run)
+
+    RUNTIME._install(
+        runtime_dir,
+        lock,
+        "local",
+        {"foundation": foundation},
+        constraints,
+        "f" * 64,
+        {"mode": "local"},
+    )
+
+    tool = runtime_dir / "venv/bin/ac-jobs"
+    assert tool.read_text(encoding="utf-8") == (
+        f"#!{runtime_dir / 'venv/bin/python'}\n"
+    )
