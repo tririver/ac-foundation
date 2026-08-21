@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 import re
+from typing import TYPE_CHECKING
 
 from arc_jobs import JsonValue, RunStatus
 from arc_llm import LLMExecutionOptions, ModelSelection
@@ -43,6 +44,10 @@ from .sources import (
     SourceFormat,
     ValidationPolicy,
 )
+
+if TYPE_CHECKING:
+    from .rich_document import RichDocument
+    from .terms import KeywordResult
 
 
 _STANDALONE_MARKDOWN_IMAGE_RE = re.compile(
@@ -458,7 +463,7 @@ class ArcDocumentService:
 
     def extract_keywords(
         self,
-        source: SourceArtifact | ParsedDocument | object,
+        source: SourceArtifact | ParsedDocument | RichDocument,
         *,
         project_dir: str | Path,
         structure: (
@@ -470,7 +475,7 @@ class ArcDocumentService:
         run_id: str | None = None,
         resume_input: Mapping[str, JsonValue] | None = None,
         options: LLMExecutionOptions = LLMExecutionOptions(),
-    ):
+    ) -> KeywordResult:
         """Extract a cache-aware approximate keyword view."""
 
         from .rich_document import RichDocument, RichDocumentParserService
