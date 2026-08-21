@@ -503,7 +503,22 @@ def _parser(launcher: str) -> argparse.ArgumentParser:
     run = subparsers.add_parser("run", help="run one locked command")
     run.add_argument("tool")
     run.add_argument("args", nargs=argparse.REMAINDER)
+    script = subparsers.add_parser(
+        "script", help="run one Python script inside the private runtime"
+    )
+    script.add_argument("path")
+    script.add_argument("args", nargs=argparse.REMAINDER)
     return parser
+
+
+def _python_script_command(
+    runtime_dir: Path, raw_path: str, args: list[str]
+) -> tuple[Path, list[str]]:
+    script = Path(raw_path).expanduser().resolve()
+    if not script.is_file():
+        raise RuntimeConfigError(f"Python script does not exist: {script}")
+    python = runtime_dir / "venv" / "bin" / "python"
+    return python, [str(python), str(script), *args]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -567,6 +582,15 @@ def main(argv: list[str] | None = None) -> int:
     if namespace.operation == "setup":
         print(f"{lock.profile} runtime ready: {runtime_dir}")
         return 0
+    if namespace.operation == "script":
+        try:
+            executable, command = _python_script_command(
+                runtime_dir, namespace.path, namespace.args
+            )
+        except RuntimeConfigError as exc:
+            _die(str(exc), 64)
+        os.execv(executable, command)
+        raise AssertionError("unreachable")
     if namespace.tool not in lock.tools:
         _die(f"command is not present in source lock: {namespace.tool}", 64)
     os.execv(

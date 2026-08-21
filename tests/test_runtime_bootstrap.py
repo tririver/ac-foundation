@@ -168,3 +168,26 @@ def test_install_creates_console_scripts_at_their_final_venv_path(
     assert tool.read_text(encoding="utf-8") == (
         f"#!{runtime_dir / 'venv/bin/python'}\n"
     )
+
+
+def test_python_script_command_uses_private_runtime(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime"
+    script = tmp_path / "workflow.py"
+    script.write_text("print('ok')\n", encoding="utf-8")
+
+    executable, command = RUNTIME._python_script_command(
+        runtime, str(script), ["--json"]
+    )
+
+    python = runtime / "venv/bin/python"
+    assert executable == python
+    assert command == [str(python), str(script), "--json"]
+
+
+def test_python_script_command_rejects_missing_script(tmp_path: Path) -> None:
+    with pytest.raises(RUNTIME.RuntimeConfigError, match="does not exist"):
+        RUNTIME._python_script_command(
+            tmp_path / "runtime", str(tmp_path / "missing.py"), []
+        )
