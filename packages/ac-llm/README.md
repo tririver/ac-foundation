@@ -11,6 +11,9 @@ Installing the Python distribution exposes the `ac-llm` console script. AC
 Foundation has no agent-host plugin or Skill; product launchers may install and
 invoke this command inside their private runtime.
 
+Run `ac-llm` outside a sandbox when possible; sandbox restrictions can cause
+provider subprocesses to fail with permission errors.
+
 Create `local/example/request.json` from the public v4 request contract, then
 run one typed request in an explicit durable root:
 
