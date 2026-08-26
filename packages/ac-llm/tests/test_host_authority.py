@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from ac_jobs import ArtifactSourceRef
 
@@ -73,7 +74,7 @@ def _host_request() -> ProviderExecution:
     )
 
 
-def _host_complete(value: dict[str, int]) -> ProviderExecution:
+def _host_complete(value: dict[str, Any]) -> ProviderExecution:
     return ProviderExecution(
         ProviderTerminalKind.COMPLETED,
         (
@@ -178,6 +179,52 @@ def test_brokered_text_output_uses_the_same_host_turn_envelope(
 
     assert isinstance(result.outcome, LLMCompleted)
     assert result.outcome.value == "complete text"
+
+
+def test_brokered_json_output_keeps_definitions_at_envelope_root(
+    tmp_path: Path, adapter: Any, registry: Any
+) -> None:
+    choice = {"paper_id": "paper-1"}
+    adapter.steps.append(_host_complete({"selected_foundation": choice}))
+    paper_choice_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["paper_id"],
+        "properties": {"paper_id": {"type": "string"}},
+    }
+    result_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["selected_foundation"],
+        "properties": {
+            "selected_foundation": {"$ref": "#/$defs/paper_choice"},
+        },
+        "$defs": {"paper_choice": paper_choice_schema},
+    }
+
+    result = LLMClient(registry=registry).generate(
+        LLMRequest(
+            "foundation-selection",
+            "Select one foundation.",
+            JsonOutput(result_schema),
+            ModelSelection("codex"),
+        ),
+        run_root=tmp_path,
+    )
+
+    assert isinstance(result.outcome, LLMCompleted)
+    provider_schema = dict(adapter.requests[0].output_schema)
+    assert provider_schema["$defs"] == {"paper_choice": paper_choice_schema}
+    embedded = provider_schema["properties"]["result"]["anyOf"][0]
+    assert embedded["$defs"] == {"paper_choice": paper_choice_schema}
+    Draft202012Validator(provider_schema).validate(
+        {
+            "schema_version": "ac.llm.host_turn.v1",
+            "state": "complete",
+            "result": {"selected_foundation": choice},
+            "host_request": None,
+        }
+    )
 
 
 class _Broker:

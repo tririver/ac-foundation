@@ -16,6 +16,7 @@ from ac_llm import (
     ProviderResumeRequest,
     ProviderTerminalKind,
 )
+from ac_llm.host import host_turn_schema
 from ac_llm.output import select_output
 from ac_llm.request import JsonOutput
 from ac_llm.providers.claude import (
@@ -331,6 +332,51 @@ def test_codex_projects_native_schema_but_selects_only_last_message(
     ) in observer.progress_events
     with pytest.raises(OutputInvalidError):
         select_output(result.candidates, JsonOutput(schema))
+
+
+def test_codex_native_host_turn_schema_keeps_root_definitions(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    paper_choice_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["paper_id"],
+        "properties": {"paper_id": {"type": "string"}},
+    }
+    schema = host_turn_schema(
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["selected_foundation"],
+            "properties": {
+                "selected_foundation": {"$ref": "#/$defs/paper_choice"},
+            },
+            "$defs": {"paper_choice": paper_choice_schema},
+        }
+    )
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n'
+        b'{"type":"turn.completed"}\n',
+        last_message=(
+            b'{"schema_version":"ac.llm.host_turn.v1","state":"complete",'
+            b'"result":{"selected_foundation":{"paper_id":"paper-1"}},'
+            b'"host_request":null}'
+        ),
+    )
+
+    CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("Select one foundation.", "model", schema, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    native = runner.output_schemas[0]
+    assert native["$defs"] == {"paper_choice": paper_choice_schema}
+    selected = native["properties"]["result"]["anyOf"][0]["properties"][
+        "selected_foundation"
+    ]
+    assert selected == {"$ref": "#/$defs/paper_choice"}
 
 
 def test_codex_structured_invalid_request_is_not_delivered(tmp_path: Path) -> None:

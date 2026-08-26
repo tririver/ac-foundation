@@ -218,14 +218,15 @@ class HostTurn:
 
 
 def host_turn_schema(result_schema: Mapping[str, Any]) -> dict[str, Any]:
-    return {
+    embedded_result_schema = dict(result_schema)
+    schema = {
         "type": "object",
         "additionalProperties": False,
         "required": ["schema_version", "state", "result", "host_request"],
         "properties": {
             "schema_version": {"const": HOST_TURN_SCHEMA_VERSION},
             "state": {"enum": ["complete", "request_host"]},
-            "result": {"anyOf": [dict(result_schema), {"type": "null"}]},
+            "result": {"anyOf": [embedded_result_schema, {"type": "null"}]},
             "host_request": {
                 "anyOf": [
                     {"type": "null"},
@@ -243,6 +244,13 @@ def host_turn_schema(result_schema: Mapping[str, Any]) -> dict[str, Any]:
             },
         },
     }
+    # Root-relative references in an embedded result schema still target the
+    # submitted host-turn document. Keep their definition maps reachable there.
+    for key in ("$defs", "definitions"):
+        definitions = embedded_result_schema.get(key)
+        if isinstance(definitions, Mapping):
+            schema[key] = dict(definitions)
+    return schema
 
 
 def decode_host_turn(
