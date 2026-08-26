@@ -88,7 +88,7 @@ from .workflow_support import (
     semantic_retry_request,
 )
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 __all__ = [
     "AdoptionAuthorization",
