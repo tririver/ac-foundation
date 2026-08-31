@@ -11,9 +11,21 @@ from types import MappingProxyType
 from typing import Any
 
 from ..sources import SourceArtifact, SourceFormat, SourceOrigin, SourceOriginKind
+from .source_targets import (
+    SOURCE_TARGET_MANIFEST_METADATA_KEY,
+    validate_source_target_manifest,
+)
+from .list_paths import validate_list_paths
+from .source_fidelity import validate_source_fidelity_metadata
+from .source_presentation import validate_source_presentation_metadata
 
 
-RICH_DOCUMENT_SCHEMA = "ac.document.rich_document.v2"
+RICH_DOCUMENT_SCHEMA_V2 = "ac.document.rich_document.v2"
+RICH_DOCUMENT_SCHEMA = "ac.document.rich_document.v3"
+_SUPPORTED_RICH_DOCUMENT_SCHEMAS = {
+    RICH_DOCUMENT_SCHEMA_V2,
+    RICH_DOCUMENT_SCHEMA,
+}
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
@@ -91,6 +103,69 @@ class SourceLocator:
 
 
 @dataclass(frozen=True)
+class RichListPathEntry:
+    """One exact authored list-item owner for a flat RichBlock."""
+
+    container_id: str
+    container_source_id: str
+    container_selector: str
+    item_id: str
+    item_source_id: str
+    item_selector: str
+    item_index: int
+    item_count: int
+    depth: int
+    ordered: bool
+    segment_index: int
+    continuation: bool
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.container_id, str)
+            or not isinstance(self.item_id, str)
+            or not self.container_id
+            or not self.item_id
+        ):
+            raise ValueError("rich list path identity is empty")
+        for value, description in (
+            (self.container_source_id, "container source ID"),
+            (self.container_selector, "container selector"),
+            (self.item_source_id, "item source ID"),
+            (self.item_selector, "item selector"),
+        ):
+            if not isinstance(value, str):
+                raise ValueError(f"rich list path {description} must be a string")
+        if self.container_selector != (
+            f"#{self.container_source_id}" if self.container_source_id else ""
+        ):
+            raise ValueError("rich list path container selector is inconsistent")
+        if self.item_selector != (
+            f"#{self.item_source_id}" if self.item_source_id else ""
+        ):
+            raise ValueError("rich list path item selector is inconsistent")
+        for value, description, minimum in (
+            (self.item_index, "item index", 0),
+            (self.item_count, "item count", 1),
+            (self.depth, "depth", 0),
+            (self.segment_index, "segment index", 0),
+        ):
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < minimum
+            ):
+                raise ValueError(f"rich list path {description} is invalid")
+        if self.item_index >= self.item_count:
+            raise ValueError("rich list path item index exceeds its container")
+        if not isinstance(self.ordered, bool) or not isinstance(
+            self.continuation, bool
+        ):
+            raise ValueError("rich list path flags must be booleans")
+        if self.continuation is not (self.segment_index > 0):
+            raise ValueError("rich list path continuation is inconsistent")
+
+
+@dataclass(frozen=True)
 class RichBlock:
     block_id: str
     ordinal: int
@@ -98,6 +173,7 @@ class RichBlock:
     section_path: tuple[str, ...]
     locator: SourceLocator
     payload: Mapping[str, Any]
+    list_path: tuple[RichListPathEntry, ...] = ()
 
     def __post_init__(self) -> None:
         kind = RichBlockKind(self.kind)
@@ -114,9 +190,15 @@ class RichBlock:
         if set(payload) != _PAYLOAD_FIELDS[kind]:
             raise ValueError(f"{kind.value} block payload has invalid fields")
         _validate_payload(kind, payload)
+        list_path = tuple(self.list_path)
+        if any(not isinstance(item, RichListPathEntry) for item in list_path):
+            raise ValueError("rich block list path contains an invalid entry")
+        if any(item.depth != depth for depth, item in enumerate(list_path)):
+            raise ValueError("rich block list path depth is invalid")
         object.__setattr__(self, "kind", kind)
         object.__setattr__(self, "section_path", tuple(self.section_path))
         object.__setattr__(self, "payload", _freeze_mapping(payload))
+        object.__setattr__(self, "list_path", list_path)
 
 
 @dataclass(frozen=True)
@@ -204,7 +286,7 @@ class RichDocument:
     document_digest: str = field(init=False)
 
     def __post_init__(self) -> None:
-        if self.schema_version != RICH_DOCUMENT_SCHEMA:
+        if self.schema_version not in _SUPPORTED_RICH_DOCUMENT_SCHEMAS:
             raise ValueError("unsupported rich document schema")
         if self.source.source_format not in {
             SourceFormat.MARKDOWN,
@@ -216,6 +298,10 @@ class RichDocument:
         sections = tuple(self.sections)
         assets = tuple(self.assets)
         page_map = tuple(self.page_map)
+        if self.schema_version == RICH_DOCUMENT_SCHEMA_V2 and any(
+            block.list_path for block in blocks
+        ):
+            raise ValueError("rich document v2 cannot carry list paths")
         if tuple(item.ordinal for item in blocks) != tuple(range(len(blocks))):
             raise ValueError("rich block ordinals must be contiguous")
         if len({item.block_id for item in blocks}) != len(blocks):
@@ -253,11 +339,44 @@ class RichDocument:
             raise ValueError("rich page map contains duplicate block entries")
         if any(item.block_id not in block_ids for item in page_map):
             raise ValueError("rich page map refers to an unknown block")
-        metadata = _freeze_mapping(dict(self.metadata))
+        metadata_value = dict(self.metadata)
+        manifest = None
+        if SOURCE_TARGET_MANIFEST_METADATA_KEY in metadata_value:
+            manifest = metadata_value[SOURCE_TARGET_MANIFEST_METADATA_KEY]
+            validate_source_target_manifest(
+                manifest,
+                blocks=blocks,
+                sections=sections,
+                assets=assets,
+            )
+        validate_list_paths(
+            blocks,
+            sections=sections,
+            source_target_manifest=manifest,
+        )
+        validate_source_fidelity_metadata(
+            metadata_value,
+            blocks=blocks,
+            source=self.source,
+        )
+        validate_source_presentation_metadata(
+            metadata_value,
+            blocks=blocks,
+            source=self.source,
+        )
+        metadata = _freeze_mapping(metadata_value)
         material = {
             "schema_version": self.schema_version,
             "source": _source_to_document(self.source),
-            "blocks": [rich_block_to_document(item) for item in blocks],
+            "blocks": [
+                _rich_block_to_document(
+                    item,
+                    include_list_path=(
+                        self.schema_version == RICH_DOCUMENT_SCHEMA
+                    ),
+                )
+                for item in blocks
+            ],
             "sections": [_section_to_document(item) for item in sections],
             "assets": [_asset_to_document(item) for item in assets],
             "page_map": [_page_map_to_document(item) for item in page_map],
@@ -288,13 +407,28 @@ _LOCATOR_FIELDS = {
     "selector",
     "source_id",
 }
-_BLOCK_FIELDS = {
+_BLOCK_FIELDS_V2 = {
     "block_id",
     "ordinal",
     "kind",
     "section_path",
     "locator",
     "payload",
+}
+_BLOCK_FIELDS = _BLOCK_FIELDS_V2 | {"list_path"}
+_LIST_PATH_FIELDS = {
+    "container_id",
+    "container_source_id",
+    "container_selector",
+    "item_id",
+    "item_source_id",
+    "item_selector",
+    "item_index",
+    "item_count",
+    "depth",
+    "ordered",
+    "segment_index",
+    "continuation",
 }
 _SECTION_FIELDS = {
     "section_id",
@@ -321,7 +455,15 @@ _DOCUMENT_FIELDS = {
 
 
 def rich_block_to_document(block: RichBlock) -> dict[str, Any]:
-    return {
+    return _rich_block_to_document(block, include_list_path=True)
+
+
+def _rich_block_to_document(
+    block: RichBlock,
+    *,
+    include_list_path: bool,
+) -> dict[str, Any]:
+    value = {
         "block_id": block.block_id,
         "ordinal": block.ordinal,
         "kind": block.kind.value,
@@ -337,17 +479,53 @@ def rich_block_to_document(block: RichBlock) -> dict[str, Any]:
         },
         "payload": _thaw_json(block.payload),
     }
+    if include_list_path:
+        value["list_path"] = [
+            _list_path_entry_to_document(item) for item in block.list_path
+        ]
+    return value
 
 
 def rich_block_from_document(value: Mapping[str, Any]) -> RichBlock:
+    return _rich_block_from_document(value, schema_version=None)
+
+
+def _rich_block_from_document(
+    value: Mapping[str, Any],
+    *,
+    schema_version: str | None,
+) -> RichBlock:
     _require_json_document(value, "rich block")
-    _require_fields(value, _BLOCK_FIELDS, "rich block")
+    actual_fields = frozenset(value)
+    expected_fields = (
+        _BLOCK_FIELDS_V2
+        if schema_version == RICH_DOCUMENT_SCHEMA_V2
+        else _BLOCK_FIELDS
+        if schema_version == RICH_DOCUMENT_SCHEMA
+        else set(actual_fields)
+    )
+    if schema_version is None and actual_fields not in {
+        frozenset(_BLOCK_FIELDS),
+        frozenset(_BLOCK_FIELDS_V2),
+    }:
+        raise ValueError("rich block has invalid fields")
+    _require_fields(value, set(expected_fields), "rich block")
     locator = _mapping(value.get("locator"), "rich block locator")
     _require_fields(locator, _LOCATOR_FIELDS, "rich block locator")
     section_path = _string_list(value.get("section_path"), "section_path")
     payload = _mapping(value.get("payload"), "rich block payload")
     _validate_codec_payload_lists(
         RichBlockKind(_string(value, "kind")), payload
+    )
+    list_path = (
+        tuple(
+            _list_path_entry_from_document(
+                _mapping(item, "rich block list path entry")
+            )
+            for item in _list(value, "list_path")
+        )
+        if "list_path" in value
+        else ()
     )
     return RichBlock(
         block_id=_string(value, "block_id"),
@@ -364,6 +542,7 @@ def rich_block_from_document(value: Mapping[str, Any]) -> RichBlock:
             source_id=_string(locator, "source_id"),
         ),
         payload=payload,
+        list_path=list_path,
     )
 
 
@@ -372,7 +551,15 @@ def rich_document_to_document(document: RichDocument) -> dict[str, Any]:
         "schema_version": document.schema_version,
         "document_digest": document.document_digest,
         "source": _source_to_document(document.source),
-        "blocks": [rich_block_to_document(item) for item in document.blocks],
+        "blocks": [
+            _rich_block_to_document(
+                item,
+                include_list_path=(
+                    document.schema_version == RICH_DOCUMENT_SCHEMA
+                ),
+            )
+            for item in document.blocks
+        ],
         "sections": [_section_to_document(item) for item in document.sections],
         "assets": [_asset_to_document(item) for item in document.assets],
         "page_map": [_page_map_to_document(item) for item in document.page_map],
@@ -383,7 +570,8 @@ def rich_document_to_document(document: RichDocument) -> dict[str, Any]:
 def rich_document_from_document(value: Mapping[str, Any]) -> RichDocument:
     _require_json_document(value, "rich document")
     _require_fields(value, _DOCUMENT_FIELDS, "rich document")
-    if value.get("schema_version") != RICH_DOCUMENT_SCHEMA:
+    schema_version = value.get("schema_version")
+    if schema_version not in _SUPPORTED_RICH_DOCUMENT_SCHEMAS:
         raise ValueError("unsupported rich document schema")
     source_value = _mapping(value.get("source"), "rich document source")
     _require_fields(source_value, _SOURCE_FIELDS, "rich document source")
@@ -401,7 +589,10 @@ def rich_document_from_document(value: Mapping[str, Any]) -> RichDocument:
         ),
     )
     blocks = tuple(
-        rich_block_from_document(_mapping(item, "rich block"))
+        _rich_block_from_document(
+            _mapping(item, "rich block"),
+            schema_version=str(schema_version),
+        )
         for item in _list(value, "blocks")
     )
     sections = []
@@ -448,6 +639,7 @@ def rich_document_from_document(value: Mapping[str, Any]) -> RichDocument:
         assets=tuple(assets),
         page_map=tuple(page_map),
         metadata=_mapping(value.get("metadata"), "rich document metadata"),
+        schema_version=str(schema_version),
     )
     if document.document_digest != _string(value, "document_digest"):
         raise ValueError("rich document digest does not match its content")
@@ -486,6 +678,47 @@ def _asset_to_document(asset: RichAsset) -> dict[str, Any]:
 
 def _page_map_to_document(item: RichPageMapEntry) -> dict[str, Any]:
     return {"block_id": item.block_id, "page_number": item.page_number}
+
+
+def _list_path_entry_to_document(item: RichListPathEntry) -> dict[str, Any]:
+    return {
+        "container_id": item.container_id,
+        "container_source_id": item.container_source_id,
+        "container_selector": item.container_selector,
+        "item_id": item.item_id,
+        "item_source_id": item.item_source_id,
+        "item_selector": item.item_selector,
+        "item_index": item.item_index,
+        "item_count": item.item_count,
+        "depth": item.depth,
+        "ordered": item.ordered,
+        "segment_index": item.segment_index,
+        "continuation": item.continuation,
+    }
+
+
+def _list_path_entry_from_document(
+    value: Mapping[str, Any],
+) -> RichListPathEntry:
+    _require_fields(value, _LIST_PATH_FIELDS, "rich block list path entry")
+    ordered = value.get("ordered")
+    continuation = value.get("continuation")
+    if not isinstance(ordered, bool) or not isinstance(continuation, bool):
+        raise ValueError("rich block list path flags must be booleans")
+    return RichListPathEntry(
+        container_id=_string(value, "container_id"),
+        container_source_id=_string(value, "container_source_id"),
+        container_selector=_string(value, "container_selector"),
+        item_id=_string(value, "item_id"),
+        item_source_id=_string(value, "item_source_id"),
+        item_selector=_string(value, "item_selector"),
+        item_index=_integer(value, "item_index"),
+        item_count=_integer(value, "item_count"),
+        depth=_integer(value, "depth"),
+        ordered=ordered,
+        segment_index=_integer(value, "segment_index"),
+        continuation=continuation,
+    )
 
 
 def _validate_payload(kind: RichBlockKind, payload: dict[str, Any]) -> None:
@@ -726,10 +959,12 @@ def _require_json_document(value: Any, description: str) -> None:
 
 __all__ = [
     "RICH_DOCUMENT_SCHEMA",
+    "RICH_DOCUMENT_SCHEMA_V2",
     "RichAsset",
     "RichBlock",
     "RichBlockKind",
     "RichDocument",
+    "RichListPathEntry",
     "RichPageMapEntry",
     "RichSection",
     "SourceLocator",

@@ -9,6 +9,7 @@ from ac_document import (
     SourceOrigin,
     SourceOriginKind,
     SourceRepository,
+    source_presentation,
 )
 
 
@@ -75,6 +76,24 @@ def test_latexml_classification_does_not_capture_unheaded_article_body(
         "References",
     ]
     abstract = document.sections[1]
+    abstract_heading = document.blocks[abstract.block_start]
+    presentation = source_presentation(document)
+    assert presentation is not None
+    abstract_presentation = next(
+        entry
+        for entry in presentation["blocks"]
+        if entry["block_id"] == abstract_heading.block_id
+    )
+    assert abstract.level == 2
+    assert abstract.path[:-1] == document.sections[0].path
+    assert abstract_heading.payload == {"text": "Abstract", "level": 2}
+    assert abstract_presentation["roles"] == ("abstract",)
+    classification_heading = next(
+        block
+        for block in document.blocks
+        if block.kind is RichBlockKind.HEADING
+        and block.payload["text"] == "classification"
+    )
     classification = next(
         block
         for block in document.blocks
@@ -82,7 +101,8 @@ def test_latexml_classification_does_not_capture_unheaded_article_body(
         and "PACS numbers" in block.payload["text"]
     )
     body = next(block for block in document.blocks if block.locator.source_id == "body")
-    assert abstract.block_end == classification.ordinal
+    assert abstract.block_end == classification_heading.ordinal
+    assert classification_heading.section_path == document.sections[0].path
     assert classification.section_path == document.sections[0].path
     assert body.section_path == document.sections[0].path
     assert not any(
