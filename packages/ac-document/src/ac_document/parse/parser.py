@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import tempfile
+import unicodedata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -1053,14 +1054,16 @@ def _markdown_explicit_term_fields(text: str) -> list[dict[str, object]]:
             entries.extend(
                 item.strip(" \t\"'")
                 for item in re.split(r"[,;]", unwrapped)
-                if item.strip(" \t\"'")
+                if _is_explicit_term_entry(item.strip(" \t\"'"))
             )
         cursor = index + 1
         while cursor < end:
             item_match = re.match(r"^\s*-\s+(.+?)\s*$", lines[cursor])
             if item_match is None:
                 break
-            entries.append(item_match.group(1).strip(" \t\"'"))
+            item = item_match.group(1).strip(" \t\"'")
+            if _is_explicit_term_entry(item):
+                entries.append(item)
             cursor += 1
         if entries:
             output.append(
@@ -1086,7 +1089,7 @@ def _tex_explicit_term_fields(text: str) -> list[dict[str, object]]:
         entries = [
             item.strip()
             for item in re.split(r"[,;]", match.group(1))
-            if item.strip()
+            if _is_explicit_term_entry(item.strip())
         ]
         if entries:
             output.append(
@@ -1108,7 +1111,7 @@ def _tex_explicit_term_fields(text: str) -> list[dict[str, object]]:
                 match.group(1),
                 re.DOTALL,
             )
-            if item.strip()
+            if _is_explicit_term_entry(item.strip())
         ]
         if entries:
             output.append(
@@ -1138,7 +1141,7 @@ def _html_explicit_term_fields(
         entries = [
             item.strip()
             for item in re.split(r"[,;]", str(meta.get("content") or ""))
-            if item.strip()
+            if _is_explicit_term_entry(item.strip())
         ]
         if entries:
             output.append(
@@ -1170,14 +1173,14 @@ def _html_explicit_term_fields(
             listed = [
                 item.get_text(" ", strip=True)
                 for item in node.find_all("li")
-                if item.get_text(" ", strip=True)
+                if _is_explicit_term_entry(item.get_text(" ", strip=True))
             ]
             entries = listed or [
                 item.strip()
                 for item in re.split(
                     r"[,;\n]", node.get_text("\n", strip=True)
                 )
-                if item.strip()
+                if _is_explicit_term_entry(item.strip())
             ]
             if entries:
                 output.append(
@@ -1188,6 +1191,13 @@ def _html_explicit_term_fields(
                     }
                 )
     return output
+
+
+def _is_explicit_term_entry(value: str) -> bool:
+    item = value.strip()
+    return bool(item) and not all(
+        unicodedata.category(character) == "Pd" for character in item
+    )
 
 
 def _parse_pdf(

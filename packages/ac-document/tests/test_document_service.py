@@ -31,7 +31,7 @@ def test_generic_schemas_are_owned_by_ac_document() -> None:
     assert isinstance(ac_document.parse, types.ModuleType)
     assert ac_document.parse.__name__ == "ac_document.parse"
     assert PARSED_DOCUMENT_SCHEMA == "ac.document.parsed_document.v2"
-    assert RICH_DOCUMENT_SCHEMA == "ac.document.rich_document.v2"
+    assert RICH_DOCUMENT_SCHEMA == "ac.document.rich_document.v3"
     assert CACHED_DOCUMENT_REF_SCHEMA == "ac.document.cached_document_ref.v1"
     assert DOCUMENT_STRUCTURE_OVERLAY_SCHEMA.startswith("ac.document.")
 
