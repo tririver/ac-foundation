@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ac-jobs"
-version = "2.0.1"
+version = "2.0.2"
 description = "Durable, protocol-neutral run kernel for AC Foundation packages."
 readme = "README.md"
 license = "MIT"
