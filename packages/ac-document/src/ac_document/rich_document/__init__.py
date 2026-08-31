@@ -1,9 +1,11 @@
 from .models import (
     RICH_DOCUMENT_SCHEMA,
+    RICH_DOCUMENT_SCHEMA_V2,
     RichAsset,
     RichBlock,
     RichBlockKind,
     RichDocument,
+    RichListPathEntry,
     RichPageMapEntry,
     RichSection,
     SourceLocator,
@@ -12,6 +14,7 @@ from .models import (
     rich_document_from_document,
     rich_document_to_document,
 )
+from .list_paths import validate_list_paths
 from .parser import (
     AssetImporter,
     RichSourceParseResult,
@@ -25,6 +28,27 @@ from .service import (
     RichDocumentParserService,
     RichDocumentValidationError,
     RichParseOutcome,
+)
+from .source_targets import (
+    SOURCE_TARGET_MANIFEST_METADATA_KEY,
+    SOURCE_TARGET_MANIFEST_SCHEMA,
+    source_target_manifest,
+    validate_source_target_manifest,
+)
+from .source_fidelity import (
+    SOURCE_FRONT_MATTER_METADATA_KEY,
+    SOURCE_FRONT_MATTER_SCHEMA,
+    SOURCE_NOTES_METADATA_KEY,
+    SOURCE_NOTES_SCHEMA,
+    source_front_matter,
+    source_notes,
+    validate_source_fidelity_metadata,
+)
+from .source_presentation import (
+    SOURCE_PRESENTATION_METADATA_KEY,
+    SOURCE_PRESENTATION_SCHEMA,
+    source_presentation,
+    validate_source_presentation_metadata,
 )
 from .export import RichDocumentExportError, export_rich_document_workspace
 from .equation_labels import (
@@ -50,10 +74,12 @@ __all__ = [
     "EQUATION_LABEL_VISUAL_PROMPT_VERSION",
     "PDF_VALIDATOR_MISSING_WARNING",
     "RICH_DOCUMENT_SCHEMA",
+    "RICH_DOCUMENT_SCHEMA_V2",
     "RichAsset",
     "RichBlock",
     "RichBlockKind",
     "RichDocument",
+    "RichListPathEntry",
     "RichDocumentParserService",
     "RichDocumentValidationError",
     "RichDocumentExportError",
@@ -63,6 +89,14 @@ __all__ = [
     "RichSourceParseResult",
     "SOURCE_PAGE_BOUNDARIES_METADATA_KEY",
     "SOURCE_PAGE_BOUNDARIES_SCHEMA",
+    "SOURCE_FRONT_MATTER_METADATA_KEY",
+    "SOURCE_FRONT_MATTER_SCHEMA",
+    "SOURCE_NOTES_METADATA_KEY",
+    "SOURCE_NOTES_SCHEMA",
+    "SOURCE_PRESENTATION_METADATA_KEY",
+    "SOURCE_PRESENTATION_SCHEMA",
+    "SOURCE_TARGET_MANIFEST_METADATA_KEY",
+    "SOURCE_TARGET_MANIFEST_SCHEMA",
     "EquationLabelMapping",
     "EquationLabelPageMapping",
     "EquationLabelPageReview",
@@ -80,5 +114,13 @@ __all__ = [
     "rich_block_to_document",
     "rich_document_from_document",
     "rich_document_to_document",
+    "source_target_manifest",
+    "source_front_matter",
+    "source_notes",
+    "source_presentation",
+    "validate_source_fidelity_metadata",
+    "validate_source_presentation_metadata",
+    "validate_list_paths",
+    "validate_source_target_manifest",
     "export_rich_document_workspace",
 ]
