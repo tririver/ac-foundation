@@ -245,6 +245,34 @@ def test_markdown_explicit_terms_accept_yaml_document_end(tmp_path):
     )
 
 
+def test_html_explicit_terms_ignore_dash_only_metadata_placeholder(tmp_path):
+    payload = """
+        <html><head><meta name="keywords" content=" — "></head>
+        <body><article>
+          <h1>Paper</h1>
+          <div class="ltx_keywords">
+            <h6 class="ltx_title ltx_title_keywords">Keywords:</h6>
+            <a href="https://example.test/infrared">Infrared astronomy</a> —
+            <a href="https://example.test/symbiotic">Symbiotic stars</a>
+          </div>
+        </article></body></html>
+    """.encode()
+    repository = SourceRepository(tmp_path / "cache")
+    artifact = _store(repository, payload, SourceFormat.HTML)
+
+    standard = DocumentParserService(repository).parse_source(artifact)
+    rich = RichDocumentParserService(repository).parse_source(artifact)
+
+    assert "explicit_term_fields" not in standard.metadata
+    assert "explicit_term_fields" not in rich.metadata
+    assert any(
+        section.title == "Keywords:"
+        and "Infrared astronomy" in section.text
+        and "Symbiotic stars" in section.text
+        for section in standard.sections
+    )
+
+
 def test_standard_tex_balanced_headings_respect_body_comments_and_literals(
     tmp_path,
 ):
