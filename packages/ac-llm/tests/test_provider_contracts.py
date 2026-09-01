@@ -157,19 +157,21 @@ def test_codex_direct_start_and_resume_keep_workspace_cwd_but_only_start_uses_cw
 
     start = runner.calls[0]
     assert start["cwd"] == workspace
+    assert "--skip-git-repo-check" in start["argv"]
     assert "-C" in start["argv"]
     assert start["argv"][start["argv"].index("-C") + 1] == str(workspace)
 
     resume = runner.calls[1]
     assert resume["cwd"] == workspace
     assert "-C" not in resume["argv"]
-    assert resume["argv"][:5] == [
+    assert resume["argv"][:4] == [
         "fake-codex",
         "exec",
         "resume",
         "--json",
-        "--dangerously-bypass-approvals-and-sandbox",
     ]
+    assert "--skip-git-repo-check" in resume["argv"]
+    assert "--dangerously-bypass-approvals-and-sandbox" in resume["argv"]
     assert "thread-1" in resume["argv"]
 
 
@@ -217,6 +219,7 @@ def test_codex_bounded_profile_attaches_images_without_shell_or_host_bypass(
     assert "--dangerously-bypass-approvals-and-sandbox" not in argv
     assert "--ignore-user-config" in argv
     assert "--ignore-rules" in argv
+    assert "--skip-git-repo-check" in argv
     assert argv[argv.index("--sandbox") + 1] == "danger-full-access"
     assert "default_tools_enabled=false" in argv
     assert [argv[index + 1] for index, item in enumerate(argv) if item == "--disable"] == [
@@ -225,6 +228,7 @@ def test_codex_bounded_profile_attaches_images_without_shell_or_host_bypass(
     assert argv[argv.index("--image") + 1] == str(image)
     resume_argv = runner.calls[1]["argv"]
     assert "--dangerously-bypass-approvals-and-sandbox" not in resume_argv
+    assert "--skip-git-repo-check" in resume_argv
     assert 'sandbox_mode="danger-full-access"' in resume_argv
     assert "default_tools_enabled=false" in resume_argv
     assert [
