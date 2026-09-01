@@ -62,7 +62,12 @@ class CodexAdapter:
         return ProviderDiagnostic(self.name, available, path)
 
     def start(self, request: ProviderRequest, observer: Any, stop: Any) -> ProviderExecution:
-        argv = [self.binary, "exec", "--json"]
+        argv = [
+            self.binary,
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+        ]
         if request.capabilities.get("execution_profile") == "bounded":
             argv.extend(
                 [
@@ -211,7 +216,13 @@ class CodexAdapter:
         observer: Any,
         stop: Any,
     ) -> ProviderExecution:
-        argv = [self.binary, "exec", "resume", "--json"]
+        argv = [
+            self.binary,
+            "exec",
+            "resume",
+            "--json",
+            "--skip-git-repo-check",
+        ]
         if request.capabilities.get("execution_profile") == "bounded":
             argv.extend(
                 [
