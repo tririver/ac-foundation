@@ -29,7 +29,7 @@ from .projection import (
     read_batch_trace,
 )
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 
 __all__ = [
     "BatchFailurePolicy",
