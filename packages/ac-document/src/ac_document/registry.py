@@ -9,6 +9,11 @@ from ac_llm import HostAuthority, LLMExecutionOptions, ModelSelection
 
 from .cached_document import cached_document_ref_from_document
 from .document_structure import cached_document_structure_ref_from_document
+from .html_bundle import (
+    HTMLAcquisitionPolicy,
+    html_source_bundle_to_document,
+    materialize_html_source_bundle,
+)
 from .operation_registry import (
     DEFAULT_EXCLUDED_EFFECTS,
     JsonCodec,
@@ -24,6 +29,7 @@ from .operation_registry import (
     to_json_value,
 )
 from .service import AcDocumentService
+from .web_acquisition import HTMLSourceAcquisitionService
 
 
 REGISTRY_SCHEMA_VERSION = "ac.document.operation_registry.v1"
@@ -126,6 +132,28 @@ def _export_rich_document(
         validator=validator,
         source_format=source_format,
     )
+
+
+def _acquire_html_bundle(
+    url: str,
+    output_dir: str,
+    allowed_origins: Sequence[str] = (),
+    cache_root: str | None = None,
+) -> dict[str, Any]:
+    policy = HTMLAcquisitionPolicy(allowed_origins=tuple(allowed_origins))
+    service = HTMLSourceAcquisitionService(cache_root=cache_root)
+    bundle = service.acquire(url, policy=policy)
+    materialized = materialize_html_source_bundle(
+        bundle, service.storage, output_dir
+    )
+    return {
+        "bundle": html_source_bundle_to_document(bundle),
+        "bundle_digest": materialized.bundle_digest,
+        "source": str(materialized.source_path),
+        "manifest": str(materialized.manifest_path),
+        "resources": [str(path) for path in materialized.resource_paths],
+        "warnings": list(materialized.warnings),
+    }
 
 
 def _extract_keywords(
@@ -368,6 +396,29 @@ _OPERATIONS = (
         _export_rich_document,
         effects=frozenset(
             {OperationEffect.CACHE_WRITE, OperationEffect.ARBITRARY_LOCAL_PATH}
+        ),
+    ),
+    _spec(
+        "acquire-html-bundle",
+        object_schema(
+            {
+                "url": _NONEMPTY_STRING,
+                "output_dir": _NONEMPTY_STRING,
+                "allowed_origins": {
+                    "type": "array",
+                    "items": _NONEMPTY_STRING,
+                },
+                "cache_root": _NULLABLE_STRING,
+            },
+            required=("url", "output_dir"),
+        ),
+        _acquire_html_bundle,
+        effects=frozenset(
+            {
+                OperationEffect.NETWORK,
+                OperationEffect.CACHE_WRITE,
+                OperationEffect.ARBITRARY_LOCAL_PATH,
+            }
         ),
     ),
     _spec(

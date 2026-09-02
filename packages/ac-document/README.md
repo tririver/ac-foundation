@@ -15,8 +15,33 @@ remains ordinary document content and can still supply the real term list.
 ```bash
 ac-document --help
 ac-document export-rich-document source.md --output-dir publication
+ac-document acquire-html-bundle https://example.org/document.html --output-dir document-bundle
 python -m pytest packages/ac-document/tests
 ```
+
+## Explicit HTML bundle acquisition
+
+`ac-document acquire-html-bundle` is the only URL-fetching document command.
+It performs a bounded public-HTTPS acquisition, stores the original HTML plus
+available same-origin image dependencies in the AC document cache, and emits an
+`ac.document.html_source_export.v1` `manifest.json` into the required output
+directory. Its nested `bundle` is an `ac.document.html_source_bundle.v1` document.
+Local import, parse, and export
+operations remain network-free. Dependencies that cannot be fetched safely are
+represented as structured bundle warnings; their bytes are never fabricated.
+Dependencies are same-final-origin by default. A caller can set
+`same_origin_dependencies=False` only with a nonempty explicit `allowed_origins` policy
+that includes every additional public HTTPS origin it intends to acquire from.
+
+The public `HTMLSourceAcquisitionService.acquire_dependencies()` API accepts a
+caller-verified HTML primary and a storage adapter, so consumers can keep their
+own cache/archive implementation. `materialize_html_source_bundle()` publishes
+an atomically verified local export. Safe relative authored targets retain the
+original primary HTML bytes; only targets that cannot be safely materialized in
+place are rewritten and recorded in the export manifest.
+`verify_html_source_bundle_export()` lets an offline consumer reload that
+manifest and verify the staged `source.html` and each referenced resource before
+use.
 
 ## RichDocument list ancestry
 
