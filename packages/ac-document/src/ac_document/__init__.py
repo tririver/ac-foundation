@@ -18,6 +18,7 @@ from ._full_text_catalog import (
 from .document_search import *
 from .document_structure import *
 from .epub import *
+from .html_bundle import *
 from .operation_registry import *
 from .parse import *
 from .registry import (
@@ -33,6 +34,7 @@ from .service import AcDocumentService, DocumentInputError, default_cache_root
 from .source_repository import *
 from .sources import *
 from .terms import *
+from .web_acquisition import *
 from .workflows import *
 from . import workflow_support
 
@@ -101,6 +103,19 @@ __all__ = [
     "FullTextMatch",
     "FullTextRepresentation",
     "FullTextSearchResult",
+    "HTMLAcquisitionPolicy",
+    "HTMLSourceAcquisitionService",
+    "HTMLSourceBundle",
+    "HTMLSourceBundleCache",
+    "HTMLSourceBundleError",
+    "HTMLSourceBundleMaterialization",
+    "HTMLSourceBundleStorage",
+    "HTMLSourceDependency",
+    "HTMLSourceWarning",
+    "HTMLWebTransport",
+    "HTML_SOURCE_BUNDLE_CACHE_SCHEMA",
+    "HTML_SOURCE_BUNDLE_SCHEMA",
+    "HTML_SOURCE_EXPORT_SCHEMA",
     "JsonCodec",
     "JsonOutputCodec",
     "KEYWORD_CHAPTER_PROMPT_CONTRACT",
@@ -187,8 +202,11 @@ __all__ = [
     "SourceOrigin",
     "SourceOriginKind",
     "SourceRepository",
+    "SourceRepositoryHTMLSourceBundleStorage",
     "SourceRepositoryError",
     "StoredTermInventory",
+    "StoredHTMLDependency",
+    "StdlibHTTPSWebTransport",
     "TERM_INVENTORY_BATCH_SCHEMA",
     "TERM_INVENTORY_CORRUPT_WARNING",
     "TERM_INVENTORY_CURRENT_SCHEMA",
@@ -208,6 +226,7 @@ __all__ = [
     "VisualReviewOutcome",
     "VisualReviewService",
     "VisualSpanReview",
+    "WebResponse",
     "workflow_support",
     "apply_visual_equation_labels",
     "build_keyword_terms",
@@ -226,10 +245,17 @@ __all__ = [
     "document_structure_overlay_to_document",
     "equation_label_page_review_schema",
     "export_rich_document_workspace",
+    "html_source_bundle_export_from_document",
+    "html_source_bundle_export_to_document",
+    "html_source_bundle_from_document",
+    "html_source_bundle_to_document",
     "get_operation",
     "keyword_result_from_document",
     "keyword_text_units",
     "literal_term_occurs",
+    "local_path_for_url",
+    "materialization_path_for_target",
+    "materialize_html_source_bundle",
     "normalize_term",
     "object_schema",
     "operation_registry_document",
@@ -265,5 +291,6 @@ __all__ = [
     "validate_source_fidelity_metadata",
     "validate_source_presentation_metadata",
     "validate_source_target_manifest",
+    "verify_html_source_bundle_export",
     "visual_page_review_schema",
 ]

@@ -92,6 +92,12 @@ def _parser() -> _Parser:
     exported.add_argument("--source-format", choices=("html", "markdown", "tex", "pdf"))
     _cache_root(exported)
 
+    acquired = commands.add_parser("acquire-html-bundle")
+    acquired.add_argument("url")
+    acquired.add_argument("--output-dir", required=True)
+    acquired.add_argument("--allowed-origin", action="append", dest="allowed_origins", default=[])
+    _cache_root(acquired)
+
     keywords = commands.add_parser("extract-keywords")
     keywords.add_argument("source")
     keywords.add_argument("--project-dir", required=True)
