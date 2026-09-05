@@ -37,15 +37,18 @@ def execution_scope_token(execution_scope: str | None) -> str | None:
 
 
 def worker_contract_document(worker: WorkerSpec) -> dict[str, JsonValue]:
+    model = {
+        "provider": worker.model.provider,
+        "model": worker.model.model,
+        "tier": worker.model.tier,
+    }
+    if worker.model.reasoning_effort is not None:
+        model["reasoning_effort"] = worker.model.reasoning_effort
     return {
         "worker_id": worker.worker_id,
         "instructions": worker.instructions,
         "output_schema": dict(worker.output_schema),
-        "model": {
-            "provider": worker.model.provider,
-            "model": worker.model.model,
-            "tier": worker.model.tier,
-        },
+        "model": model,
     }
 
 

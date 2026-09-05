@@ -6,19 +6,18 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-
 from ac_jobs import (
-    AtomicStateStore,
     ArtifactDigest,
     ArtifactSourceRef,
+    AtomicStateStore,
     EventWriter,
     ImmutableArtifactStore,
+    Paused,
     RunContext,
     RunEngine,
     RunRepository,
     RunSpec,
     RunStatus,
-    Paused,
     Succeeded,
 )
 from ac_llm import (
@@ -45,15 +44,14 @@ from ac_proposer_reviewer import (
 )
 from ac_proposer_reviewer.models import BATCH_SCHEMA_VERSION
 from ac_proposer_reviewer.projection import read_batch_round, read_batch_trace
-from ac_proposer_reviewer.protocol import decode_batch_result, encode_batch_request
 from ac_proposer_reviewer.prompts import reviewer_envelope_schema
+from ac_proposer_reviewer.protocol import decode_batch_result, encode_batch_request
 from ac_proposer_reviewer.state import (
     _LoopStateContract,
     batch_group_id,
     proposer_group_id,
     state_namespace,
 )
-
 
 PROPOSAL_SCHEMA = {
     "type": "object",
@@ -773,6 +771,38 @@ def test_invalid_reviewer_value_fails_without_fabricating_review(
     assert result.termination.value == "failed"
     assert result.final_review is None
     assert result.error is not None
+
+
+def test_reviewer_failure_exposes_only_current_schema_validated_proposals(
+    tmp_path: Path,
+) -> None:
+    class FailingReviewer(FakeLLM):
+        def execute(self, context, request, *, options):
+            self.calls.append(("execute", request.task_id))
+            if _is_proposer(request):
+                return _completed(request)
+            return LLMFailed(InvalidRequestError("reviewer infrastructure failed"))
+
+    fake = FailingReviewer()
+    repository, _handler, snapshot = _run(tmp_path, _request(_loop()), fake)
+    result = _result(repository, snapshot).loops[0]
+
+    assert result.termination.value == "failed"
+    assert result.final_review is None
+    assert set(result.final_proposals) == {"loop-a-p"}
+    assert result.final_proposals["loop-a-p"]["proposal"]
+    assert result.error is not None
+    assert result.error.code == "reviewer_failed"
+    assert result.error.details["current_round"] == 1
+    refs = result.error.details["current_round_proposal_refs"]
+    assert refs == {
+        "loop-a-p": {
+            "artifact_id": "proposer-reviewer/loops/loop-a/rounds/001/proposals/loop-a-p",
+            "digest": refs["loop-a-p"]["digest"],
+            "media_type": "application/json",
+            "relative_path": refs["loop-a-p"]["relative_path"],
+        }
+    }
 
 
 @pytest.mark.parametrize(

@@ -187,7 +187,13 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
     if not isinstance(raw_schema, Mapping):
         raise RequestValidationError("must be an object", path + ("output_schema",))
     raw_model = _object(document["model"], path + ("model",))
-    _exact(raw_model, {"provider", "model", "tier"}, path + ("model",))
+    if set(raw_model) not in (
+        {"provider", "model", "tier"},
+        {"provider", "model", "tier", "reasoning_effort"},
+    ):
+        raise RequestValidationError(
+            "contains unknown or missing fields", path + ("model",)
+        )
     raw_exact_model = raw_model["model"]
     if raw_exact_model is not None and not isinstance(raw_exact_model, str):
         raise RequestValidationError("must be a string or null", path + ("model", "model"))
@@ -199,6 +205,14 @@ def _decode_worker(value: JsonValue, path: tuple[str | int, ...]) -> WorkerSpec:
             provider=_required_text(raw_model, "provider", path + ("model",)),
             model=raw_exact_model,
             tier=cast(Any, _required_text(raw_model, "tier", path + ("model",))),
+            reasoning_effort=cast(
+                Any,
+                None
+                if "reasoning_effort" not in raw_model
+                else _required_text(
+                    raw_model, "reasoning_effort", path + ("model",)
+                ),
+            ),
         ),
     )
 
