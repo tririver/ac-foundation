@@ -747,6 +747,13 @@ def _page_request(
     markdown_ref: ArtifactSourceRef,
     manifest_ref: ArtifactSourceRef,
 ) -> LLMRequest:
+    model_document: dict[str, Any] = {
+        "provider": model.provider,
+        "model": model.model,
+        "tier": model.tier,
+    }
+    if model.reasoning_effort is not None:
+        model_document["reasoning_effort"] = model.reasoning_effort
     semantic = {
         "contract": VISUAL_PAGE_REVIEW_SCHEMA,
         "markdown_digest": primary.source.artifact_digest,
@@ -754,11 +761,7 @@ def _page_request(
         "page_number": page.page_number,
         "page_png_digest": page_ref.expected_digest.value,
         "manifest_digest": manifest_ref.expected_digest.value,
-        "model": {
-            "provider": model.provider,
-            "model": model.model,
-            "tier": model.tier,
-        },
+        "model": model_document,
     }
     task_digest = hashlib.sha256(
         json.dumps(

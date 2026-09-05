@@ -557,6 +557,13 @@ def _page_request(
     manifest_ref: ArtifactSourceRef,
     model: ModelSelection,
 ) -> LLMRequest:
+    model_document: dict[str, JsonValue] = {
+        "provider": model.provider,
+        "model": model.model,
+        "tier": model.tier,
+    }
+    if model.reasoning_effort is not None:
+        model_document["reasoning_effort"] = model.reasoning_effort
     semantic = {
         "prompt_contract": EQUATION_LABEL_VISUAL_PROMPT_VERSION,
         "output_contract": EQUATION_LABEL_PAGE_REVIEW_SCHEMA,
@@ -565,7 +572,7 @@ def _page_request(
         "page_number": page.page_number,
         "page_png_digest": page_ref.expected_digest.value,
         "manifest_digest": manifest_ref.expected_digest.value,
-        "model": {"provider": model.provider, "model": model.model, "tier": model.tier},
+        "model": model_document,
     }
     task_digest = hashlib.sha256(
         json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode("utf-8")

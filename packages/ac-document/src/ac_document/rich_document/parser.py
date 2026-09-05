@@ -5,7 +5,7 @@ import mimetypes
 import re
 from math import gcd
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -50,16 +50,23 @@ from .models import (
 from .source_targets import (
     SOURCE_TARGET_MANIFEST_METADATA_KEY,
     SOURCE_TARGET_MANIFEST_SCHEMA,
+    validate_source_target_manifest,
 )
 from .source_fidelity import (
     SOURCE_FRONT_MATTER_METADATA_KEY,
     SOURCE_FRONT_MATTER_SCHEMA,
     SOURCE_NOTES_METADATA_KEY,
     SOURCE_NOTES_SCHEMA,
+    validate_source_fidelity_metadata,
 )
 from .source_presentation import (
     SOURCE_PRESENTATION_METADATA_KEY,
     SOURCE_PRESENTATION_SCHEMA,
+    validate_source_presentation_metadata,
+)
+from .diagnostics import (
+    DOCUMENT_DIAGNOSTICS_METADATA_KEY,
+    DOCUMENT_DIAGNOSTICS_SCHEMA,
 )
 
 
@@ -170,12 +177,103 @@ class _HTMLParseResult:
     block_targets: tuple[_HTMLBlockTarget, ...]
     front_matter: tuple[Mapping[str, Any], ...]
     classifications: tuple[_HTMLClassificationFlow, ...]
+    diagnostics: tuple[Mapping[str, Any], ...]
+    visible_content: Mapping[str, int]
 
 
 @dataclass(frozen=True)
 class _HTMLFallback:
     locator_node: Tag
     values: tuple[Tag | NavigableString, ...]
+
+
+@dataclass(frozen=True)
+class _HTMLVisibleOwnershipUnit:
+    """One non-overlapping visible source flow unit before projection parsing."""
+
+    identity: str
+    locator: SourceLocator
+    kind: str
+
+
+@dataclass
+class _ProjectionLedger:
+    """Reconcile independently enumerated visible units with parse outcomes."""
+
+    projections: list[dict[str, Any]] = field(default_factory=list)
+    units: dict[str, _HTMLVisibleOwnershipUnit] = field(
+        default_factory=dict
+    )
+    dispositions: dict[str, str] = field(default_factory=dict)
+
+    def register(self, unit: _HTMLVisibleOwnershipUnit) -> None:
+        if unit.identity in self.units:
+            raise ValueError("visible HTML ownership unit is duplicated")
+        self.units[unit.identity] = unit
+
+    def classify(self, unit: _HTMLVisibleOwnershipUnit, disposition: str) -> None:
+        if unit.identity not in self.units:
+            raise ValueError("visible HTML ownership unit was not enumerated")
+        if unit.identity in self.dispositions:
+            raise ValueError("visible HTML ownership unit was classified twice")
+        if disposition not in {
+            "emitted",
+            "documented_exclusions",
+            "opaque",
+        }:
+            raise ValueError("visible HTML ownership disposition is invalid")
+        self.dispositions[unit.identity] = disposition
+
+    def record(
+        self,
+        *,
+        category: str,
+        locator: SourceLocator,
+        status: str,
+        fallback: str,
+        evidence: str,
+        scope: str | None = None,
+    ) -> None:
+        self.projections.append(
+            {
+                "category": category,
+                "scope": scope
+                or (
+                    locator.source_id
+                    or locator.selector
+                    or f"{locator.source_format.value}:source"
+                ),
+                "locator": _locator_to_document(locator),
+                "status": status,
+                "fallback": fallback,
+                "evidence": [evidence],
+            }
+        )
+
+    def metadata(self) -> dict[str, Any]:
+        projections = sorted(
+            self.projections,
+            key=lambda item: (str(item["category"]), str(item["scope"])),
+        )
+        counts = {
+            disposition: sum(
+                actual == disposition
+                for actual in self.dispositions.values()
+            )
+            for disposition in ("emitted", "documented_exclusions", "opaque")
+        }
+        unaccounted = len(set(self.units) - set(self.dispositions))
+        return {
+            "schema_version": DOCUMENT_DIAGNOSTICS_SCHEMA,
+            "projections": projections,
+            "visible_content": {
+                "visible_units": len(self.units),
+                "emitted": counts["emitted"],
+                "documented_exclusions": counts["documented_exclusions"],
+                "opaque": counts["opaque"],
+                "unaccounted": unaccounted,
+            },
+        }
 
 
 _HTML_BLOCK_NAMES = {
@@ -260,6 +358,14 @@ def parse_rich_artifact_bytes(
     html_block_targets: tuple[_HTMLBlockTarget, ...] = ()
     html_front_matter: tuple[Mapping[str, Any], ...] = ()
     html_classifications: tuple[_HTMLClassificationFlow, ...] = ()
+    projection_diagnostics: tuple[Mapping[str, Any], ...] = ()
+    visible_content: Mapping[str, int] = {
+        "visible_units": 0,
+        "emitted": 0,
+        "documented_exclusions": 0,
+        "opaque": 0,
+        "unaccounted": 0,
+    }
     if artifact.source_format is SourceFormat.MARKDOWN:
         raw = _parse_markdown(text, artifact, import_asset)
     elif artifact.source_format is SourceFormat.HTML:
@@ -274,6 +380,8 @@ def parse_rich_artifact_bytes(
         html_block_targets = html_result.block_targets
         html_front_matter = html_result.front_matter
         html_classifications = html_result.classifications
+        projection_diagnostics = html_result.diagnostics
+        visible_content = html_result.visible_content
     else:
         raw = _parse_tex(text, artifact, import_asset)
     metadata: dict[str, Any] = {
@@ -307,6 +415,18 @@ def parse_rich_artifact_bytes(
         html_block_targets=html_block_targets,
         html_front_matter=html_front_matter,
         html_classifications=html_classifications,
+        projection_diagnostics=projection_diagnostics,
+        visible_content=(
+            visible_content
+            if artifact.source_format is SourceFormat.HTML
+            else {
+                "visible_units": len(raw),
+                "emitted": len(raw),
+                "documented_exclusions": 0,
+                "opaque": 0,
+                "unaccounted": 0,
+            }
+        ),
     )
     if artifact.source_format is SourceFormat.MARKDOWN:
         document = _with_markdown_page_boundaries(document, text)
@@ -1045,6 +1165,144 @@ def _html_visible_body_events(
     return events
 
 
+def _html_visible_ownership_units(
+    soup: BeautifulSoup,
+    roots: list[Tag | BeautifulSoup],
+    source_format: SourceFormat,
+) -> tuple[
+    tuple[_HTMLVisibleOwnershipUnit, ...],
+    tuple[_HTMLVisibleOwnershipUnit, ...],
+]:
+    """Enumerate visible DOM ownership independently of block projection.
+
+    Content units follow the source-flow boundary used by the parser, while
+    navigation and sibling chrome outside selected article roots are retained
+    as explicit exclusions. Each traversal consumes a container exactly once,
+    so wrappers and repeated publisher chrome cannot double-count descendants.
+    """
+
+    content: list[_HTMLVisibleOwnershipUnit] = []
+    exclusions: list[_HTMLVisibleOwnershipUnit] = []
+    sequence = 0
+
+    def add(
+        node: Tag | BeautifulSoup,
+        *,
+        kind: str,
+        output: list[_HTMLVisibleOwnershipUnit],
+    ) -> None:
+        nonlocal sequence
+        locator = _html_locator(node, source_format)
+        identity = "visible-" + hashlib.sha256(
+            json_bytes(
+                {
+                    "kind": kind,
+                    "path": _html_tag_path(node),
+                    "sequence": sequence,
+                }
+            )
+        ).hexdigest()[:24]
+        sequence += 1
+        output.append(
+            _HTMLVisibleOwnershipUnit(
+                identity=identity,
+                locator=locator,
+                kind=kind,
+            )
+        )
+
+    def scan_content(container: Tag | BeautifulSoup) -> None:
+        pending: list[Tag | NavigableString] = []
+
+        def flush() -> None:
+            if _html_values_have_visible_content(pending):
+                locator_node = next(
+                    (value for value in pending if isinstance(value, Tag)),
+                    container,
+                )
+                add(locator_node, kind="content", output=content)
+            pending.clear()
+
+        for child in container.children:
+            if isinstance(child, Comment):
+                continue
+            if isinstance(child, NavigableString):
+                pending.append(child)
+                continue
+            if not isinstance(child, Tag):
+                continue
+            if child.name == "nav":
+                flush()
+                if _html_values_have_visible_content([child]):
+                    add(child, kind="navigation", output=exclusions)
+                continue
+            if child.name in _HTML_IGNORED_NAMES:
+                flush()
+                continue
+            if _html_is_block_node(child):
+                flush()
+                if _html_values_have_visible_content([child]):
+                    add(child, kind="content", output=content)
+                continue
+            if _html_contains_block_node(child):
+                flush()
+                scan_content(child)
+                continue
+            pending.append(child)
+        flush()
+
+    for root in roots:
+        scan_content(root)
+
+    article_roots = {id(root) for root in roots if getattr(root, "name", "") == "article"}
+    if not article_roots:
+        return tuple(content), tuple(exclusions)
+
+    def contains_article_root(node: Tag) -> bool:
+        return id(node) in article_roots or any(
+            id(descendant) in article_roots
+            for descendant in node.descendants
+            if isinstance(descendant, Tag)
+        )
+
+    def scan_outside(container: Tag | BeautifulSoup) -> None:
+        pending: list[NavigableString] = []
+
+        def flush() -> None:
+            if _html_values_have_visible_content(pending):
+                add(container, kind="outside_content", output=exclusions)
+            pending.clear()
+
+        for child in container.children:
+            if isinstance(child, Comment):
+                continue
+            if isinstance(child, NavigableString):
+                pending.append(child)
+                continue
+            if not isinstance(child, Tag):
+                continue
+            if id(child) in article_roots:
+                flush()
+                continue
+            if contains_article_root(child):
+                flush()
+                scan_outside(child)
+                continue
+            flush()
+            if child.name in _HTML_IGNORED_NAMES and child.name != "nav":
+                continue
+            if _html_values_have_visible_content([child]):
+                add(
+                    child,
+                    kind=("navigation" if child.name == "nav" else "outside_content"),
+                    output=exclusions,
+                )
+        flush()
+
+    scan_outside(soup.body or soup)
+    return tuple(content), tuple(exclusions)
+
+
 def _html_is_block_node(node: Tag) -> bool:
     if node.name == "math":
         return str(node.get("display") or "").casefold() == "block"
@@ -1066,19 +1324,28 @@ def _html_values_have_visible_content(
     values: list[Tag | NavigableString],
 ) -> bool:
     for value in values:
+        if isinstance(value, Comment):
+            continue
         if isinstance(value, NavigableString):
             if str(value).strip():
                 return True
             continue
-        if value.name in {"img", "math"}:
+        if value.name in {"img", "math", "object"}:
             if (
                 value.get("src")
+                or value.get("data")
                 or value.get("alt")
                 or value.get("alttext")
                 or value.get_text(" ", strip=True)
             ):
                 return True
             continue
+        if any(
+            _html_values_have_visible_content([descendant])
+            for descendant in value.find_all(["img", "math", "object"])
+            if isinstance(descendant, Tag)
+        ):
+            return True
         if value.get_text(" ", strip=True):
             return True
     return False
@@ -1469,15 +1736,46 @@ def _parse_html(
 ) -> _HTMLParseResult:
     soup = BeautifulSoup(text, "html.parser")
     roots = html_roots(soup)
+    ledger = _ProjectionLedger()
+    content_units, exclusion_units = _html_visible_ownership_units(
+        soup,
+        roots,
+        artifact.source_format,
+    )
+    for unit in (*content_units, *exclusion_units):
+        ledger.register(unit)
+    for unit in exclusion_units:
+        ledger.classify(unit, "documented_exclusions")
+        ledger.record(
+            category=unit.kind,
+            locator=unit.locator,
+            status="unavailable",
+            fallback="documented_exclusion",
+            evidence="outside_content_root"
+            if unit.kind == "outside_content"
+            else "navigation_excluded",
+            scope=unit.identity,
+        )
     events: list[Tag | _HTMLFallback] = []
     for root in roots:
         events.extend(_html_visible_body_events(root))
+    ownership_index = 0
     output: list[_RawBlock] = []
     section_ranges: dict[int, list[int]] = {}
     classification_ranges: dict[int, list[int]] = {}
     front_matter: list[Mapping[str, Any]] = []
     for ordinal, event in enumerate(events):
         node = event.locator_node if isinstance(event, _HTMLFallback) else event
+        ownership = None
+        if _html_values_have_visible_content([node]):
+            if ownership_index >= len(content_units):
+                raise ParseError(
+                    "unaccounted_html_flow",
+                    "visible HTML flow was not enumerated for ownership accounting",
+                    artifact=artifact,
+                )
+            ownership = content_units[ownership_index]
+            ownership_index += 1
         locator = _html_locator(
             node,
             artifact.source_format,
@@ -1520,12 +1818,34 @@ def _parse_html(
                 section = section.find_parent("section")
 
         def require_covered(*, structured: bool = False) -> None:
-            if (
-                structured
-                or len(output) > event_output_start
-                or _html_event_is_documented_exclusion(node)
-            ):
+            if structured:
+                if ownership is not None:
+                    ledger.classify(ownership, "documented_exclusions")
                 return
+            if len(output) > event_output_start:
+                if ownership is not None:
+                    ledger.classify(ownership, "emitted")
+                return
+            if not _html_values_have_visible_content([node]):
+                return
+            if _html_event_is_documented_exclusion(node):
+                plain = _html_visible_text(node)
+                if plain:
+                    output.append(
+                        _html_plain_paragraph_block(
+                            locator, _plain_inline_payload(plain)
+                        )
+                    )
+                    if ownership is not None:
+                        ledger.classify(ownership, "emitted")
+                    ledger.record(
+                        category="html_structure",
+                        locator=locator,
+                        status="unavailable",
+                        fallback="plain_block",
+                        evidence="unrepresentable_visible_structure",
+                    )
+                    return
             raise ParseError(
                 "uncovered_html_flow",
                 "visible HTML flow was neither emitted nor explicitly excluded",
@@ -1541,11 +1861,22 @@ def _parse_html(
                     block_index=len(output),
                 )
                 if entry is None:
-                    raise ParseError(
-                        "uncovered_html_flow",
-                        "uncovered_html_flow: structured HTML authors could not be represented",
-                        artifact=artifact,
+                    _append_html_fallback_blocks(
+                        output,
+                        locator=locator,
+                        values=event.values,
+                        import_asset=import_asset,
                     )
+                    ledger.record(
+                        category="source_front_matter",
+                        locator=locator,
+                        status="unavailable",
+                        fallback="plain_block",
+                        evidence="unrepresentable_authors_structure",
+                    )
+                    finish_event()
+                    require_covered()
+                    continue
                 front_matter.append(entry)
                 finish_event()
                 require_covered(structured=True)
@@ -1561,11 +1892,32 @@ def _parse_html(
             continue
         if re.fullmatch(r"h[1-6]", node.name or ""):
             segment = _html_single_inline_segment(node)
+            note_fallbacks = tuple(segment.get("_notes", ()))
             if segment.get("_notes"):
-                raise ValueError(
-                    "source notes in HTML headings cannot be represented"
+                segment = {
+                    key: value
+                    for key, value in segment.items()
+                    if key != "_notes"
+                }
+                ledger.record(
+                    category="source_notes",
+                    locator=locator,
+                    status="unavailable",
+                    fallback="plain_block",
+                    evidence="heading_note_has_no_safe_anchor",
                 )
-            level, roles = _html_heading_semantics(node)
+            try:
+                level, roles = _html_heading_semantics(node)
+            except ValueError:
+                level = int((node.name or "h6")[1:])
+                roles = ()
+                ledger.record(
+                    category="source_presentation",
+                    locator=locator,
+                    status="neutral",
+                    fallback="neutral_projection",
+                    evidence="invalid_exact_heading_semantics",
+                )
             output.append(
                 _RawBlock(
                     RichBlockKind.HEADING,
@@ -1581,6 +1933,7 @@ def _parse_html(
                     ),
                 )
             )
+            _append_html_note_fallback_blocks(output, note_fallbacks)
         elif node.name == "p":
             _append_html_paragraph_blocks(
                 output,
@@ -1615,6 +1968,32 @@ def _parse_html(
                 node=node,
                 caption_node=node.find("caption", recursive=False),
                 import_asset=import_asset,
+                ledger=ledger,
+            )
+            _append_html_caption_note_fallback_blocks(
+                output,
+                node.find("caption", recursive=False),
+            )
+        elif (
+            node.name == "figure"
+            and len(_html_owned_captions(node, "figcaption")) > 1
+        ):
+            _append_html_fallback_blocks(
+                output,
+                locator=locator,
+                values=tuple(
+                    child
+                    for child in node.children
+                    if isinstance(child, (Tag, NavigableString))
+                ),
+                import_asset=import_asset,
+            )
+            ledger.record(
+                category="figure_layout",
+                locator=locator,
+                status="neutral",
+                fallback="plain_block",
+                evidence="multiple_authored_captions",
             )
         elif _html_is_latexml_table_figure(node):
             tables = _html_descendant_tables(node)
@@ -1625,6 +2004,11 @@ def _parse_html(
                     node=tables[0],
                     caption_node=_html_owned_caption(node, "figcaption"),
                     import_asset=import_asset,
+                    ledger=ledger,
+                )
+                _append_html_caption_note_fallback_blocks(
+                    output,
+                    _html_owned_caption(node, "figcaption"),
                 )
         elif node.name in {"figure", "img"}:
             figure = _html_figure_block(
@@ -1632,9 +2016,16 @@ def _parse_html(
                 node=node,
                 import_asset=import_asset,
                 warn=warn,
+                ledger=ledger,
             )
             if figure is not None:
                 output.append(figure)
+            _append_html_caption_note_fallback_blocks(
+                output,
+                _html_owned_caption(node, "figcaption")
+                if node.name == "figure"
+                else None,
+            )
         elif node.name == "math" and str(node.get("display") or "").casefold() == "block":
             tex = _html_math_tex(node)
             if tex:
@@ -1651,6 +2042,19 @@ def _parse_html(
                 )
         finish_event()
         require_covered()
+    if ownership_index != len(content_units):
+        raise ParseError(
+            "unaccounted_html_flow",
+            "visible HTML ownership units were not reached by source parsing",
+            artifact=artifact,
+        )
+    visible_content = ledger.metadata()["visible_content"]
+    if visible_content["unaccounted"]:
+        raise ParseError(
+            "unaccounted_html_flow",
+            "visible HTML flow remained unaccounted after parsing",
+            artifact=artifact,
+        )
     sections = []
     for section in soup.find_all("section"):
         if not isinstance(section, Tag) or id(section) not in section_ranges:
@@ -1765,6 +2169,8 @@ def _parse_html(
         tuple(block_targets),
         tuple(front_matter),
         tuple(classifications),
+        tuple(ledger.projections),
+        visible_content,
     )
 
 
@@ -1796,6 +2202,61 @@ def _append_html_fallback_blocks(
         segments=_html_inline_segments_from_values(values),
         import_asset=import_asset,
     )
+
+
+def _append_html_plain_fallback_block(
+    output: list[_RawBlock],
+    *,
+    locator: SourceLocator,
+    node: Tag,
+) -> None:
+    text = _html_visible_text(node)
+    if text:
+        output.append(
+            _html_plain_paragraph_block(locator, _plain_inline_payload(text))
+        )
+
+
+def _html_plain_paragraph_block(
+    locator: SourceLocator,
+    payload: Mapping[str, Any],
+) -> _RawBlock:
+    """Keep plain HTML fallbacks valid inside source-presentation metadata."""
+
+    return _RawBlock(
+        RichBlockKind.PARAGRAPH,
+        locator,
+        payload,
+        presentation_fields=(
+            _html_presentation_field(payload, field="text"),
+        ),
+    )
+
+
+def _append_html_caption_note_fallback_blocks(
+    output: list[_RawBlock],
+    caption: Tag | None,
+) -> None:
+    if not isinstance(caption, Tag):
+        return
+    notes = []
+    for node in caption.find_all(True):
+        if not isinstance(node, Tag) or not _html_is_source_note(node):
+            continue
+        note = _html_note_spec(node, anchor_start=0)
+        if note is not None:
+            notes.append(note)
+    _append_html_note_fallback_blocks(output, tuple(notes))
+
+
+def _append_html_note_fallback_blocks(
+    output: list[_RawBlock],
+    notes: tuple[_HTMLNoteSpec, ...],
+) -> None:
+    for note in notes:
+        output.append(
+            _html_plain_paragraph_block(note.locator, note.body_payload)
+        )
 
 
 def _append_html_flow_blocks(
@@ -2000,6 +2461,20 @@ def _append_html_list_block_node(
                 caption_node=node.find("caption", recursive=False),
                 import_asset=import_asset,
             )
+    elif (
+        node.name == "figure"
+        and len(_html_owned_captions(node, "figcaption")) > 1
+    ):
+        _append_html_fallback_blocks(
+            output,
+            locator=locator,
+            values=tuple(
+                child
+                for child in node.children
+                if isinstance(child, (Tag, NavigableString))
+            ),
+            import_asset=import_asset,
+        )
     elif _html_is_latexml_table_figure(node):
         tables = _html_descendant_tables(node)
         if len(tables) == 1:
@@ -2242,10 +2717,69 @@ def _html_is_latexml_table_figure(node: Tag) -> bool:
 
 
 def _html_descendant_tables(node: Tag) -> list[Tag]:
+    tables: list[Tag] = []
+    for candidate in node.find_all(
+        lambda value: isinstance(value, Tag)
+        and (
+            value.name == "table"
+            or _html_is_latexml_span_tabular(value)
+        )
+    ):
+        if not isinstance(candidate, Tag):
+            continue
+        if _html_is_latexml_span_tabular(candidate) and any(
+            isinstance(parent, Tag)
+            and (
+                parent.name == "table"
+                or _html_is_latexml_span_tabular(parent)
+            )
+            for parent in candidate.parents
+            if parent is not node
+        ):
+            continue
+        tables.append(candidate)
+    return tables
+
+
+def _html_is_latexml_span_tabular(node: Tag) -> bool:
+    return node.name == "span" and "ltx_tabular" in _html_classes(node)
+
+
+def _html_latexml_span_table_rows(node: Tag) -> list[Tag]:
+    rows: list[Tag] = []
+    for candidate in node.find_all(
+        lambda value: isinstance(value, Tag)
+        and "ltx_tr" in _html_classes(value)
+    ):
+        if not isinstance(candidate, Tag):
+            continue
+        owner = next(
+            (
+                parent
+                for parent in candidate.parents
+                if isinstance(parent, Tag)
+                and _html_is_latexml_span_tabular(parent)
+            ),
+            None,
+        )
+        if owner is node:
+            rows.append(candidate)
+    return rows
+
+
+def _html_table_row_cells(row: Tag, *, latexml_span_grid: bool) -> list[Tag]:
     return [
-        table
-        for table in node.find_all("table")
-        if isinstance(table, Tag)
+        child
+        for child in row.children
+        if isinstance(child, Tag)
+        and (
+            child.name in {"th", "td"}
+            or (
+                latexml_span_grid
+                and child.name == "span"
+                and "ltx_td" in _html_classes(child)
+            )
+        )
     ]
 
 
@@ -2255,10 +2789,21 @@ def _html_figure_block(
     node: Tag,
     import_asset: AssetImporter,
     warn: WarningEmitter,
+    ledger: _ProjectionLedger | None = None,
 ) -> _RawBlock | None:
     media_nodes = _html_figure_media_nodes(node)
     if not media_nodes:
-        _html_figure_presentation(node, media_nodes=(), panels=())
+        try:
+            _html_figure_presentation(node, media_nodes=(), panels=())
+        except ValueError:
+            _record_projection(
+                ledger,
+                category="figure_layout",
+                locator=locator,
+                status="unavailable",
+                fallback="documented_exclusion",
+                evidence="invalid_exact_layout",
+            )
         return None
     panel_values = tuple(
         _html_figure_panel(
@@ -2270,11 +2815,22 @@ def _html_figure_block(
         for index, media in enumerate(media_nodes)
     )
     panels = tuple(value[0] for value in panel_values)
-    figure_presentation = _html_figure_presentation(
-        node,
-        media_nodes=media_nodes,
-        panels=panels,
-    )
+    try:
+        figure_presentation = _html_figure_presentation(
+            node,
+            media_nodes=media_nodes,
+            panels=panels,
+        )
+    except ValueError:
+        figure_presentation = _html_neutral_figure_presentation(panels)
+        _record_projection(
+            ledger,
+            category="figure_layout",
+            locator=locator,
+            status="neutral",
+            fallback="neutral_projection",
+            evidence="invalid_exact_layout",
+        )
     caption_node = (
         _html_owned_caption(node, "figcaption")
         if node.name == "figure"
@@ -2286,8 +2842,18 @@ def _html_figure_block(
         else _inline_payload([])
     )
     if caption_segment.get("_notes"):
-        raise ValueError(
-            "source notes in HTML Figure captions cannot be represented"
+        caption_segment = {
+            key: value
+            for key, value in caption_segment.items()
+            if key != "_notes"
+        }
+        _record_projection(
+            ledger,
+            category="source_notes",
+            locator=locator,
+            status="unavailable",
+            fallback="omit_projection",
+            evidence="caption_note_has_no_safe_anchor",
         )
     caption = str(caption_segment["text"])
     panel = panels[0]
@@ -2310,16 +2876,16 @@ def _html_figure_block(
             _html_presentation_field(caption_segment, field="caption"),
         ),
         figure_presentation=figure_presentation,
-        caption_presentation=(
-            _html_caption_presentation(
-                kind="figure",
-                container=node,
-                caption=caption_node,
-                content_nodes=media_nodes,
-            )
-            if isinstance(caption_node, Tag) and caption
-            else None
-        ),
+        caption_presentation=_html_optional_caption_presentation(
+            kind="figure",
+            container=node,
+            caption=caption_node,
+            content_nodes=media_nodes,
+            locator=locator,
+            ledger=ledger,
+        )
+        if isinstance(caption_node, Tag) and caption
+        else None,
     )
 
 
@@ -2343,8 +2909,53 @@ def _html_caption_presentation(
     }
 
 
+def _html_optional_caption_presentation(
+    *,
+    kind: str,
+    container: Tag,
+    caption: Tag | None,
+    content_nodes: tuple[Tag, ...],
+    locator: SourceLocator,
+    ledger: _ProjectionLedger | None,
+) -> Mapping[str, Any] | None:
+    if not isinstance(caption, Tag):
+        return None
+    try:
+        return _html_caption_presentation(
+            kind=kind,
+            container=container,
+            caption=caption,
+            content_nodes=content_nodes,
+        )
+    except ValueError:
+        _record_projection(
+            ledger,
+            category="caption_presentation",
+            locator=locator,
+            status="neutral",
+            fallback="neutral_projection",
+            evidence="invalid_exact_caption_presentation",
+        )
+        return None
+
+
+def _record_projection(
+    ledger: _ProjectionLedger | None,
+    **kwargs: Any,
+) -> None:
+    if ledger is not None:
+        ledger.record(**kwargs)
+
+
 def _html_owned_caption(container: Tag, name: str) -> Tag | None:
-    captions = [
+    captions = _html_owned_captions(container, name)
+    if len(captions) > 1:
+        raise ValueError("multiple authored captions conflict")
+    return captions[0] if captions else None
+
+
+def _html_owned_captions(container: Tag, name: str) -> tuple[Tag, ...]:
+    return tuple(
         caption
         for caption in container.find_all(name)
         if isinstance(caption, Tag)
@@ -2353,10 +2964,7 @@ def _html_owned_caption(container: Tag, name: str) -> Tag | None:
             if container.name == "figure"
             else caption.find_parent(container.name) is container
         )
-    ]
-    if len(captions) > 1:
-        raise ValueError("multiple authored captions conflict")
-    return captions[0] if captions else None
+    )
 
 
 def _html_caption_alignment(
@@ -2451,6 +3059,31 @@ def _html_figure_media_nodes(node: Tag) -> tuple[Tag, ...]:
     return tuple(output)
 
 
+def _html_single_figure_graphic_is_unambiguous(
+    container: Tag,
+    graphic: Tag,
+) -> bool:
+    current = graphic
+    while current.parent is not container:
+        parent = current.parent
+        if not isinstance(parent, Tag) or parent.name not in {"p", "span"}:
+            return False
+        significant_children = []
+        for child in parent.children:
+            if isinstance(child, Comment):
+                continue
+            if isinstance(child, NavigableString) and not str(child).strip():
+                continue
+            significant_children.append(child)
+        if (
+            len(significant_children) != 1
+            or significant_children[0] is not current
+        ):
+            return False
+        current = parent
+    return True
+
+
 _HTML_FIGURE_DIMENSION_LIMIT = 1_000_000
 
 
@@ -2500,7 +3133,10 @@ def _html_figure_presentation(
     if (
         len(media_nodes) != 1
         or len(exact_graphics) != 1
-        or exact_graphics[0].parent is not node
+        or not _html_single_figure_graphic_is_unambiguous(
+            node,
+            exact_graphics[0],
+        )
     ):
         raise ValueError("Figure panel layout has ambiguous direct graphics")
     return {
@@ -2866,19 +3502,43 @@ def _append_html_table_node_blocks(
     node: Tag,
     caption_node: Tag | None,
     import_asset: AssetImporter,
+    ledger: _ProjectionLedger | None = None,
 ) -> None:
-    rows = [
-        row
-        for row in node.find_all("tr")
-        if isinstance(row, Tag) and row.find_parent("table") is node
-    ]
-    expanded_result = _html_expand_table_rows(rows)
+    latexml_span_grid = _html_is_latexml_span_tabular(node)
+    rows = (
+        _html_latexml_span_table_rows(node)
+        if latexml_span_grid
+        else [
+            row
+            for row in node.find_all("tr")
+            if isinstance(row, Tag) and row.find_parent("table") is node
+        ]
+    )
+    expanded_result = _html_expand_table_rows(
+        rows,
+        locator=locator,
+        ledger=ledger,
+        latexml_span_grid=latexml_span_grid,
+    )
     if expanded_result is None:
+        _append_html_plain_fallback_block(output, locator=locator, node=node)
+        _record_projection(
+            ledger,
+            category="table_presentation",
+            locator=locator,
+            status="unavailable",
+            fallback="plain_block",
+            evidence="unrepresentable_table_geometry",
+        )
         return
     expanded, cells = expanded_result
     data_start = (
         1
-        if rows and isinstance(rows[0].find("th", recursive=False), Tag)
+        if rows
+        and (
+            latexml_span_grid
+            or isinstance(rows[0].find("th", recursive=False), Tag)
+        )
         else 0
     )
     caption_segment = (
@@ -2887,8 +3547,18 @@ def _append_html_table_node_blocks(
         else _inline_payload([])
     )
     if caption_segment.get("_notes"):
-        raise ValueError(
-            "source notes in HTML Table captions cannot be represented"
+        caption_segment = {
+            key: value
+            for key, value in caption_segment.items()
+            if key != "_notes"
+        }
+        _record_projection(
+            ledger,
+            category="source_notes",
+            locator=locator,
+            status="unavailable",
+            fallback="omit_projection",
+            evidence="caption_note_has_no_safe_anchor",
         )
     _append_html_table_blocks(
         output,
@@ -2897,11 +3567,13 @@ def _append_html_table_node_blocks(
         rows=expanded[data_start:],
         caption_segment=caption_segment,
         caption_presentation=(
-            _html_caption_presentation(
+            _html_optional_caption_presentation(
                 kind="table",
                 container=caption_node.parent,
                 caption=caption_node,
                 content_nodes=(node,),
+                locator=locator,
+                ledger=ledger,
             )
             if isinstance(caption_node, Tag)
             and isinstance(caption_node.parent, Tag)
@@ -2915,6 +3587,10 @@ def _append_html_table_node_blocks(
 
 def _html_expand_table_rows(
     rows: list[Tag],
+    *,
+    locator: SourceLocator,
+    ledger: _ProjectionLedger | None,
+    latexml_span_grid: bool = False,
 ) -> tuple[list[list[Tag | None]], list[dict[str, Any]]] | None:
     output: list[list[Tag | None]] = []
     cells: list[dict[str, Any]] = []
@@ -2930,7 +3606,10 @@ def _html_expand_table_rows(
                 expanded.append(None)
                 column += 1
 
-        for cell in row.find_all(["th", "td"], recursive=False):
+        for cell in _html_table_row_cells(
+            row,
+            latexml_span_grid=latexml_span_grid,
+        ):
             if not isinstance(cell, Tag):
                 continue
             fill_spans()
@@ -2951,17 +3630,38 @@ def _html_expand_table_rows(
                 return None
             expanded.append(cell)
             expanded.extend(None for _ in range(colspan - 1))
+            try:
+                cell_presentation = _html_table_cell_presentation(cell)
+            except ValueError:
+                cell_presentation = {
+                    "horizontal_alignment": None,
+                    "horizontal_alignment_sources": [],
+                    "rule_edges": [],
+                }
+                _record_projection(
+                    ledger,
+                    category="table_presentation",
+                    locator=locator,
+                    status="neutral",
+                    fallback="neutral_projection",
+                    evidence="invalid_exact_cell_presentation",
+                )
             cells.append(
                 {
                     "row_index": row_index,
                     "column_index": column,
                     "row_span": rowspan,
                     "column_span": colspan,
-                    "kind": "header" if cell.name == "th" else "data",
+                    "kind": (
+                        "header"
+                        if cell.name == "th"
+                        or (latexml_span_grid and row_index == 0)
+                        else "data"
+                    ),
                     "locator": _locator_to_document(
                         _html_locator(cell, SourceFormat.HTML)
                     ),
-                    **_html_table_cell_presentation(cell),
+                    **cell_presentation,
                 }
             )
             if rowspan > 1:
@@ -3368,6 +4068,8 @@ def _html_inline_segments_from_values(
         active_marks: tuple[tuple[int, str], ...] = (),
     ) -> None:
         nonlocal next_mark_id
+        if isinstance(value, Comment):
+            return
         if isinstance(value, NavigableString):
             text = re.sub(r"\s+", " ", str(value))
             if link_target is None:
@@ -4233,6 +4935,19 @@ def _inline_payload(parts: list[dict[str, Any]]) -> dict[str, Any]:
     return payload
 
 
+def _plain_inline_payload(text: str) -> dict[str, Any]:
+    """Represent visible fallback text without claiming inline semantics."""
+
+    return {
+        "text": text,
+        "inline_spans": (
+            [{"kind": "text", "start": 0, "end": len(text), "text": text}]
+            if text
+            else []
+        ),
+    }
+
+
 def _figure_payload(
     asset: RichAsset | None,
     *,
@@ -4281,6 +4996,8 @@ def _finalize_document(
     html_block_targets: tuple[_HTMLBlockTarget, ...] = (),
     html_front_matter: tuple[Mapping[str, Any], ...] = (),
     html_classifications: tuple[_HTMLClassificationFlow, ...] = (),
+    projection_diagnostics: tuple[Mapping[str, Any], ...] = (),
+    visible_content: Mapping[str, int] | None = None,
 ) -> RichDocument:
     section_specs: list[dict[str, Any]] = []
     paths: list[tuple[str, ...]] = []
@@ -4655,12 +5372,134 @@ def _finalize_document(
             "schema_version": SOURCE_TARGET_MANIFEST_SCHEMA,
             "targets": targets,
         }
+    diagnostics = [dict(item) for item in projection_diagnostics]
+    diagnostic_locator = (
+        blocks[0].locator
+        if blocks
+        else SourceLocator(source_format=artifact.source_format)
+    )
+    _admit_optional_metadata(
+        metadata_value,
+        blocks=blocks,
+        sections=sections,
+        assets=assets,
+        source=artifact,
+        diagnostics=diagnostics,
+        locator=diagnostic_locator,
+    )
+    if artifact.source_format is SourceFormat.HTML:
+        metadata_value[DOCUMENT_DIAGNOSTICS_METADATA_KEY] = {
+            "schema_version": DOCUMENT_DIAGNOSTICS_SCHEMA,
+            "projections": sorted(
+                diagnostics,
+                key=lambda item: (str(item["category"]), str(item["scope"])),
+            ),
+            "visible_content": dict(
+                visible_content
+                or {
+                    "visible_units": len(raw_blocks),
+                    "emitted": len(raw_blocks),
+                    "documented_exclusions": 0,
+                    "opaque": 0,
+                    "unaccounted": 0,
+                }
+            ),
+        }
     return RichDocument(
         source=artifact,
         blocks=tuple(blocks),
         sections=tuple(sections),
         assets=assets,
         metadata=metadata_value,
+    )
+
+
+def _admit_optional_metadata(
+    metadata: dict[str, Any],
+    *,
+    blocks: list[RichBlock],
+    sections: list[RichSection],
+    assets: tuple[RichAsset, ...],
+    source: SourceArtifact,
+    diagnostics: list[dict[str, Any]],
+    locator: SourceLocator,
+) -> None:
+    """Keep exact validators strict while isolating optional metadata failure."""
+
+    candidates = (
+        (
+            SOURCE_TARGET_MANIFEST_METADATA_KEY,
+            "source_target_manifest",
+            lambda: validate_source_target_manifest(
+                metadata[SOURCE_TARGET_MANIFEST_METADATA_KEY],
+                blocks=blocks,
+                sections=sections,
+                assets=assets,
+            ),
+        ),
+        (
+            SOURCE_FRONT_MATTER_METADATA_KEY,
+            "source_front_matter",
+            lambda: _validate_fidelity_candidate(
+                metadata,
+                SOURCE_FRONT_MATTER_METADATA_KEY,
+                blocks=blocks,
+                source=source,
+            ),
+        ),
+        (
+            SOURCE_NOTES_METADATA_KEY,
+            "source_notes",
+            lambda: _validate_fidelity_candidate(
+                metadata,
+                SOURCE_NOTES_METADATA_KEY,
+                blocks=blocks,
+                source=source,
+            ),
+        ),
+        (
+            SOURCE_PRESENTATION_METADATA_KEY,
+            "source_presentation",
+            lambda: validate_source_presentation_metadata(
+                metadata,
+                blocks=blocks,
+                source=source,
+            ),
+        ),
+    )
+    for key, category, validate in candidates:
+        if key not in metadata:
+            continue
+        try:
+            validate()
+        except ValueError:
+            metadata.pop(key)
+            diagnostics.append(
+                {
+                    "category": category,
+                    "scope": locator.source_id
+                    or locator.selector
+                    or f"{source.source_format.value}:source",
+                    "locator": _locator_to_document(locator),
+                    "status": "unavailable",
+                    "fallback": "omit_projection",
+                    "evidence": ["exact_projection_validation_failed"],
+                }
+            )
+
+
+def _validate_fidelity_candidate(
+    metadata: Mapping[str, Any],
+    key: str,
+    *,
+    blocks: list[RichBlock],
+    source: SourceArtifact,
+) -> None:
+    candidate = {key: metadata[key]}
+    validate_source_fidelity_metadata(
+        candidate,
+        blocks=blocks,
+        source=source,
     )
 
 

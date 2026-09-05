@@ -665,6 +665,8 @@ def build_keyword_terms(
         occurrence_count, sentences = _literal_occurrences(
             document, (canonical, *aliases)
         )
+        if occurrence_count == 0:
+            continue
         output.append(
             KeywordTerm(
                 term_id=f"term-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:20]}",
@@ -690,7 +692,11 @@ def result_from_inventory(
         raise ValueError("planned_count must equal ceil(1.5 * approx_count)")
     ordered = tuple(
         sorted(
-            value.terms,
+            (
+                item
+                for item in value.terms
+                if item.occurrence_count > 0
+            ),
             key=lambda item: (
                 -item.occurrence_count,
                 (

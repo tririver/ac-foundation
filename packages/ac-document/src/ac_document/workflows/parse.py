@@ -83,16 +83,19 @@ class MarkdownPDFVisualParseHandler:
         )
 
     def semantic_input(self) -> dict[str, JsonValue]:
+        model_requirement: dict[str, JsonValue] = {
+            "provider": self.model.provider,
+            "model": self.model.model,
+            "tier": self.model.tier,
+        }
+        if self.model.reasoning_effort is not None:
+            model_requirement["reasoning_effort"] = self.model.reasoning_effort
         return {
             "schema_version": "ac.document.markdown_pdf_visual_parse_request.v1",
             "primary": _artifact_semantic_document(self.primary),
             "pdf_validator": _artifact_semantic_document(self.pdf_validator),
             "validation_policy": ValidationPolicy.VISUAL_ALL_PAGES.value,
-            "model_requirement": {
-                "provider": self.model.provider,
-                "model": self.model.model,
-                "tier": self.model.tier,
-            },
+            "model_requirement": model_requirement,
         }
 
     def execute(self, context: RunContext):

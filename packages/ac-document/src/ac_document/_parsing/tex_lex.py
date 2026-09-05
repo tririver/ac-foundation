@@ -11,6 +11,21 @@ def normalize_tex(value: str) -> str:
 
     value = re.sub(r"(?<!\\)%[^\n]*", "", value)
     value = re.sub(r"\\(?:label|tag)\s*\{[^{}]*\}", "", value)
+    # LaTeXML includes line-breaking and default-black presentation commands
+    # in MathML TeX projections.  They carry no mathematical semantics and are
+    # not portable to renderers such as KaTeX.
+    value = re.sub(r"\\penalty(?![A-Za-z@])", "", value)
+    value = re.sub(
+        r"\\color\s*\[\s*rgb\s*\]\s*"
+        r"\{\s*0(?:\.0+)?\s*,\s*0(?:\.0+)?\s*,\s*0(?:\.0+)?\s*\}",
+        "",
+        value,
+    )
+    value = re.sub(
+        r"(\\begin\s*\{array\})\s*\[\s*\]\s*(?=\{)",
+        r"\1",
+        value,
+    )
     # Remove only outer display wrappers.  Content environments such as
     # ``array`` and ``matrix`` carry layout semantics and must survive into the
     # RichDocument and renderer.
