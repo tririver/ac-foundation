@@ -4375,6 +4375,298 @@ def test_target_projection_failure_isolated_from_visible_core_content(tmp_path):
     }
 
 
+def test_html_mixed_paragraph_preserves_embedded_video_with_auditable_fallback(
+    tmp_path,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p>Before <video id="clip" src="clip.mp4"
+            aria-label="Demonstration clip"></video> after.</p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [
+        RichBlockKind.PARAGRAPH,
+        RichBlockKind.FIGURE,
+        RichBlockKind.PARAGRAPH,
+    ]
+    assert [
+        block.payload["text"]
+        for block in document.blocks
+        if block.kind is RichBlockKind.PARAGRAPH
+    ] == ["Before", "after."]
+    figure = document.blocks[1]
+    assert figure.locator.source_id == "clip"
+    assert figure.payload["target"] == "clip.mp4"
+    assert figure.payload["alt_text"] == "Demonstration clip"
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert diagnostics["visible_content"]["unaccounted"] == 0
+    assert [
+        (entry["category"], entry["scope"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ] == [("embedded_media", "clip", "neutral_projection")]
+
+
+@pytest.mark.parametrize(
+    ("markup", "source_id", "target", "alt_text"),
+    (
+        (
+            '<video id="video" src="movie.mp4" aria-label="Movie"></video>',
+            "video",
+            "movie.mp4",
+            "Movie",
+        ),
+        (
+            '<audio id="audio" aria-label="Podcast"><source src="podcast.ogg" '
+            'type="audio/ogg"></audio>',
+            "audio",
+            "podcast.ogg",
+            "Podcast",
+        ),
+        (
+            '<canvas id="canvas" aria-label="Rendered chart"></canvas>',
+            "canvas",
+            "",
+            "Rendered chart",
+        ),
+        (
+            '<svg id="drawing" aria-label="Vector diagram" viewBox="0 0 8 8">'
+            '<path d="M0 0L8 8"></path></svg>',
+            "drawing",
+            "",
+            "Vector diagram",
+        ),
+    ),
+)
+def test_html_standalone_rendered_media_has_auditable_figure_fallback(
+    tmp_path,
+    markup,
+    source_id,
+    target,
+    alt_text,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            f"<article>{markup}</article>".encode(),
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [RichBlockKind.FIGURE]
+    figure = document.blocks[0]
+    assert figure.locator.source_id == source_id
+    assert figure.payload["target"] == target
+    assert figure.payload["alt_text"] == alt_text
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert diagnostics["visible_content"]["unaccounted"] == 0
+    assert [
+        (entry["category"], entry["scope"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ] == [("embedded_media", source_id, "neutral_projection")]
+
+
+def test_html_structured_figure_preserves_every_media_with_matching_diagnostics(
+    tmp_path,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><figure id="figure">
+              <img id="image" src="image.png" alt="Image">
+              <video id="video" src="video.mp4"></video>
+              <audio id="audio"><source src="audio.ogg"></audio>
+              <svg id="drawing"><path d="M0 0L1 1"></path></svg>
+            </figure></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    figures = [
+        block for block in document.blocks if block.kind is RichBlockKind.FIGURE
+    ]
+    assert [block.payload["target"] for block in figures] == [
+        "image.png",
+        "video.mp4",
+        "audio.ogg",
+        "",
+    ]
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    media_diagnostics = [
+        (entry["scope"], entry["status"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ]
+    assert media_diagnostics == [
+        ("audio", "neutral", "neutral_projection"),
+        ("drawing", "neutral", "neutral_projection"),
+        ("image", "exact", "none"),
+        ("video", "neutral", "neutral_projection"),
+    ]
+    assert len({scope for scope, _status, _fallback in media_diagnostics}) == len(
+        figures
+    )
+
+
+def test_html_list_figure_with_video_emits_media_not_empty_list(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><ul><li id="item"><figure id="figure">
+              <video id="video" src="video.mp4"></video>
+            </figure></li></ul></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [RichBlockKind.FIGURE]
+    figure = document.blocks[0]
+    assert figure.payload["target"] == "video.mp4"
+    assert figure.list_path[0].item_source_id == "item"
+
+
+def test_html_nonmedia_src_and_data_attributes_remain_visible_text(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p><span src="important.txt" data="still-text">
+              Important text.
+            </span></p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [RichBlockKind.PARAGRAPH]
+    assert document.blocks[0].payload["text"] == "Important text."
+
+
+def test_html_media_owner_target_precedes_descendant_fallback_target(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p><object id="media" data="primary.svg">
+              <img src="fallback.png" alt="Fallback">
+            </object></p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    figure = next(
+        block for block in document.blocks if block.kind is RichBlockKind.FIGURE
+    )
+    assert figure.payload["target"] == "primary.svg"
+
+
+def test_html_defs_only_svg_does_not_create_an_empty_figure(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><svg id="definitions"><defs>
+              <linearGradient id="gradient"><stop offset="0"></stop></linearGradient>
+            </defs></svg></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert not [
+        block for block in document.blocks if block.kind is RichBlockKind.FIGURE
+    ]
+
+
+@pytest.mark.parametrize(
+    ("markup", "leading_kind"),
+    (
+        (
+            '<pre id="code">print(1)<video id="video" src="video.mp4"></video></pre>',
+            RichBlockKind.CODE,
+        ),
+        (
+            '<figure class="ltx_table" id="table-figure"><table id="table">'
+            '<tr><td>cell</td></tr></table><video id="video" '
+            'src="video.mp4"></video></figure>',
+            RichBlockKind.TABLE,
+        ),
+    ),
+)
+def test_html_nonmedia_blocks_compensate_unrepresented_embedded_media(
+    tmp_path,
+    markup,
+    leading_kind,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            f"<article>{markup}</article>".encode(),
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [
+        leading_kind,
+        RichBlockKind.FIGURE,
+    ]
+    assert document.blocks[1].locator.source_id == "video"
+    assert document.blocks[1].payload["target"] == "video.mp4"
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert [
+        (entry["scope"], entry["status"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ] == [("video", "neutral", "neutral_projection")]
+
+
+def test_html_visible_content_walks_direct_children_without_descendant_search(
+    monkeypatch,
+):
+    depth = 128
+    soup = rich_parser.BeautifulSoup(
+        "<div>" * depth + "Visible." + "</div>" * depth,
+        "html.parser",
+    )
+    root = soup.find("div")
+    assert isinstance(root, rich_parser.Tag)
+    original_find_all = rich_parser.Tag.find_all
+    calls = 0
+
+    def count_find_all(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_find_all(*args, **kwargs)
+
+    monkeypatch.setattr(rich_parser.Tag, "find_all", count_find_all)
+
+    assert rich_parser._html_values_have_visible_content([root])
+    assert calls == 0
+
+
 def test_document_diagnostics_are_typed_serializable_and_reject_unaccounted_flow(
     tmp_path,
 ):

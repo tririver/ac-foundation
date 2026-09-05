@@ -110,6 +110,7 @@ class _RawBlock:
     kind: RichBlockKind
     locator: SourceLocator
     payload: Mapping[str, Any]
+    represented_media: tuple[int, ...] = ()
     section_reset_to_level: int | None = None
     target_panels: tuple[Mapping[str, Any], ...] = ()
     list_path: tuple[RichListPathEntry, ...] = ()
@@ -299,6 +300,30 @@ _HTML_IGNORED_NAMES = {
     "style",
     "template",
 }
+_HTML_EMBEDDED_MEDIA_NAMES = {
+    "audio",
+    "canvas",
+    "embed",
+    "iframe",
+    "img",
+    "object",
+    "video",
+}
+_HTML_SVG_DRAWING_NAMES = {
+    "circle",
+    "ellipse",
+    "foreignobject",
+    "image",
+    "line",
+    "path",
+    "polygon",
+    "polyline",
+    "rect",
+    "text",
+    "textpath",
+    "use",
+}
+_HTML_MEDIA_TARGET_ATTRIBUTES = ("src", "data")
 _HTML_TABLE_SPAN_LIMIT = 4096
 _HTML_TABLE_COVERAGE_LIMIT = 65_536
 
@@ -1330,25 +1355,109 @@ def _html_values_have_visible_content(
             if str(value).strip():
                 return True
             continue
-        if value.name in {"img", "math", "object"}:
-            if (
-                value.get("src")
-                or value.get("data")
-                or value.get("alt")
-                or value.get("alttext")
-                or value.get_text(" ", strip=True)
-            ):
+        if _html_is_embedded_media(value):
+            return True
+        if value.name == "math":
+            if value.get("alttext") or value.get_text(" ", strip=True):
                 return True
             continue
-        if any(
-            _html_values_have_visible_content([descendant])
-            for descendant in value.find_all(["img", "math", "object"])
-            if isinstance(descendant, Tag)
+        if _html_values_have_visible_content(
+            [
+                child
+                for child in value.children
+                if isinstance(child, (Tag, NavigableString))
+            ]
         ):
             return True
-        if value.get_text(" ", strip=True):
-            return True
     return False
+
+
+def _html_is_embedded_media(node: Tag) -> bool:
+    """Return whether one DOM node owns rendered embedded content.
+
+    The test is intentionally based on rendered-content semantics rather than
+    publisher-specific classes: source-backed elements, canvas surfaces, and
+    SVGs with drawing content are each a single non-overlapping media unit.
+    """
+
+    name = (node.name or "").casefold()
+    if name in _HTML_IGNORED_NAMES or name in {"source", "track"}:
+        return False
+    if name == "svg":
+        return _html_svg_has_drawing_content(node)
+    return name in _HTML_EMBEDDED_MEDIA_NAMES
+
+
+def _html_svg_has_drawing_content(node: Tag) -> bool:
+    return any(
+        isinstance(descendant, Tag)
+        and (descendant.name or "").casefold() in _HTML_SVG_DRAWING_NAMES
+        for descendant in node.find_all(True)
+    )
+
+
+def _html_embedded_media_target(node: Tag) -> str:
+    descendants = tuple(
+        descendant
+        for descendant in node.find_all(True)
+        if isinstance(descendant, Tag)
+    )
+    for attribute in _HTML_MEDIA_TARGET_ATTRIBUTES:
+        target = str(node.get(attribute) or "").strip()
+        if target:
+            return target
+    for attribute in _HTML_MEDIA_TARGET_ATTRIBUTES:
+        for candidate in descendants:
+            target = str(candidate.get(attribute) or "").strip()
+            if target:
+                return target
+    return str(node.get("poster") or "").strip()
+
+
+def _html_embedded_media_alt_text(node: Tag) -> str:
+    explicit = str(
+        node.get("alt")
+        or node.get("aria-label")
+        or node.get("title")
+        or ""
+    )
+    return explicit or _html_visible_text(node)
+
+
+def _html_embedded_media_nodes(node: Tag) -> tuple[Tag, ...]:
+    """Return non-overlapping rendered media in authored source order."""
+
+    output: list[Tag] = []
+
+    def visit(value: Tag) -> None:
+        if _html_is_embedded_media(value):
+            output.append(value)
+            return
+        for child in value.children:
+            if isinstance(child, Tag):
+                visit(child)
+
+    visit(node)
+    return tuple(output)
+
+
+def _html_embedded_media_fallback_nodes(node: Tag) -> tuple[Tag, ...]:
+    """Return rendered media that needs neutral rather than figure projection."""
+
+    return tuple(
+        media
+        for media in _html_embedded_media_nodes(node)
+        if media.name not in {"img", "object"}
+    )
+
+
+def _html_embedded_media_scope(node: Tag) -> str:
+    source_id = str(node.get("id") or "")
+    if source_id:
+        return source_id
+    return "embedded-media-" + hashlib.sha256(
+        json_bytes({"path": _html_tag_path(node)})
+    ).hexdigest()[:24]
 
 
 def _html_locator(
@@ -1783,7 +1892,30 @@ def _parse_html(
         )
         event_output_start = len(output)
 
+        def record_event_media() -> None:
+            for media in _html_embedded_media_nodes(node):
+                media_locator = _html_locator(
+                    media,
+                    artifact.source_format,
+                )
+                neutral = media.name not in {"img", "object"}
+                ledger.record(
+                    category="embedded_media",
+                    locator=media_locator,
+                    status="neutral" if neutral else "exact",
+                    fallback="neutral_projection" if neutral else "none",
+                    evidence="rendered_embedded_media",
+                    scope=_html_embedded_media_scope(media),
+                )
+
         def finish_event() -> None:
+            _append_html_unrepresented_media_blocks(
+                output,
+                start=event_output_start,
+                node=node,
+                source_format=artifact.source_format,
+                import_asset=import_asset,
+            )
             if len(output) <= event_output_start:
                 return
             classification = _html_classification_ancestor(node)
@@ -1820,9 +1952,19 @@ def _parse_html(
         def require_covered(*, structured: bool = False) -> None:
             if structured:
                 if ownership is not None:
-                    ledger.classify(ownership, "documented_exclusions")
+                    ledger.classify(
+                        ownership,
+                        (
+                            "emitted"
+                            if len(output) > event_output_start
+                            else "documented_exclusions"
+                        ),
+                    )
+                if len(output) > event_output_start:
+                    record_event_media()
                 return
             if len(output) > event_output_start:
+                record_event_media()
                 if ownership is not None:
                     ledger.classify(ownership, "emitted")
                 return
@@ -2020,6 +2162,23 @@ def _parse_html(
             )
             if figure is not None:
                 output.append(figure)
+                _append_html_embedded_media_fallback_blocks(
+                    output,
+                    locator=locator,
+                    node=node,
+                    import_asset=import_asset,
+                )
+            elif node.name == "figure":
+                _append_html_fallback_blocks(
+                    output,
+                    locator=locator,
+                    values=tuple(
+                        child
+                        for child in node.children
+                        if isinstance(child, (Tag, NavigableString))
+                    ),
+                    import_asset=import_asset,
+                )
             _append_html_caption_note_fallback_blocks(
                 output,
                 _html_owned_caption(node, "figcaption")
@@ -2204,6 +2363,52 @@ def _append_html_fallback_blocks(
     )
 
 
+def _append_html_embedded_media_fallback_blocks(
+    output: list[_RawBlock],
+    *,
+    locator: SourceLocator,
+    node: Tag,
+    import_asset: AssetImporter,
+) -> None:
+    for media in _html_embedded_media_fallback_nodes(node):
+        embedded = _html_embedded_block(
+            _html_locator(media, locator.source_format),
+            media,
+            import_asset,
+        )
+        if embedded is not None:
+            output.append(embedded)
+
+
+def _append_html_unrepresented_media_blocks(
+    output: list[_RawBlock],
+    *,
+    start: int,
+    node: Tag,
+    source_format: SourceFormat,
+    import_asset: AssetImporter,
+) -> None:
+    """Emit neutral figures only for media absent from the event projection."""
+
+    represented = {
+        media_id
+        for block in output[start:]
+        for media_id in block.represented_media
+    }
+    for media in _html_embedded_media_nodes(node):
+        if id(media) in represented:
+            continue
+        embedded = _html_embedded_block(
+            _html_locator(media, source_format),
+            media,
+            import_asset,
+        )
+        if embedded is None:
+            raise ValueError("rendered HTML media has no neutral projection")
+        output.append(embedded)
+        represented.update(embedded.represented_media)
+
+
 def _append_html_plain_fallback_block(
     output: list[_RawBlock],
     *,
@@ -2268,8 +2473,14 @@ def _append_html_flow_blocks(
 ) -> None:
     for segment in segments:
         if isinstance(segment, Tag):
+            embedded_locator = (
+                _html_locator(segment, locator.source_format)
+                if _html_is_embedded_media(segment)
+                and segment.name not in {"img", "object"}
+                else locator
+            )
             embedded = _html_embedded_block(
-                locator,
+                embedded_locator,
                 segment,
                 import_asset,
             )
@@ -2494,6 +2705,23 @@ def _append_html_list_block_node(
         )
         if figure is not None:
             output.append(figure)
+            _append_html_embedded_media_fallback_blocks(
+                output,
+                locator=locator,
+                node=node,
+                import_asset=import_asset,
+            )
+        elif node.name == "figure":
+            _append_html_fallback_blocks(
+                output,
+                locator=locator,
+                values=tuple(
+                    child
+                    for child in node.children
+                    if isinstance(child, (Tag, NavigableString))
+                ),
+                import_asset=import_asset,
+            )
     elif node.name == "math":
         embedded = _html_embedded_block(locator, node, import_asset)
         if embedded is not None:
@@ -2593,6 +2821,7 @@ def _owned_raw_block(
         kind=block.kind,
         locator=block.locator,
         payload=block.payload,
+        represented_media=block.represented_media,
         section_reset_to_level=block.section_reset_to_level,
         target_panels=block.target_panels,
         list_path=tuple(entries),
@@ -2871,6 +3100,7 @@ def _html_figure_block(
             caption=caption,
             target=str(panel["target"]) if single_supported else "",
         ),
+        represented_media=tuple(id(media) for media in media_nodes),
         target_panels=panels,
         presentation_fields=(
             _html_presentation_field(caption_segment, field="caption"),
@@ -3893,8 +4123,14 @@ def _append_html_table_blocks(
             ):
                 if isinstance(segment, Tag):
                     flush()
+                    embedded_locator = (
+                        _html_locator(segment, locator.source_format)
+                        if _html_is_embedded_media(segment)
+                        and segment.name not in {"img", "object"}
+                        else locator
+                    )
                     embedded = _html_embedded_block(
-                        locator,
+                        embedded_locator,
                         segment,
                         import_asset,
                     )
@@ -3995,16 +4231,19 @@ def _html_embedded_block(
                 "label": equation_label,
             },
         )
-    target = str(node.get("src") or "")
+    if not _html_is_embedded_media(node):
+        return None
+    target = _html_embedded_media_target(node)
     return _RawBlock(
         RichBlockKind.FIGURE,
         locator,
         _figure_payload(
-            import_asset(target),
-            alt_text=str(node.get("alt") or ""),
+            import_asset(target) if target else None,
+            alt_text=_html_embedded_media_alt_text(node),
             caption="",
             target=target,
         ),
+        represented_media=(id(node),),
         presentation_fields=(
             _html_presentation_field(
                 _inline_payload([]),
@@ -4113,7 +4352,7 @@ def _html_inline_segments_from_values(
             flush()
             segments.append(value)
             return
-        if value.name == "img":
+        if _html_is_embedded_media(value):
             flush()
             segments.append(value)
             return
