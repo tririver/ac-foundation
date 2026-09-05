@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from ac_jobs import (
     ArtifactRef,
@@ -19,38 +20,32 @@ from ac_jobs import (
     StateConflictError,
     StoppedError,
     atomic_write_bytes,
+    decode_artifact_ref,
     encode_artifact_ref,
 )
 
 from .config import resolve_model_selection
 from .errors import (
+    AcLLMError,
     AdoptionAuthorizationError,
     AdoptionConflictError,
-    AcLLMError,
     CandidateConflictError,
     CorruptTaskStateError,
+    DuplicateHostRequestError,
     ExecutionMismatchError,
     FailureCategory,
+    HostRequestIdentityConflictError,
     IdempotencyConflictError,
     InvalidRequestError,
     OutputInvalidError,
     ProviderFailure,
     ResumeKeyMismatchError,
 )
-from .identity import (
-    AdoptionAuthorization,
-    _make_resume_key,
-    canonical_json_bytes,
-    document_sha256,
-    execution_document,
-    execution_fingerprint,
-    semantic_document,
-    semantic_key,
-)
 from .gate import ProviderCallGate
 from .host import (
     HostRequest,
     HostResponse,
+    HostResponseStatus,
     broker_execution_document,
     decode_host_continuation,
     decode_host_turn,
@@ -59,16 +54,24 @@ from .host import (
     host_continuation_document,
     host_turn_schema,
 )
+from .identity import (
+    AdoptionAuthorization,
+    _make_resume_key,
+    canonical_json_bytes,
+    document_sha256,
+    execution_document,
+    execution_fingerprint,
+    semantic_key,
+)
 from .outcome import (
-    LLMStopped,
     LLMCompleted,
     LLMFailed,
     LLMPaused,
+    LLMStopped,
     LLMTaskOutcome,
 )
 from .output import (
     CandidateMaterial,
-    candidate_digest,
     enumerate_valid_candidates,
     provider_schema,
     select_output,
@@ -91,8 +94,8 @@ from .recovery import (
     AcceptedRecord,
     AcceptedSessionTurn,
     GenerationRecord,
-    LLMTaskState,
     LLMSessionState,
+    LLMTaskState,
     SessionStateContract,
     TaskPause,
     TaskStateContract,
@@ -100,17 +103,17 @@ from .recovery import (
 )
 from .request import (
     RESUME_SCHEMA_VERSION,
+    JsonOutput,
     LLMExecutionOptions,
     LLMExecutionProfile,
     LLMRequest,
-    JsonOutput,
     ModelSelection,
     ResumeAction,
     ResumeInput,
     SessionRef,
     TextOutput,
-    encode_output_contract,
     decode_request,
+    encode_output_contract,
     request_to_document,
 )
 from .schema_formatter import (
@@ -123,14 +126,15 @@ from .schema_formatter import (
     select_formatting_source,
 )
 
-
 PROVIDER_INSTRUCTION_POLICY = (
     "Use ac.llm.host_turn.v1. Request host interaction only when its expected "
     "result has a concrete contribution to completing the original task. State "
     "that desired contribution in the request. Do not continue merely because "
     "more turns remain. After a refused request, retry only when the declared "
     "retry_condition has changed. When no host operation has a concrete "
-    "expected contribution, return the best supported final result."
+    "expected contribution, return the best supported final result. A host "
+    "request_id is unique for the whole task: never reuse one, including after "
+    "a refusal or retry; make a new request_id for every new host request."
 )
 
 HANDLER_NAME = "ac.llm.task.v4"
@@ -142,6 +146,13 @@ _OUTPUT_RETRY_ARTIFACT = "recovery/output-retry.json"
 class _FormattingFailure:
     reason: str
     record_ref: ArtifactRef | None = None
+
+
+@dataclass(frozen=True)
+class _HostRequestIdentity:
+    request: HostRequest
+    generation: int
+    round: int
 
 
 class LLMTaskExecutor:
@@ -548,6 +559,18 @@ class LLMTaskExecutor:
                     )
                     crash_retry_available = False
                     continue
+                duplicate_recovery = self._read_duplicate_recovery(context, state)
+                if duplicate_recovery is not None:
+                    return self._resume_duplicate_host_turn(
+                        context,
+                        request,
+                        state,
+                        store,
+                        canonical_json_bytes(
+                            duplicate_recovery["continuation"]
+                        ).decode("utf-8"),
+                        options,
+                    )
                 adapter = self.registry.create(state.resolved_provider or "")
                 diagnostic = adapter.doctor()
                 if not diagnostic.available:
@@ -702,14 +725,15 @@ class LLMTaskExecutor:
             try:
                 execution = adapter.start(
                     ProviderRequest(
-                        self._workspace_prompt(),
-                        state.resolved_model or "",
-                        self._provider_output_schema(request, options),
-                        self._capability_document(options),
-                        options.limits.idle_timeout_seconds,
-                        workspace,
-                        options.runtime_environment.apply_to(),
-                        self._provider_input_files(request),
+                        prompt=self._workspace_prompt(),
+                        model=state.resolved_model or "",
+                        output_schema=self._provider_output_schema(request, options),
+                        capabilities=self._capability_document(options),
+                        idle_timeout_seconds=options.limits.idle_timeout_seconds,
+                        workspace=workspace,
+                        environment=options.runtime_environment.apply_to(),
+                        inputs=self._provider_input_files(request),
+                        reasoning_effort=request.model.reasoning_effort,
                     ),
                     observer,
                     context.stop,
@@ -779,13 +803,15 @@ class LLMTaskExecutor:
                 execution = adapter.resume(
                     NativeResumeHandle(adapter.name, handle),
                     ProviderResumeRequest(
-                        self._workspace_prompt(),
-                        self._provider_output_schema(request, options),
-                        self._capability_document(options),
-                        options.limits.idle_timeout_seconds,
-                        workspace,
-                        options.runtime_environment.apply_to(),
-                        self._provider_input_files(request),
+                        prompt=self._workspace_prompt(),
+                        output_schema=self._provider_output_schema(request, options),
+                        capabilities=self._capability_document(options),
+                        idle_timeout_seconds=options.limits.idle_timeout_seconds,
+                        workspace=workspace,
+                        environment=options.runtime_environment.apply_to(),
+                        inputs=self._provider_input_files(request),
+                        model=state.resolved_model,
+                        reasoning_effort=request.model.reasoning_effort,
                     ),
                     observer,
                     context.stop,
@@ -891,11 +917,7 @@ class LLMTaskExecutor:
         scoped = self._artifacts(context, state.semantic_key)
         raw_doc = self._execution_document_value(execution)
         raw_ref = scoped.publish_json(
-            (
-                f"generations/{state.current.generation}/raw-responses/"
-                f"{state.host_turn_round}.json"
-            ),
-            raw_doc,
+            self._raw_response_artifact_id(context, state), raw_doc
         )
         current = store.read() or state
         changes: dict[str, Any] = {"raw_response": raw_ref}
@@ -923,16 +945,18 @@ class LLMTaskExecutor:
         Provider material is immutable and its location is deterministic for a
         generation/host-turn pair.  This closes the only publication window in
         which an interrupted process could otherwise issue the provider call a
-        second time despite already having a locally recoverable response.
+        second time despite already having a locally recoverable response. A
+        dedicated duplicate-recovery raw response supersedes a stale original
+        duplicate raw reference after a composed crash.
         """
-        if state.current.raw_response is not None:
+        recovery = self._read_duplicate_recovery(context, state)
+        if state.current.raw_response is not None and recovery is None:
             return state
         scoped = self._artifacts(context, state.semantic_key)
-        ref = scoped.find(
-            f"generations/{state.current.generation}/raw-responses/"
-            f"{state.host_turn_round}.json"
-        )
+        ref = scoped.find(self._raw_response_artifact_id(context, state))
         if ref is None:
+            return state
+        if state.current.raw_response == ref:
             return state
         # Verify the persisted document before it affects durable state.
         self._execution_from_raw(context, ref, state.resolved_provider or "")
@@ -1075,10 +1099,15 @@ class LLMTaskExecutor:
                 message=str(exc),
             )
         if self._uses_host_turn(request, options):
-            turn = decode_host_turn(
-                value,
-                seen_host_request_ids=set(current.seen_host_request_ids),
-            )
+            try:
+                turn = decode_host_turn(
+                    value,
+                    seen_host_request_ids=set(current.seen_host_request_ids),
+                )
+            except DuplicateHostRequestError as exc:
+                return self._recover_duplicate_host_turn(
+                    context, request, current, store, exc, options
+                )
             if turn.state == "request_host":
                 return self._handle_host_turn(
                     context, request, current, store, turn, execution, options
@@ -1114,6 +1143,7 @@ class LLMTaskExecutor:
             ModelSelection(
                 provider=current.resolved_provider or "",
                 model=current.resolved_model,
+                reasoning_effort=request.model.reasoning_effort,
             ),
         )
         # The formatter is its own durable task and therefore owns its single
@@ -1528,6 +1558,361 @@ class LLMTaskExecutor:
         assert outcome is not None
         return outcome
 
+    @staticmethod
+    def _host_turn_artifact_id(generation: int, round: int, name: str) -> str:
+        return f"host-turns/{generation}/{round}/{name}"
+
+    @staticmethod
+    def _host_request_identity_artifact_id(request_id: str) -> str:
+        digest = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        return f"host-request-identities/{digest}.json"
+
+    def _duplicate_recovery_artifact_id(self, state: LLMTaskState) -> str:
+        return self._host_turn_artifact_id(
+            state.current.generation,
+            state.host_turn_round,
+            "duplicate-recovery.json",
+        )
+
+    def _raw_response_artifact_id(self, context: Any, state: LLMTaskState) -> str:
+        recovery = self._read_duplicate_recovery(context, state)
+        suffix = (
+            self._duplicate_recovery_raw_response_name(state)
+            if recovery is not None
+            else f"{state.host_turn_round}.json"
+        )
+        return f"generations/{state.current.generation}/raw-responses/{suffix}"
+
+    @staticmethod
+    def _duplicate_recovery_raw_response_name(state: LLMTaskState) -> str:
+        return f"{state.host_turn_round}-duplicate-recovery-1.json"
+
+    def _duplicate_recovery_has_raw_response(self, state: LLMTaskState) -> bool:
+        raw_response = state.current.raw_response
+        relative_artifact_id = (
+            f"generations/{state.current.generation}/raw-responses/"
+            f"{self._duplicate_recovery_raw_response_name(state)}"
+        )
+        return (
+            raw_response is not None
+            and (
+                raw_response.artifact_id == relative_artifact_id
+                or raw_response.artifact_id.endswith(f"/{relative_artifact_id}")
+            )
+        )
+
+    def _publish_host_request_identity(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        host_request: HostRequest,
+        *,
+        generation: int,
+        round: int,
+    ) -> ArtifactRef:
+        return self._artifacts(context, state.semantic_key).publish_json(
+            self._host_request_identity_artifact_id(host_request.request_id),
+            {
+                "schema_version": "ac.llm.host_request_identity.v1",
+                "request_id": host_request.request_id,
+                "instruction": host_request.instruction,
+                "purpose": host_request.purpose,
+                "generation": generation,
+                "round": round,
+            },
+        )
+
+    def _read_host_request_identity(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        request_id: str,
+    ) -> _HostRequestIdentity | None:
+        scoped = self._artifacts(context, state.semantic_key)
+        ref = scoped.find(self._host_request_identity_artifact_id(request_id))
+        if ref is None:
+            return None
+        try:
+            document = json.loads(scoped.read_bytes(ref).decode("utf-8"))
+            if not isinstance(document, dict) or set(document) != {
+                "schema_version",
+                "request_id",
+                "instruction",
+                "purpose",
+                "generation",
+                "round",
+            }:
+                raise ValueError("invalid closed shape")
+            if document["schema_version"] != "ac.llm.host_request_identity.v1":
+                raise ValueError("unsupported schema")
+            if document["request_id"] != request_id:
+                raise ValueError("request ID does not match identity artifact")
+            generation = document["generation"]
+            round = document["round"]
+            if (
+                not isinstance(generation, int)
+                or isinstance(generation, bool)
+                or generation < 1
+                or not isinstance(round, int)
+                or isinstance(round, bool)
+                or round < 1
+            ):
+                raise ValueError("invalid generation or round")
+            return _HostRequestIdentity(
+                HostRequest(
+                    document["request_id"],
+                    document["instruction"],
+                    document["purpose"],
+                ),
+                generation,
+                round,
+            )
+        except Exception as exc:
+            raise CorruptTaskStateError("Host request identity artifact is corrupt.") from exc
+
+    def _ensure_host_request_identity(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        host_request: HostRequest,
+    ) -> None:
+        """Attach the identity only after the pending turn is durable."""
+
+        identity = self._read_host_request_identity(
+            context, state, host_request.request_id
+        )
+        if identity is None:
+            self._publish_host_request_identity(
+                context,
+                state,
+                host_request,
+                generation=state.current.generation,
+                round=state.host_turn_round,
+            )
+            return
+        if (
+            identity.request != host_request
+            or identity.generation != state.current.generation
+            or identity.round != state.host_turn_round
+        ):
+            raise CorruptTaskStateError(
+                "Host request identity conflicts with the pending host turn."
+            )
+
+    def _read_duplicate_recovery(
+        self,
+        context: Any,
+        state: LLMTaskState,
+    ) -> Mapping[str, Any] | None:
+        scoped = self._artifacts(context, state.semantic_key)
+        ref = scoped.find(self._duplicate_recovery_artifact_id(state))
+        if ref is None:
+            return None
+        try:
+            document = json.loads(scoped.read_bytes(ref).decode("utf-8"))
+            if not isinstance(document, dict) or set(document) != {
+                "schema_version",
+                "request_id",
+                "instruction",
+                "action",
+                "continuation",
+            }:
+                raise ValueError("invalid closed shape")
+            if (
+                document["schema_version"] != "ac.llm.host_duplicate_recovery.v1"
+                or not isinstance(document["request_id"], str)
+                or not document["request_id"]
+                or not isinstance(document["instruction"], str)
+                or not document["instruction"]
+                or document["action"] not in {"replay", "synthetic_refusal"}
+            ):
+                raise ValueError("invalid duplicate recovery")
+            continuation = decode_host_continuation(document["continuation"])
+            canonical = host_continuation_document(
+                continuation.request_id, continuation.response
+            )
+            if document["continuation"] != canonical:
+                raise ValueError("non-canonical continuation")
+            if continuation.request_id != document["request_id"]:
+                raise ValueError("continuation request ID mismatch")
+            return document
+        except Exception as exc:
+            raise CorruptTaskStateError("Duplicate host-request recovery artifact is corrupt.") from exc
+
+    def _persisted_continuation_prompt(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        identity: _HostRequestIdentity,
+    ) -> str | None:
+        scoped = self._artifacts(context, state.semantic_key)
+        ref = scoped.find(
+            self._host_turn_artifact_id(
+                identity.generation, identity.round, "continuation.json"
+            )
+        )
+        if ref is None:
+            return None
+        try:
+            document = json.loads(scoped.read_bytes(ref).decode("utf-8"))
+            continuation = decode_host_continuation(document)
+            canonical = host_continuation_document(
+                continuation.request_id, continuation.response
+            )
+            if (
+                document != canonical
+                or continuation.request_id != identity.request.request_id
+            ):
+                raise ValueError("continuation does not match request identity")
+            return canonical_json_bytes(canonical).decode("utf-8")
+        except Exception as exc:
+            raise CorruptTaskStateError("Host-turn continuation artifact is corrupt.") from exc
+
+    def _recover_duplicate_host_turn(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        duplicate: DuplicateHostRequestError,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        current = store.read() or state
+        recovery = self._read_duplicate_recovery(context, current)
+        identity = self._read_host_request_identity(
+            context, current, duplicate.request_id
+        )
+        if identity is not None:
+            if identity.request.instruction != duplicate.instruction:
+                return LLMFailed(
+                    HostRequestIdentityConflictError(
+                        duplicate.request_id,
+                        expected_instruction=identity.request.instruction,
+                        received_instruction=duplicate.instruction,
+                    )
+                )
+            if recovery is not None:
+                if self._duplicate_recovery_has_raw_response(current):
+                    return LLMFailed(
+                        DuplicateHostRequestError(
+                            duplicate.request_id,
+                            duplicate.instruction,
+                            recovery_exhausted=True,
+                        )
+                    )
+                return self._resume_duplicate_host_turn(
+                    context,
+                    request,
+                    current,
+                    store,
+                    canonical_json_bytes(recovery["continuation"]).decode("utf-8"),
+                    options,
+                )
+            continuation_prompt = self._persisted_continuation_prompt(
+                context, current, identity
+            )
+        else:
+            if recovery is not None:
+                if self._duplicate_recovery_has_raw_response(current):
+                    return LLMFailed(
+                        DuplicateHostRequestError(
+                            duplicate.request_id,
+                            duplicate.instruction,
+                            recovery_exhausted=True,
+                        )
+                    )
+                return self._resume_duplicate_host_turn(
+                    context,
+                    request,
+                    current,
+                    store,
+                    canonical_json_bytes(recovery["continuation"]).decode("utf-8"),
+                    options,
+                )
+            continuation_prompt = None
+        action = "replay"
+        continuation_document: Mapping[str, Any]
+        if continuation_prompt is None:
+            action = "synthetic_refusal"
+            synthetic = HostResponse(
+                HostResponseStatus.REFUSED,
+                reason_code="duplicate_host_request_id",
+                reason=(
+                    "This host request ID was already processed. Use a new unique "
+                    "request_id before making another host request."
+                ),
+                retryable=True,
+                retry_condition="a new unique request_id",
+            )
+            continuation_document = host_continuation_document(
+                duplicate.request_id, synthetic
+            )
+            continuation_prompt = canonical_json_bytes(continuation_document).decode(
+                "utf-8"
+            )
+        else:
+            continuation_document = json.loads(continuation_prompt)
+        self._artifacts(context, current.semantic_key).publish_json(
+            self._duplicate_recovery_artifact_id(current),
+            {
+                "schema_version": "ac.llm.host_duplicate_recovery.v1",
+                "request_id": duplicate.request_id,
+                "instruction": duplicate.instruction,
+                "action": action,
+                "continuation": continuation_document,
+            },
+        )
+        next_state = self._update_current(
+            current, raw_response=None, attempt_started=False
+        )
+        store.compare_and_swap(current.revision, next_state)
+        return self._resume_duplicate_host_turn(
+            context, request, next_state, store, continuation_prompt, options
+        )
+
+    def _resume_duplicate_host_turn(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        store: Any,
+        continuation_prompt: str,
+        options: LLMExecutionOptions,
+    ) -> LLMTaskOutcome:
+        if state.current.native_handle is None:
+            return LLMFailed(
+                DuplicateHostRequestError(
+                    self._read_duplicate_recovery(context, state)["request_id"],
+                    self._read_duplicate_recovery(context, state)["instruction"],
+                    recovery_exhausted=True,
+                )
+            )
+        adapter = self.registry.create(state.resolved_provider or "")
+        try:
+            execution = self._call_resume(
+                context,
+                request,
+                state,
+                store,
+                adapter,
+                options,
+                prompt=continuation_prompt,
+            )
+        except ProviderFailure as failure:
+            return self._provider_failure(store, state, failure)
+        active_state = store.read() or state
+        if execution.terminal_kind is ProviderTerminalKind.FAILED:
+            assert execution.failure is not None
+            return self._provider_failure(store, active_state, execution.failure)
+        if execution.terminal_kind is ProviderTerminalKind.STOPPED:
+            self._clear_attempt_started(active_state, store)
+            return LLMStopped()
+        outcome = self._consume_execution(
+            context, request, active_state, store, execution, options
+        )
+        assert outcome is not None
+        return outcome
+
     def _handle_host_turn(
         self,
         context: Any,
@@ -1541,9 +1926,28 @@ class LLMTaskExecutor:
         del execution
         assert turn.request is not None
         scoped = self._artifacts(context, state.semantic_key)
+        existing_identity = self._read_host_request_identity(
+            context, state, turn.request.request_id
+        )
+        if (
+            existing_identity is not None
+            and turn.request.request_id in state.seen_host_request_ids
+        ):
+            return self._recover_duplicate_host_turn(
+                context,
+                request,
+                state,
+                store,
+                DuplicateHostRequestError(
+                    turn.request.request_id, turn.request.instruction
+                ),
+                options,
+            )
         next_round = state.host_turn_round + 1
         turn_ref = scoped.publish_json(
-            f"host-turns/{next_round}/request.json",
+            self._host_turn_artifact_id(
+                state.current.generation, next_round, "request.json"
+            ),
             encode_host_turn(turn),
         )
         current = store.read() or state
@@ -1561,6 +1965,7 @@ class LLMTaskExecutor:
             + (turn.request.request_id,),
         )
         store.compare_and_swap(next_state.revision - 1, next_state)
+        self._ensure_host_request_identity(context, next_state, turn.request)
         if options.host_broker is None:
             return self._pause(
                 store,
@@ -1574,6 +1979,167 @@ class LLMTaskExecutor:
             context, request, next_state, store, options
         )
 
+    def _broker_invocation_artifact_id(self, state: LLMTaskState) -> str:
+        return self._host_turn_artifact_id(
+            state.current.generation,
+            state.host_turn_round,
+            "broker-invocation.json",
+        )
+
+    def _broker_completion_artifact_id(self, state: LLMTaskState) -> str:
+        return self._host_turn_artifact_id(
+            state.current.generation,
+            state.host_turn_round,
+            "broker-completion.json",
+        )
+
+    def _record_host_broker_invocation(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        host_request: HostRequest,
+    ) -> ArtifactRef:
+        """Persist intent before a broker can cause an external side effect."""
+
+        return self._artifacts(context, state.semantic_key).publish_json(
+            self._broker_invocation_artifact_id(state),
+            {
+                "schema_version": "ac.llm.host_broker_invocation.v1",
+                "request_id": host_request.request_id,
+                "instruction": host_request.instruction,
+                "purpose": host_request.purpose,
+            },
+        )
+
+    def _broker_invocation_started(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        host_request: HostRequest,
+    ) -> bool:
+        scoped = self._artifacts(context, state.semantic_key)
+        ref = scoped.find(self._broker_invocation_artifact_id(state))
+        if ref is None:
+            return False
+        try:
+            document = json.loads(scoped.read_bytes(ref).decode("utf-8"))
+            if document != {
+                "schema_version": "ac.llm.host_broker_invocation.v1",
+                "request_id": host_request.request_id,
+                "instruction": host_request.instruction,
+                "purpose": host_request.purpose,
+            }:
+                raise ValueError("invocation does not match pending host request")
+        except Exception as exc:
+            raise CorruptTaskStateError("Host broker invocation artifact is corrupt.") from exc
+        return True
+
+    def _record_host_broker_completion(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        host_request: HostRequest,
+        host_response: HostResponse,
+        workspace: Path,
+    ) -> ArtifactRef:
+        """Make a completed broker turn replayable without repeating the broker."""
+
+        scoped = self._artifacts(context, state.semantic_key)
+        files: list[dict[str, Any]] = []
+        for index, relative in enumerate(host_response.files):
+            ref = scoped.publish_bytes(
+                self._host_turn_artifact_id(
+                    state.current.generation,
+                    state.host_turn_round,
+                    f"broker-files/{index:03d}",
+                ),
+                (workspace / relative).read_bytes(),
+                media_type="application/octet-stream",
+            )
+            files.append(
+                {
+                    "path": relative,
+                    "artifact_ref": encode_artifact_ref(ref),
+                }
+            )
+        return scoped.publish_json(
+            self._broker_completion_artifact_id(state),
+            {
+                "schema_version": "ac.llm.host_broker_completion.v1",
+                "continuation": host_continuation_document(
+                    host_request.request_id, host_response
+                ),
+                "files": files,
+            },
+        )
+
+    def _read_host_broker_completion(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        host_request: HostRequest,
+    ) -> tuple[HostResponse, tuple[tuple[str, ArtifactRef], ...]] | None:
+        scoped = self._artifacts(context, state.semantic_key)
+        ref = scoped.find(self._broker_completion_artifact_id(state))
+        if ref is None:
+            return None
+        try:
+            document = json.loads(scoped.read_bytes(ref).decode("utf-8"))
+            if not isinstance(document, dict) or set(document) != {
+                "schema_version",
+                "continuation",
+                "files",
+            }:
+                raise ValueError("invalid closed shape")
+            if document["schema_version"] != "ac.llm.host_broker_completion.v1":
+                raise ValueError("unsupported schema")
+            continuation = decode_host_continuation(document["continuation"])
+            canonical = host_continuation_document(
+                continuation.request_id, continuation.response
+            )
+            if (
+                document["continuation"] != canonical
+                or continuation.request_id != host_request.request_id
+                or not isinstance(document["files"], list)
+            ):
+                raise ValueError("completion does not match pending host request")
+            restored: list[tuple[str, ArtifactRef]] = []
+            for index, item in enumerate(document["files"]):
+                if not isinstance(item, dict) or set(item) != {"path", "artifact_ref"}:
+                    raise ValueError("invalid broker file record")
+                relative = item["path"]
+                if (
+                    not isinstance(relative, str)
+                    or index >= len(continuation.response.files)
+                    or relative != continuation.response.files[index]
+                ):
+                    raise ValueError("broker file record does not match response")
+                restored.append((relative, decode_artifact_ref(item["artifact_ref"])))
+            if len(restored) != len(continuation.response.files):
+                raise ValueError("broker completion omits response files")
+            return continuation.response, tuple(restored)
+        except Exception as exc:
+            raise CorruptTaskStateError("Host broker completion artifact is corrupt.") from exc
+
+    def _restore_host_broker_files(
+        self,
+        context: Any,
+        request: LLMRequest,
+        state: LLMTaskState,
+        response: HostResponse,
+        files: tuple[tuple[str, ArtifactRef], ...],
+        options: LLMExecutionOptions,
+    ) -> None:
+        if not files:
+            return
+        workspace = self._prepare_workspace(context, request, state, options=options)
+        for relative, ref in files:
+            self._publish_workspace_file(
+                workspace / relative,
+                context.artifacts.read_bytes(ref),
+            )
+        self._validate_host_files(workspace, response)
+
     def _resolve_pending_host_turn(
         self,
         context: Any,
@@ -1583,6 +2149,29 @@ class LLMTaskExecutor:
         options: LLMExecutionOptions,
     ) -> LLMTaskOutcome:
         assert state.pending_host_turn is not None
+        raw = context.artifacts.read_bytes(state.pending_host_turn)
+        turn = decode_host_turn(json.loads(raw.decode("utf-8")))
+        assert turn.request is not None
+        self._ensure_host_request_identity(context, state, turn.request)
+        completed = self._read_host_broker_completion(context, state, turn.request)
+        if completed is not None:
+            response, files = completed
+            self._restore_host_broker_files(
+                context, request, state, response, files, options
+            )
+            return self._continue_host_turn(
+                context, request, state, store, turn.request, response, options
+            )
+        if self._broker_invocation_started(context, state, turn.request):
+            return self._pause(
+                store,
+                state,
+                ResumeReason.SUPERVISION_REQUIRED,
+                "host_broker_reconciliation_required",
+                input_required=True,
+                request_ref=state.pending_host_turn,
+                details={"broker_invocation_started": True},
+            )
         if options.host_broker is None:
             return self._pause(
                 store,
@@ -1591,15 +2180,16 @@ class LLMTaskExecutor:
                 "host_broker_required",
                 input_required=True,
                 request_ref=state.pending_host_turn,
-        )
-        raw = context.artifacts.read_bytes(state.pending_host_turn)
-        turn = decode_host_turn(json.loads(raw.decode("utf-8")))
-        assert turn.request is not None
+            )
         workspace = self._prepare_workspace(context, request, state, options=options)
+        self._record_host_broker_invocation(context, state, turn.request)
         response = options.host_broker.execute(turn.request, workspace=workspace)
         if not isinstance(response, HostResponse):
             raise InvalidRequestError("host broker must return a HostResponse.")
         self._validate_host_files(workspace, response)
+        self._record_host_broker_completion(
+            context, state, turn.request, response, workspace
+        )
         return self._continue_host_turn(
             context, request, state, store, turn.request, response, options
         )
@@ -1659,7 +2249,11 @@ class LLMTaskExecutor:
         scoped = self._artifacts(context, state.semantic_key)
         document = host_continuation_document(host_request.request_id, host_response)
         scoped.publish_json(
-            f"host-turns/{state.host_turn_round}/continuation.json",
+            self._host_turn_artifact_id(
+                state.current.generation,
+                state.host_turn_round,
+                "continuation.json",
+            ),
             document,
         )
         next_state = replace(
@@ -1920,6 +2514,10 @@ class LLMTaskExecutor:
                     value,
                     seen_host_request_ids=set(state.seen_host_request_ids),
                 )
+            except DuplicateHostRequestError as exc:
+                return self._recover_duplicate_host_turn(
+                    context, request, state, store, exc, options
+                )
             except AcLLMError as exc:
                 return LLMFailed(exc)
             if turn.state == "request_host":
@@ -2113,7 +2711,11 @@ class LLMTaskExecutor:
         scoped = self._artifacts(context, state.semantic_key)
         try:
             ref = scoped.find(
-                f"host-turns/{state.host_turn_round}/continuation.json"
+                self._host_turn_artifact_id(
+                    state.current.generation,
+                    state.host_turn_round,
+                    "continuation.json",
+                )
             )
             if ref is None:
                 raise ValueError("continuation artifact is missing")

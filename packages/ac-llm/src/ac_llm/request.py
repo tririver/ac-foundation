@@ -23,6 +23,7 @@ from .errors import InvalidRequestError, InvalidSchemaError
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 ModelTier: TypeAlias = Literal["low", "medium", "high", "xhigh"]
+ReasoningEffort: TypeAlias = Literal["low", "medium", "high", "xhigh"]
 
 REQUEST_SCHEMA_VERSION = "ac.llm.request.v4"
 RESUME_SCHEMA_VERSION = "ac.llm.resume_input.v3"
@@ -65,6 +66,7 @@ class ModelSelection:
     provider: str = "auto"
     model: str | None = None
     tier: ModelTier = "medium"
+    reasoning_effort: ReasoningEffort | None = None
 
     def __post_init__(self) -> None:
         if not self.provider or not isinstance(self.provider, str):
@@ -79,6 +81,10 @@ class ModelSelection:
             raise InvalidRequestError("An exact model requires an explicit provider.")
         if self.model is not None and self.tier != "medium":
             raise InvalidRequestError("An exact model and a non-default tier are mutually exclusive.")
+        if self.reasoning_effort not in {None, "low", "medium", "high", "xhigh"}:
+            raise InvalidRequestError(
+                "model.reasoning_effort must be null, low, medium, high, or xhigh."
+            )
 
 
 @dataclass(frozen=True)
@@ -367,16 +373,19 @@ def encode_output_contract(contract: OutputContract) -> dict[str, Any]:
 
 
 def request_to_document(request: LLMRequest) -> dict[str, Any]:
+    model = {
+        "provider": request.model.provider,
+        "model": request.model.model,
+        "tier": request.model.tier,
+    }
+    if request.model.reasoning_effort is not None:
+        model["reasoning_effort"] = request.model.reasoning_effort
     return {
         "schema_version": REQUEST_SCHEMA_VERSION,
         "task_id": request.task_id,
         "prompt": request.prompt,
         "output": encode_output_contract(request.output),
-        "model": {
-            "provider": request.model.provider,
-            "model": request.model.model,
-            "tier": request.model.tier,
-        },
+        "model": model,
         "session": (
             None
             if request.session is None
@@ -429,8 +438,18 @@ def decode_request(document: Mapping[str, Any]) -> LLMRequest:
     else:
         raise InvalidRequestError("Unknown output.kind.")
     model_doc = _object(document["model"], "model")
-    _require_exact(model_doc, {"provider", "model", "tier"}, "model")
-    model = ModelSelection(model_doc["provider"], model_doc["model"], model_doc["tier"])
+    model_fields = set(model_doc)
+    if model_fields not in (
+        {"provider", "model", "tier"},
+        {"provider", "model", "tier", "reasoning_effort"},
+    ):
+        raise InvalidRequestError("model contains unknown or missing fields.")
+    model = ModelSelection(
+        model_doc["provider"],
+        model_doc["model"],
+        model_doc["tier"],
+        model_doc.get("reasoning_effort"),
+    )
     session_doc = document["session"]
     session = None
     if session_doc is not None:

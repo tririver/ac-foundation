@@ -88,7 +88,15 @@ class CodexAdapter:
             argv.extend(
                 ["--dangerously-bypass-approvals-and-sandbox", "-C", str(request.workspace)]
             )
-        argv.extend(["--model", request.model, "-"])
+        argv.extend(["--model", request.model])
+        if request.reasoning_effort is not None:
+            argv.extend(
+                [
+                    "--config",
+                    f'model_reasoning_effort="{request.reasoning_effort}"',
+                ]
+            )
+        argv.append("-")
         return self._run(
             argv,
             request.prompt,
@@ -245,6 +253,15 @@ class CodexAdapter:
             # invocation has the same working directory as `start` without
             # passing an unsupported CLI option.
             argv.append("--dangerously-bypass-approvals-and-sandbox")
+        if request.model is not None:
+            argv.extend(["--model", request.model])
+        if request.reasoning_effort is not None:
+            argv.extend(
+                [
+                    "--config",
+                    f'model_reasoning_effort="{request.reasoning_effort}"',
+                ]
+            )
         argv.extend([handle.value, "-"])
         return self._run(
             argv,
@@ -493,6 +510,15 @@ def _project_schema_node(schema: Any) -> Any:
         value = schema.get(key)
         if isinstance(value, list):
             projected[key] = [_project_schema_node(item) for item in value]
+    one_of = schema.get("oneOf")
+    if "anyOf" not in projected and isinstance(one_of, list):
+        # Codex Structured Outputs supports nested ``anyOf`` but not
+        # ``oneOf``. The durable request is still validated against its
+        # original ``oneOf`` contract after generation, so this provider-only
+        # widening cannot admit an ambiguous value.
+        projected["anyOf"] = [
+            _project_schema_node(item) for item in one_of
+        ]
     for key in _SCHEMA_MAP_CHILDREN:
         value = schema.get(key)
         if isinstance(value, Mapping):

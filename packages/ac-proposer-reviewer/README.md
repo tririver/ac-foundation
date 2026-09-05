@@ -78,6 +78,11 @@ proposer to receive the complete previous review envelope as broader context.
 `None`, preserves the existing behavior of passing every batch input. An empty
 tuple passes none; otherwise IDs must be unique references to `BatchRequest.inputs`.
 
+If a reviewer fails after current-round proposers have completed, the public
+failed `LoopResult.final_proposals` contains only those schema-validated current
+proposer values. Its error details also expose their durable artifact references,
+so callers can choose an explicit fallback without probing private artifacts.
+
 ## Tests
 
 The default suite uses fake providers:

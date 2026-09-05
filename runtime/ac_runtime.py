@@ -12,10 +12,10 @@ import socket
 import subprocess
 import sys
 import time
-from urllib.parse import urlsplit
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
+from urllib.parse import urlsplit
 
 LAUNCHER_VERSION = 1
 LOCK_SCHEMA = "ac.runtime_sources.v2"
@@ -197,6 +197,45 @@ def _local_roots(lock: RuntimeLock) -> dict[str, Path] | None:
     return roots
 
 
+def _expanded_runtime_path(value: str | Path) -> Path:
+    """Make a runtime path absolute without resolving a private-venv symlink."""
+
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else Path.cwd() / path
+
+
+def _venv_bin_dir(runtime_dir: Path) -> Path:
+    return runtime_dir / "venv" / ("Scripts" if os.name == "nt" else "bin")
+
+
+def _venv_python(runtime_dir: Path) -> Path:
+    return _venv_bin_dir(runtime_dir) / ("python.exe" if os.name == "nt" else "python")
+
+
+def _venv_tool(runtime_dir: Path, tool: str) -> Path:
+    suffix = ".exe" if os.name == "nt" else ""
+    return _venv_bin_dir(runtime_dir) / f"{tool}{suffix}"
+
+
+def _private_runtime_environment(
+    runtime_dir: Path, environ: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Return child environment with this literal private venv path first.
+
+    In particular, do not call ``resolve()`` here.  Console-script shebangs can
+    point through a symlinked Python, while sibling private commands still need
+    the original venv ``bin``/``Scripts`` directory on ``PATH``.
+    """
+
+    result = dict(os.environ if environ is None else environ)
+    private_bin = str(_venv_bin_dir(runtime_dir))
+    inherited = result.get("PATH")
+    result["PATH"] = (
+        private_bin if not inherited else f"{private_bin}{os.pathsep}{inherited}"
+    )
+    return result
+
+
 def _source_selection(lock: RuntimeLock) -> tuple[str, dict[str, Path] | None]:
     requested = os.environ.get("AC_INSTALL_SOURCE", "auto")
     if requested not in {"auto", "local", "git"}:
@@ -216,11 +255,11 @@ def _expand_default(value: str, *, cwd: Path, ac_home: Path) -> str:
 
 def _runtime_environment(lock: RuntimeLock, roots: dict[str, Path] | None) -> dict[str, str]:
     cwd = Path.cwd().resolve()
-    ac_home = Path(os.environ.get("AC_HOME", Path.home() / ".ac")).expanduser().resolve()
+    ac_home = _expanded_runtime_path(os.environ.get("AC_HOME", Path.home() / ".ac"))
     os.environ["AC_HOME"] = str(ac_home)
-    runtime_home = Path(
+    runtime_home = _expanded_runtime_path(
         os.environ.get("AC_RUNTIME_HOME", ac_home / "runtimes")
-    ).expanduser().resolve()
+    )
     os.environ["AC_RUNTIME_HOME"] = str(runtime_home)
     if "AC_DOCUMENT_CACHE" not in os.environ:
         cache = cwd / ".ac" / "cache" / "ac-document"
@@ -302,7 +341,7 @@ class InstallLock:
         self.path = path
         self.owner = f"{socket.gethostname()}:{os.getpid()}:{time.time_ns()}"
 
-    def __enter__(self) -> "InstallLock":
+    def __enter__(self) -> InstallLock:
         timeout = int(os.environ.get("AC_INSTALL_LOCK_TIMEOUT_SEC", "600"))
         stale_after = int(os.environ.get("AC_INSTALL_LOCK_STALE_SEC", "1800"))
         deadline = time.monotonic() + timeout
@@ -408,16 +447,16 @@ def _install(
     try:
         if uv:
             _run_logged([uv, "venv", str(venv), "--python", ">=3.11"], log_path)
-            command = [uv, "pip", "install", "--python", str(venv / "bin/python")]
+            command = [uv, "pip", "install", "--python", str(_venv_python(runtime_dir))]
         else:
             _run_logged([sys.executable, "-m", "venv", str(venv)], log_path)
-            command = [str(venv / "bin/python"), "-m", "pip", "install"]
+            command = [str(_venv_python(runtime_dir)), "-m", "pip", "install"]
         if constraints_path.is_file():
             command.extend(["--constraint", str(constraints_path)])
         command.extend(requirements)
         _run_logged(command, log_path)
         for tool in lock.tools:
-            if not (venv / "bin" / tool).is_file():
+            if not _venv_tool(runtime_dir, tool).is_file():
                 raise RuntimeError(f"installed runtime lacks command: {tool}")
         _atomic_json(
             runtime_dir / "install.ok",
@@ -451,7 +490,7 @@ def _ready(runtime_dir: Path, fingerprint: str, tools: tuple[str, ...]) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
     return marker.get("fingerprint") == fingerprint and all(
-        (runtime_dir / "venv" / "bin" / tool).is_file() for tool in tools
+        _venv_tool(runtime_dir, tool).is_file() for tool in tools
     )
 
 
@@ -517,7 +556,7 @@ def _python_script_command(
     script = Path(raw_path).expanduser().resolve()
     if not script.is_file():
         raise RuntimeConfigError(f"Python script does not exist: {script}")
-    python = runtime_dir / "venv" / "bin" / "python"
+    python = _venv_python(runtime_dir)
     return python, [str(python), str(script), *args]
 
 
@@ -589,13 +628,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         except RuntimeConfigError as exc:
             _die(str(exc), 64)
-        os.execv(executable, command)
+        os.execve(str(executable), command, _private_runtime_environment(runtime_dir))
         raise AssertionError("unreachable")
     if namespace.tool not in lock.tools:
         _die(f"command is not present in source lock: {namespace.tool}", 64)
-    os.execv(
-        runtime_dir / "venv" / "bin" / namespace.tool,
+    os.execve(
+        str(_venv_tool(runtime_dir, namespace.tool)),
         [namespace.tool, *namespace.args],
+        _private_runtime_environment(runtime_dir),
     )
     raise AssertionError("unreachable")
 

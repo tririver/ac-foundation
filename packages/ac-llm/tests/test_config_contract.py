@@ -60,3 +60,13 @@ def test_auto_selection_and_gate_config_fail_closed() -> None:
             )
     with pytest.raises(InvalidRequestError):
         ProviderGateOptions(global_limit=2, provider_limits={"codex": 3})
+
+
+def test_reasoning_effort_is_independent_from_default_model_routing() -> None:
+    resolved = resolve_model_selection(
+        ModelSelection("codex", reasoning_effort="high")
+    )
+
+    assert resolved.model == "gpt-5.6-luna"
+    assert resolved.tier == "medium"
+    assert resolved.reasoning_effort == "high"

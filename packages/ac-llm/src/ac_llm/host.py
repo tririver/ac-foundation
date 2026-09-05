@@ -9,14 +9,14 @@ from __future__ import annotations
 import json
 import math
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
-from .errors import InvalidRequestError
-from .errors import OutputInvalidError
+from .errors import DuplicateHostRequestError, InvalidRequestError, OutputInvalidError
 
 
 class HostAuthority(StrEnum):
@@ -62,7 +62,7 @@ class AcRuntimeEnvironment:
         object.__setattr__(self, "values", MappingProxyType(raw))
 
     @classmethod
-    def capture(cls, environ: Mapping[str, str] | None = None) -> "AcRuntimeEnvironment":
+    def capture(cls, environ: Mapping[str, str] | None = None) -> AcRuntimeEnvironment:
         source = os.environ if environ is None else environ
         return cls({key: source.get(key) for key in _AC_ENVIRONMENT_KEYS})
 
@@ -174,7 +174,12 @@ def _validate_json_value(value: Any, *, field_name: str) -> None:
 
 
 class HostBroker(Protocol):
-    """A host-owned executor for one model-requested host turn."""
+    """A host-owned executor for one model-requested host turn.
+
+    This protocol does not declare an idempotent replay guarantee.  Once AC
+    records an invocation without a durable completion, it requires explicit
+    reconciliation rather than automatically executing this method again.
+    """
 
     @property
     def execution_identity(self) -> Mapping[str, Any]: ...
@@ -285,7 +290,7 @@ def decode_host_turn(
             seen_host_request_ids is not None
             and request.request_id in seen_host_request_ids
         ):
-            raise OutputInvalidError("Duplicate host request ID.")
+            raise DuplicateHostRequestError(request.request_id, request.instruction)
     return HostTurn(value["state"], value["result"], request)
 
 

@@ -80,11 +80,14 @@ def outer_resume_input(
 
 
 def model_document(value: ModelSelection) -> dict[str, JsonValue]:
-    return {
+    document: dict[str, JsonValue] = {
         "provider": value.provider,
         "model": value.model,
         "tier": value.tier,
     }
+    if value.reasoning_effort is not None:
+        document["reasoning_effort"] = value.reasoning_effort
+    return document
 
 
 def provenance(task_id: str, outcome: LLMCompleted) -> LLMCallProvenance:

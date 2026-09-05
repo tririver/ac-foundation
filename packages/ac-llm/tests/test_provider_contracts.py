@@ -175,6 +175,50 @@ def test_codex_direct_start_and_resume_keep_workspace_cwd_but_only_start_uses_cw
     assert "thread-1" in resume["argv"]
 
 
+def test_codex_start_and_resume_pin_model_reasoning_effort(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n',
+        last_message=b'{"ok":true}',
+    )
+    adapter = CodexAdapter(binary="fake-codex", runner=runner, env={})
+    started = adapter.start(
+        ProviderRequest(
+            "Translate.",
+            "gpt-5.6-terra",
+            None,
+            {},
+            3,
+            workspace,
+            reasoning_effort="high",
+        ),
+        Observer(),
+        Stop(),
+    )
+    assert started.native_handle is not None
+    adapter.resume(
+        started.native_handle,
+        ProviderResumeRequest(
+            "Continue.",
+            None,
+            {},
+            3,
+            workspace,
+            model="gpt-5.6-terra",
+            reasoning_effort="high",
+        ),
+        Observer(),
+        Stop(),
+    )
+
+    for call in runner.calls:
+        argv = call["argv"]
+        assert argv[argv.index("--model") + 1] == "gpt-5.6-terra"
+        assert "model_reasoning_effort=\"high\"" in argv
+
+
 def test_codex_bounded_profile_attaches_images_without_shell_or_host_bypass(
     tmp_path: Path,
 ) -> None:
@@ -336,6 +380,70 @@ def test_codex_projects_native_schema_but_selects_only_last_message(
     ) in observer.progress_events
     with pytest.raises(OutputInvalidError):
         select_output(result.candidates, JsonOutput(schema))
+
+
+def test_codex_projects_nested_one_of_to_supported_any_of(
+    tmp_path: Path,
+) -> None:
+    workspace = _workspace(tmp_path)
+    part_variants = [
+        {
+            "type": "object",
+            "properties": {
+                "kind": {"const": "text"},
+                "text": {"type": "string"},
+            },
+            "required": ["kind", "text"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "kind": {"const": "atom"},
+                "atom_id": {"type": "string"},
+            },
+            "required": ["kind", "atom_id"],
+            "additionalProperties": False,
+        },
+    ]
+    schema = {
+        "type": "object",
+        "properties": {
+            "parts": {
+                "type": "array",
+                "items": {"oneOf": part_variants},
+            }
+        },
+        "required": ["parts"],
+        "additionalProperties": False,
+    }
+    runner = FakeRunner(
+        b'{"type":"thread.started","thread_id":"thread-1"}\n'
+        b'{"type":"turn.completed"}\n',
+        last_message=b'{"parts":[{"kind":"text","text":"translated"}]}',
+    )
+
+    result = CodexAdapter(binary="fake-codex", runner=runner, env={}).start(
+        ProviderRequest("Translate.", "model", schema, {}, 3, workspace),
+        Observer(),
+        Stop(),
+    )
+
+    native_items = runner.output_schemas[0]["properties"]["parts"]["items"]
+    assert "oneOf" not in native_items
+    assert [item["properties"]["kind"] for item in native_items["anyOf"]] == [
+        {"const": "text", "type": "string"},
+        {"const": "atom", "type": "string"},
+    ]
+    assert all(
+        item["type"] == "object"
+        and item["additionalProperties"] is False
+        and set(item["required"]) == set(item["properties"])
+        for item in native_items["anyOf"]
+    )
+    assert select_output(result.candidates, JsonOutput(schema)) == {
+        "parts": [{"kind": "text", "text": "translated"}]
+    }
 
 
 def test_codex_native_host_turn_schema_keeps_root_definitions(

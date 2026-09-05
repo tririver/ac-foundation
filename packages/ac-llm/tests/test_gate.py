@@ -558,6 +558,34 @@ def test_operational_limit_changes_expand_the_repository_pool(
     assert provider_contract["capacity"] == 150
 
 
+def test_provider_circuit_is_isolated_by_repository_root(
+    tmp_path: Path,
+) -> None:
+    options = ProviderGateOptions(
+        global_limit=3,
+        circuit_failure_threshold=1,
+        circuit_cooldown_seconds=30,
+        minimum_available_memory_fraction=None,
+    )
+    first = ProviderCallGate(tmp_path / "first", options)
+    second = ProviderCallGate(tmp_path / "second", options)
+
+    with first.acquire("codex", checkpoint=_checkpoint) as permit:
+        permit.record_failure(
+            ProviderFailure(
+                "transport closed",
+                category=FailureCategory.TRANSPORT,
+            )
+        )
+
+    with pytest.raises(ProviderFailure) as opened:
+        first.acquire("codex", checkpoint=_checkpoint)
+    assert opened.value.details["code"] == "provider_circuit_open"
+
+    with second.acquire("codex", checkpoint=_checkpoint) as permit:
+        permit.record_success()
+
+
 def test_configured_gate_can_hold_more_than_twenty_four_permits(
     tmp_path: Path,
 ) -> None:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, Mapping
+from typing import Any
 
 
 class ErrorCode(StrEnum):
@@ -20,6 +21,8 @@ class ErrorCode(StrEnum):
     PROVIDER_TRANSPORT = "provider_transport"
     PROVIDER_TIMEOUT = "provider_timeout"
     OUTPUT_INVALID = "output_invalid"
+    DUPLICATE_HOST_REQUEST_ID = "duplicate_host_request_id"
+    HOST_REQUEST_ID_CONFLICT = "host_request_id_conflict"
     CANDIDATE_CONFLICT = "candidate_selection_required"
     EXECUTION_MISMATCH = "execution_mismatch"
     CORRUPT_STATE = "corrupt_state"
@@ -92,8 +95,71 @@ class ResumeInputConflictError(AcLLMError):
 
 
 class OutputInvalidError(AcLLMError):
-    def __init__(self, message: str = "No candidate satisfies the output contract.") -> None:
-        super().__init__(ErrorCode.OUTPUT_INVALID, message)
+    def __init__(
+        self,
+        message: str = "No candidate satisfies the output contract.",
+        *,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
+        super().__init__(ErrorCode.OUTPUT_INVALID, message, details=details)
+
+
+class DuplicateHostRequestError(OutputInvalidError):
+    """A provider reused a host request identifier in one durable task."""
+
+    def __init__(
+        self,
+        request_id: str,
+        instruction: str,
+        *,
+        recovery_exhausted: bool = False,
+    ) -> None:
+        self.request_id = request_id
+        self.instruction = instruction
+        self.recovery_exhausted = recovery_exhausted
+        detail_code = (
+            "duplicate_host_request_recovery_exhausted"
+            if recovery_exhausted
+            else "duplicate_host_request_id"
+        )
+        AcLLMError.__init__(
+            self,
+            ErrorCode.DUPLICATE_HOST_REQUEST_ID,
+            "Duplicate host request ID.",
+            details={
+                "code": detail_code,
+                "request_id": request_id,
+                "recovery_exhausted": recovery_exhausted,
+            },
+        )
+
+
+class HostRequestIdentityConflictError(DuplicateHostRequestError):
+    """A duplicate request ID changed the original host request contract."""
+
+    def __init__(
+        self,
+        request_id: str,
+        *,
+        expected_instruction: str,
+        received_instruction: str,
+        mismatch: str = "instruction",
+    ) -> None:
+        self.request_id = request_id
+        self.instruction = received_instruction
+        self.recovery_exhausted = False
+        AcLLMError.__init__(
+            self,
+            ErrorCode.HOST_REQUEST_ID_CONFLICT,
+            "Host request ID is bound to a different instruction.",
+            details={
+                "code": "host_request_id_conflict",
+                "request_id": request_id,
+                "mismatch": mismatch,
+                "expected_instruction": expected_instruction,
+                "received_instruction": received_instruction,
+            },
+        )
 
 
 class CandidateConflictError(AcLLMError):

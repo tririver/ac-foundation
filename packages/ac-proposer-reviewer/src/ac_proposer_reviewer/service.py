@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Literal, Mapping, cast
+from typing import Literal, cast
 
 from ac_jobs import (
     ArtifactRef,
@@ -14,24 +15,25 @@ from ac_jobs import (
     RunContext,
     RunError,
     RunOutcome,
-    Succeeded,
     StoppedError,
+    Succeeded,
     UnitResult,
     WorkUnit,
     canonical_json_bytes,
 )
 from ac_llm import (
     JsonOutput,
-    LLMStopped,
     LLMCompleted,
     LLMFailed,
     LLMInputArtifact,
     LLMPaused,
     LLMRequest,
+    LLMStopped,
     LLMTaskService,
     SessionRef,
     decode_resume_input,
 )
+from ac_llm.output import validate_value
 
 from .artifacts import (
     artifact_ref_from_document,
@@ -769,6 +771,8 @@ class ProposerReviewerService:
                     (),
                     error=_llm_error(reviewer_outcome),
                     error_worker_id=loop.reviewer.worker_id,
+                    current_round=round_number,
+                    current_proposal_refs=successful_refs,
                 )
             assert isinstance(reviewer_outcome, LLMCompleted)
             review_value = cast(JsonValue, reviewer_outcome.value)
@@ -792,6 +796,8 @@ class ProposerReviewerService:
                         {"round": round_number},
                     ),
                     error_worker_id=loop.reviewer.worker_id,
+                    current_round=round_number,
+                    current_proposal_refs=successful_refs,
                 )
             review_ref = artifacts.publish_json(
                 review_artifact_id(
@@ -1027,6 +1033,8 @@ def _failed_loop(
     *,
     error: RunError | None = None,
     error_worker_id: str | None = None,
+    current_round: int | None = None,
+    current_proposal_refs: Mapping[str, ArtifactRef] | None = None,
 ) -> LoopResult:
     failed_worker_ids = [unit.unit_id for unit in failures]
     if error_worker_id is not None and error_worker_id not in failed_worker_ids:
@@ -1055,15 +1063,28 @@ def _failed_loop(
         "failed_worker_ids": failed_worker_ids,
         "causes": causes,
     }
+    if current_proposal_refs is not None:
+        if current_round is None:
+            raise ValueError("current proposer refs require a current round")
+        details["current_round"] = current_round
+        details["current_round_proposal_refs"] = {
+            worker_id: artifact_ref_to_document(ref)
+            for worker_id, ref in current_proposal_refs.items()
+        }
+        final_proposals = _validated_proposal_values(
+            loop, artifacts, current_proposal_refs
+        )
+    else:
+        final_proposals = {
+            worker_id: read_json_artifact(artifacts, ref)
+            for worker_id, ref in state.proposal_refs.items()
+            if worker_id in state.current_proposer_ids
+        }
     return LoopResult(
         loop_id=loop.loop_id,
         termination=LoopTermination.FAILED,
         rounds_completed=state.rounds_completed,
-        final_proposals={
-            worker_id: read_json_artifact(artifacts, ref)
-            for worker_id, ref in state.proposal_refs.items()
-            if worker_id in state.current_proposer_ids
-        },
+        final_proposals=final_proposals,
         final_review=(
             None
             if state.review_ref is None
@@ -1071,6 +1092,24 @@ def _failed_loop(
         ),
         error=RunError(code, message, details),
     )
+
+
+def _validated_proposal_values(
+    loop: LoopSpec,
+    artifacts: object,
+    refs: Mapping[str, ArtifactRef],
+) -> dict[str, JsonValue]:
+    workers = {worker.worker_id: worker for worker in loop.proposers}
+    values: dict[str, JsonValue] = {}
+    for worker_id, ref in refs.items():
+        try:
+            worker = workers[worker_id]
+        except KeyError as exc:
+            raise ValueError("current proposer reference has an unknown worker") from exc
+        value = read_json_artifact(artifacts, ref)
+        validate_value(value, _worker_output(worker.output_schema))
+        values[worker_id] = value
+    return values
 
 
 def _emit_progress(

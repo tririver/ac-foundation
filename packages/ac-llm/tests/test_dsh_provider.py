@@ -116,7 +116,15 @@ def test_dsh_adapter_consumes_authenticated_ndjson_stream(tmp_path: Path) -> Non
         provider_route="fake-provider",
     )
     result = adapter.start(
-        ProviderRequest("prompt", "fake-model", None, {}, 3, tmp_path),
+        ProviderRequest(
+            "prompt",
+            "fake-model",
+            None,
+            {},
+            3,
+            tmp_path,
+            reasoning_effort="high",
+        ),
         Observer(),
         Stop(),
     )
@@ -138,6 +146,7 @@ def test_dsh_adapter_consumes_authenticated_ndjson_stream(tmp_path: Path) -> Non
         "op": "generate",
         "provider": "fake-provider",
         "model": "fake-model",
+        "reasoning_effort": "high",
     }
 
 

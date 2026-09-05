@@ -18,6 +18,10 @@ from .source_targets import (
 from .list_paths import validate_list_paths
 from .source_fidelity import validate_source_fidelity_metadata
 from .source_presentation import validate_source_presentation_metadata
+from .diagnostics import (
+    DOCUMENT_DIAGNOSTICS_METADATA_KEY,
+    validate_document_diagnostics,
+)
 
 
 RICH_DOCUMENT_SCHEMA_V2 = "ac.document.rich_document.v2"
@@ -364,6 +368,11 @@ class RichDocument:
             blocks=blocks,
             source=self.source,
         )
+        if DOCUMENT_DIAGNOSTICS_METADATA_KEY in metadata_value:
+            validate_document_diagnostics(
+                metadata_value[DOCUMENT_DIAGNOSTICS_METADATA_KEY],
+                source=self.source,
+            )
         metadata = _freeze_mapping(metadata_value)
         material = {
             "schema_version": self.schema_version,

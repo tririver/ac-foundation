@@ -7,10 +7,50 @@ structure, and terminology workflows. It contains no paper-provider behavior.
 `AcDocumentService` accepts local files and repository artifacts. Academic
 identifiers and providers belong to a consumer package, not `ac-document`.
 
+HTML MathML TeX projections are normalized before entering a `RichDocument`.
+LaTeXML-only line-breaking hints, redundant default-black color commands, and
+empty `array` option lists are removed while semantic TeX is preserved.
+LaTeXML equation tables without visible equation numbers retain one logical
+equation unit per authored table row instead of emitting each MathML cell as a
+separate display equation.
+
+## Resilient optional HTML projections
+
+HTML parses record `metadata.document_diagnostics` with schema
+`ac.document.document_diagnostics.v1`. It is a codec-validated local ledger
+for optional source presentation, Figure/Table layout, source-target
+navigation, front matter, and notes. Each entry has a stable category, source
+scope and locator, `exact`, `neutral`, or `unavailable` status, a fallback
+action, and bounded evidence. Its visible-content accounting reconciles every
+visible source unit to emitted content, a documented exclusion, or a safe
+plain fallback; `unaccounted` is always zero.
+
+Ownership is enumerated from the DOM before RichDocument projection: nested
+and repeated wrappers receive one non-overlapping unit, article-internal
+navigation is a documented exclusion, and visible siblings outside selected
+article roots are recorded as source chrome rather than guessed as paper body.
+
+Exact projection validators remain fail-closed: malformed optional layout,
+target, or presentation data is never admitted as authoritative. The parser
+instead keeps safe core blocks where possible, uses a neutral projection or
+source-preserving plain block where it is not, and records the degradation.
+An HTML structure that degrades to a plain paragraph still publishes that
+paragraph's exact plain rich field, so one local fallback cannot invalidate
+otherwise valid presentation metadata for the rest of the document.
+Source identity, UTF-8 decoding, source digest, unsafe input, and core
+`RichBlock`/codec contract failures remain hard errors. Existing v2/v3
+documents and Markdown/TeX canonical output remain compatible when this
+optional key is absent.
+
 Explicit Markdown, TeX, and HTML keyword/index metadata is normalized before
 terminology workflows consume it. A value made only of Unicode dash punctuation
 is an empty publisher placeholder and is omitted; an authored Keywords section
 remains ordinary document content and can still supply the real term list.
+Model-proposed terms enter the public keyword result only when the term or one
+of its aliases has a literal source occurrence. Ungrounded semantic guesses
+remain durable model evidence but do not become glossary entries or Reader
+omission warnings. Cached legacy inventories receive the same grounded result
+projection.
 
 ```bash
 ac-document --help
@@ -84,8 +124,10 @@ Consumers bind a note only through `owner_block_id` plus `anchor`.
 `owner_locator` is immutable source provenance, not a routing or binding key;
 serialized locator changes are covered by the RichDocument digest.
 The current anchor contract covers paragraph text, LIST items, and Table
-headers/cells. An authored note in a heading, Figure caption, or Table caption
-fails parsing instead of retaining its marker while dropping its body.
+headers/cells. A note in a heading, Figure caption, or Table caption cannot
+claim an exact note projection: the parser emits its safe plain body fallback
+and records an unavailable `source_notes` diagnostic rather than dropping
+visible source content or rejecting the whole document.
 
 Each authored front-matter entry also carries an exact `creator_flow` for
 source-faithful presentation. Ordered creator groups reference one normalized
@@ -116,9 +158,11 @@ The earlier unpublished `source_front_matter.v1` draft lacked creator flow and
 is intentionally rejected when present; producer and consumer artifacts from
 that draft must be reparsed/rebuilt together.
 Consumers must reparse and rebuild document-bound artifacts to acquire the new
-metadata. HTML parsing also requires every visible article flow event to emit
-content, emit structured front matter, or match a documented structural
-exclusion. Figure, Table, and panel order remains the authored HTML order.
+metadata. HTML parsing requires every visible article flow event to emit
+content, emit structured front matter, use a documented structural exclusion,
+or receive a safe plain fallback; the diagnostics ledger rejects a nonzero
+unaccounted count. Figure, Table, and panel order remains the authored HTML
+order.
 
 ## Authored source presentation
 
@@ -139,7 +183,8 @@ level-2 child of the document title. A root acknowledgement is also level 2;
 an acknowledgement under an authored HTML `section` is one level below that
 section's unique preceding direct heading. A parent already at level 6,
 conflicting abstract/acknowledgement conventions, repeated nested convention
-ancestors, or a missing/ambiguous section parent fails parsing. Ordinary h6
+ancestors, or a missing/ambiguous section parent prevents that optional
+semantic projection from being admitted. Ordinary h6
 elements, literal `Abstract`/`Acknowledgements` text, and unknown classes retain
 their authored numeric tag level and receive no semantic role. Classification
 headings retain their authored level and remain outside the outline. Consumers
@@ -162,7 +207,8 @@ It preserves `before_content`, `after_content`, or Table-only `embedded`
 placement and a nullable logical alignment. Alignment is authoritative only
 when backed by exact semantic `text-align:start|center|end` style or LaTeXML
 `ltx_centering`/`ltx_align_center` class tokens; unknown evidence is explicit
-neutral metadata and conflicting evidence fails parsing. Translation consumers
+neutral metadata and conflicting evidence degrades only that optional
+presentation projection. Translation consumers
 reuse source placement/alignment while keeping translated caption content
 independent. Table entries separately preserve ordered authored cell origins,
 including `rowspan`/`colspan`, source cell kind, and locator. Each origin also
@@ -177,17 +223,28 @@ synthetic grid, then draw only declared rule edges and apply only declared
 alignment. The producer recognizes a closed set of LaTeXML alignment/border
 classes and safe `text-align` keywords. Unknown alignment remains neutral;
 recognized conflicts, duplicate physical edges, unsupported inline border CSS,
-and unknown `ltx_border_*` classes fail parsing. Table raw padding, arbitrary
+and unknown `ltx_border_*` classes are kept out of an exact presentation
+projection. Table raw padding, arbitrary
 style, pixel dimensions, and TeX lengths are deliberately outside the Table
 contract, so consumers retain their safe default cell padding. Authored span
 coverage is aggregate-bounded before grid expansion to reject hostile or
 accidentally enormous rectangular spans.
 
+LaTeXML transformed Tables that use one outer `span.ltx_tabular` with
+`span.ltx_tr` and direct `span.ltx_td` children are normalized through the
+same bounded grid contract as native HTML Tables. Nested `ltx_tabular`
+structures remain cell content; multiple independent outer grids, malformed
+rows, or unsafe spans retain the existing visible plain-text fallback.
+
 The ordered `figures` registry covers every Figure that has an authoritative
 source-target panel manifest. Each descriptor joins by final Figure `block_id`;
 its panels join the existing asset/status manifest by contiguous `panel_index`
-and exact authored `source_id`. An exact LaTeXML/ar5iv direct
-`img|object.ltx_graphics` is a one-column `single` layout. An exact direct
+and exact authored `source_id`. An exact LaTeXML/ar5iv single
+`img|object.ltx_graphics` is a one-column `single` layout. The graphic may be
+directly owned by the Figure or nested through a pure single-child `p`/`span`
+wrapper chain; wrappers with authored text, extra elements, or other layout
+structure remain ambiguous and produce a neutral Figure projection with a
+diagnostic. An exact direct
 `ltx_flex_figure` preserves ordered rows, exact `ltx_flex_break` positions,
 and each row's authored `ltx_flex_size_1|2|3` source. Cells within one row
 must use one size, while explicitly separated rows may use different sizes;
@@ -197,6 +254,10 @@ producer never derives columns from panel count, filenames, captions, or Figure
 numbers. Addressable generic HTML Figures outside that closed profile receive a
 `neutral` descriptor with no row/column claim; Figures with no exact target
 alias remain outside the registry.
+If one authored Figure wrapper owns multiple direct captions, the producer
+does not guess a caption-to-panel association. It emits every media and caption
+inline flow in original DOM order as source-preserving blocks and records a
+`figure_layout` diagnostic; caption math, links, and marks remain structured.
 
 Recognized Figure panels preserve positive bounded integer `width`/`height`
 attributes and a reduced positive `style:aspect-ratio` pair with closed
@@ -205,7 +266,8 @@ both dimensions and aspect ratio exist they must agree. Unknown or nested flex
 structure, multiple flex roots, mixed size classes within one row, unknown
 size classes, empty row breaks,
 cells without exactly one direct panel graphic, malformed dimensions, and
-conflicting aspect ratios fail parsing. Consumers treat a present exact layout
+conflicting aspect ratios are not admitted as exact layout. Consumers treat a
+present exact layout
 as authoritative, but use their own responsive sizing policy; raw remote CSS,
 arbitrary style, pixel typography, and acquisition behavior are not part of
 this contract.
@@ -244,7 +306,9 @@ ownership is omitted rather than inferred. Source-note IDs remain governed by
 `source_notes` and are not duplicated into this registry.
 
 Consumers should prefer a present, valid manifest and fail closed on conflicts,
-unknown kinds, missing blocks, invalid ranges, or inconsistent panels. Documents
-without the metadata remain compatible with a unique exact-locator fallback.
+unknown kinds, missing blocks, invalid ranges, or inconsistent panels. Parser
+admission drops a malformed optional manifest and records an unavailable
+diagnostic while preserving core blocks. Documents without the metadata remain
+compatible with a unique exact-locator fallback.
 An explicitly present `null` manifest is invalid; only an absent key selects
 the fallback.

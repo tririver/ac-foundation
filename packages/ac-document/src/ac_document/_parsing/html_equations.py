@@ -125,6 +125,31 @@ def html_equation_table_units(table: Tag) -> tuple[HtmlEquationUnit, ...]:
         return (
             HtmlEquationUnit(tuple(math_nodes), table_labels[0], table),
         )
+    if not table_labels:
+        grouped = [
+            HtmlEquationUnit(values, "", row)
+            for row, values in zip(rows, row_maths, strict=True)
+            if values
+        ]
+        assigned = {
+            id(math)
+            for unit in grouped
+            for math in unit.math_nodes
+        }
+        grouped.extend(
+            HtmlEquationUnit((math,), "", math)
+            for math in math_nodes
+            if id(math) not in assigned
+        )
+        if grouped:
+            return tuple(
+                sorted(
+                    grouped,
+                    key=lambda unit: min(
+                        order[id(math)] for math in unit.math_nodes
+                    ),
+                )
+            )
     return tuple(HtmlEquationUnit((math,), "", math) for math in math_nodes)
 
 

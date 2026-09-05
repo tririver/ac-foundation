@@ -11,6 +11,21 @@ def normalize_tex(value: str) -> str:
 
     value = re.sub(r"(?<!\\)%[^\n]*", "", value)
     value = re.sub(r"\\(?:label|tag)\s*\{[^{}]*\}", "", value)
+    # LaTeXML includes line-breaking and default-black presentation commands
+    # in MathML TeX projections.  They carry no mathematical semantics and are
+    # not portable to renderers such as KaTeX.
+    value = _strip_tex_penalty_hints(value)
+    value = re.sub(
+        r"\\color\s*\[\s*rgb\s*\]\s*"
+        r"\{\s*0(?:\.0+)?\s*,\s*0(?:\.0+)?\s*,\s*0(?:\.0+)?\s*\}",
+        "",
+        value,
+    )
+    value = re.sub(
+        r"(\\begin\s*\{array\})\s*\[\s*\]\s*(?=\{)",
+        r"\1",
+        value,
+    )
     # Remove only outer display wrappers.  Content environments such as
     # ``array`` and ``matrix`` carry layout semantics and must survive into the
     # RichDocument and renderer.
@@ -35,6 +50,43 @@ def normalize_tex(value: str) -> str:
             value = value[len(left) : len(value) - len(right)]
             break
     return " ".join(value.split())
+
+
+def _strip_tex_penalty_hints(value: str) -> str:
+    """Remove standalone ``\\penalty`` controls and their integer parameter."""
+
+    output: list[str] = []
+    index = 0
+    control = r"\penalty"
+    while index < len(value):
+        command_end = index + len(control)
+        if (
+            not value.startswith(control, index)
+            or (index > 0 and value[index - 1] == "\\")
+            or (
+                command_end < len(value)
+                and value[command_end] in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz@"
+            )
+        ):
+            output.append(value[index])
+            index += 1
+            continue
+
+        cursor = command_end
+        while cursor < len(value) and value[cursor].isspace():
+            cursor += 1
+        while cursor < len(value) and value[cursor] in "+-":
+            cursor += 1
+            while cursor < len(value) and value[cursor].isspace():
+                cursor += 1
+        if cursor < len(value) and value[cursor].isdigit():
+            while cursor < len(value) and value[cursor].isdigit():
+                cursor += 1
+            index = cursor
+            continue
+
+        index = command_end
+    return "".join(output)
 
 
 def tex_without_comments(text: str) -> str:

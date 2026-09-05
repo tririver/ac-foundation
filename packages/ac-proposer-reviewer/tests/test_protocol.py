@@ -40,7 +40,11 @@ def request() -> BatchRequest:
                         worker_id="proposer-a",
                         instructions="Propose.",
                         output_schema=SCHEMA,
-                        model=ModelSelection(provider="codex", model="gpt-test"),
+                        model=ModelSelection(
+                            provider="codex",
+                            model="gpt-test",
+                            reasoning_effort="high",
+                        ),
                     ),
                 ),
                 reviewer=WorkerSpec("reviewer", "Review.", SCHEMA),
@@ -58,6 +62,7 @@ def test_batch_request_round_trips_with_closed_worker_shape() -> None:
     encoded = encode_batch_request(original)
     proposer = encoded["loops"][0]["proposers"][0]  # type: ignore[index]
     assert set(proposer) == {"worker_id", "instructions", "output_schema", "model"}
+    assert proposer["model"]["reasoning_effort"] == "high"
     assert encoded["loops"][0]["revision_context_mode"] == "feedback_only"  # type: ignore[index]
     assert encoded["loops"][0]["input_ids"] is None  # type: ignore[index]
     assert decode_batch_request(encoded) == original

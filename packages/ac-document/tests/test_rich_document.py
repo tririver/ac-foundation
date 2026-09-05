@@ -11,9 +11,12 @@ import ac_document.rich_document.list_paths as list_path_validation
 presentation_validation = importlib.import_module(
     "ac_document.rich_document.source_presentation"
 )
+rich_parser = importlib.import_module("ac_document.rich_document.parser")
 
 from ac_document import (
     PDF_VALIDATOR_MISSING_WARNING,
+    DOCUMENT_DIAGNOSTICS_METADATA_KEY,
+    DOCUMENT_DIAGNOSTICS_SCHEMA,
     PDFTextLayer,
     RICH_DOCUMENT_SCHEMA,
     RICH_DOCUMENT_SCHEMA_V2,
@@ -44,6 +47,7 @@ from ac_document import (
     rich_block_to_document,
     rich_document_from_document,
     rich_document_to_document,
+    document_diagnostics,
     source_front_matter,
     source_notes,
     source_presentation,
@@ -82,6 +86,14 @@ def _source_target(document, alias):
     manifest = source_target_manifest(document)
     assert manifest is not None
     return next(item for item in manifest["targets"] if item["alias"] == alias)
+
+
+def _diagnostic_categories(document):
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert diagnostics["schema_version"] == DOCUMENT_DIAGNOSTICS_SCHEMA
+    assert diagnostics["visible_content"]["unaccounted"] == 0
+    return [item["category"] for item in diagnostics["projections"]]
 
 
 def _source_presentation_block(document, block_id):
@@ -1561,20 +1573,24 @@ def test_html_semantic_wrapper_roles_only_its_unique_authored_title(tmp_path):
     )["roles"] == ()
 
 
-def test_html_semantic_wrapper_rejects_multiple_eligible_titles(tmp_path):
+def test_html_semantic_wrapper_neutralizes_multiple_eligible_titles(tmp_path):
     repository = SourceRepository(tmp_path / "cache")
-    with pytest.raises(ValueError, match="semantic heading"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                b"""
-                <article><div class="ltx_abstract">
-                  <h6>First title</h6><h5>Second title</h5>
-                </div></article>
-                """,
-                SourceFormat.HTML,
-            )
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><div class="ltx_abstract">
+              <h6>First title</h6><h5>Second title</h5>
+            </div></article>
+            """,
+            SourceFormat.HTML,
         )
+    )
+    assert [block.payload["text"] for block in document.blocks] == [
+        "First title",
+        "Second title",
+    ]
+    assert "source_presentation" in _diagnostic_categories(document)
 
 
 @pytest.mark.parametrize(
@@ -1605,16 +1621,17 @@ def test_html_semantic_wrapper_rejects_multiple_eligible_titles(tmp_path):
         """,
     ),
 )
-def test_html_latexml_special_heading_ambiguity_fails_closed(tmp_path, markup):
+def test_html_latexml_special_heading_ambiguity_degrades_locally(tmp_path, markup):
     repository = SourceRepository(tmp_path / "cache")
-    with pytest.raises(ValueError, match="semantic heading"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                f"<article><h1>Paper</h1>{markup}</article>".encode(),
-                SourceFormat.HTML,
-            )
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            f"<article><h1>Paper</h1>{markup}</article>".encode(),
+            SourceFormat.HTML,
         )
+    )
+    assert document.blocks[0].payload["text"] == "Paper"
+    assert "source_presentation" in _diagnostic_categories(document)
 
 
 def test_source_presentation_semantic_heading_roles_are_validated_and_digested(
@@ -2019,32 +2036,93 @@ def test_html_source_presentation_unifies_figure_and_table_captions(tmp_path):
         item["block_id"] for item in presentation["captions"]
     } == {block.block_id for block in by_source_id.values()}
 
-    with pytest.raises(ValueError, match="conflicting caption alignment"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                b"""
-                <article><figure class="ltx_figure" id="conflict">
-                  <img src="plot.png"><figcaption class="ltx_centering"
-                    style="text-align:end">Conflict.</figcaption>
-                </figure></article>
-                """,
-                SourceFormat.HTML,
-            )
+    conflict = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><figure class="ltx_figure" id="conflict">
+              <img src="plot.png"><figcaption class="ltx_centering"
+                style="text-align:end">Conflict.</figcaption>
+            </figure></article>
+            """,
+            SourceFormat.HTML,
         )
-    with pytest.raises(ValueError, match="multiple authored captions"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                b"""
-                <article><figure class="ltx_figure" id="duplicate">
-                  <img src="plot.png"><figcaption>One.</figcaption>
-                  <figcaption>Two.</figcaption>
-                </figure></article>
-                """,
-                SourceFormat.HTML,
-            )
+    )
+    assert conflict.blocks[0].payload["caption"] == "Conflict."
+    assert "caption_presentation" in _diagnostic_categories(conflict)
+
+
+def test_html_multiple_authored_captions_preserve_source_flow(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><figure class="ltx_figure" id="grouped">
+              <div class="ltx_flex_figure"><figure class="ltx_figure_panel">
+                <img src="one.png">
+              </figure></div>
+              <figcaption>Figure 1: One with <math display="inline">
+                <annotation encoding="application/x-tex">x_1</annotation>
+              </math>.</figcaption>
+              <div class="ltx_flex_figure"><figure class="ltx_figure_panel">
+                <img src="two.png">
+              </figure></div>
+              <figcaption>Figure 2: Two.</figcaption>
+            </figure></article>
+            """,
+            SourceFormat.HTML,
         )
+    )
+
+    assert [block.kind for block in document.blocks] == [
+        RichBlockKind.FIGURE,
+        RichBlockKind.PARAGRAPH,
+        RichBlockKind.FIGURE,
+        RichBlockKind.PARAGRAPH,
+    ]
+    assert [
+        block.payload.get("target")
+        for block in document.blocks
+        if block.kind is RichBlockKind.FIGURE
+    ] == ["one.png", "two.png"]
+    assert [
+        block.payload["text"]
+        for block in document.blocks
+        if block.kind is RichBlockKind.PARAGRAPH
+    ] == ["Figure 1: One with x_1.", "Figure 2: Two."]
+    first_caption = document.blocks[1]
+    assert any(
+        span["kind"] == "math" and span["tex"] == "x_1"
+        for span in first_caption.payload["inline_spans"]
+    )
+    assert "figure_layout" in _diagnostic_categories(document)
+    diagnostics = document.metadata[DOCUMENT_DIAGNOSTICS_METADATA_KEY]
+    assert diagnostics["visible_content"]["unaccounted"] == 0
+
+
+def test_html_list_figure_with_multiple_captions_preserves_source_flow(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><ul><li><figure id="grouped">
+              <img src="one.png"><figcaption>Figure 1: One.</figcaption>
+              <img src="two.png"><figcaption>Figure 2: Two.</figcaption>
+            </figure></li></ul></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [
+        block.payload.get("target")
+        for block in document.blocks
+        if block.kind is RichBlockKind.FIGURE
+    ] == ["one.png", "two.png"]
+    assert "Figure 1: One." in str(document.blocks)
+    assert "Figure 2: Two." in str(document.blocks)
 
 
 def test_html_caption_alignment_accepts_case_insensitive_important(tmp_path):
@@ -2152,14 +2230,15 @@ def test_html_source_presentation_preserves_authored_table_cell_rules(tmp_path):
         '<td class="ltx_align_left" style="text-align:center">Conflict</td>',
         '<td class="ltx_border_t ltx_border_tt">Conflict</td>',
     ):
-        with pytest.raises(ValueError, match="Table cell presentation"):
-            RichDocumentParserService(repository).parse_source(
-                _store(
-                    repository,
-                    f"<article><table><tr>{markup}</tr></table></article>".encode(),
-                    SourceFormat.HTML,
-                )
+        degraded = RichDocumentParserService(repository).parse_source(
+            _store(
+                repository,
+                f"<article><table><tr>{markup}</tr></table></article>".encode(),
+                SourceFormat.HTML,
             )
+        )
+        assert degraded.blocks[0].payload["rows"] == (("Conflict",),)
+        assert "table_presentation" in _diagnostic_categories(degraded)
 
 
 def test_source_presentation_rejects_tamper_and_remains_optional(tmp_path):
@@ -2447,17 +2526,130 @@ def test_source_presentation_rejects_tamper_and_remains_optional(tmp_path):
     assert rich_document_to_document(legacy_decoded) == legacy_encoded
 
 
-def test_html_malformed_structured_authors_fail_flow_completeness(tmp_path):
+def test_html_malformed_structured_authors_fall_back_to_visible_core_flow(tmp_path):
     repository = SourceRepository(tmp_path / "cache")
 
-    with pytest.raises(Exception, match="uncovered_html_flow"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                b"<article><div class='ltx_authors'>Visible unstructured byline.</div></article>",
-                SourceFormat.HTML,
-            )
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"<article><div class='ltx_authors'>Visible unstructured byline.</div></article>",
+            SourceFormat.HTML,
         )
+    )
+    assert document.blocks[0].payload["text"] == "Visible unstructured byline."
+    assert "source_front_matter" in _diagnostic_categories(document)
+
+
+def test_html_plain_structural_fallback_keeps_other_source_presentation(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article>
+              <figure id="T-bad" class="ltx_table">
+                <figcaption>Complex table retained as text.</figcaption>
+                <span class="ltx_tabular">
+                  <span class="ltx_tr"><span class="ltx_td">Value</span></span>
+                </span>
+                <span class="ltx_tabular">
+                  <span class="ltx_tr"><span class="ltx_td">Other</span></span>
+                </span>
+              </figure>
+              <table id="T-good">
+                <caption>Ordinary table.</caption>
+                <tr><td>Cell</td></tr>
+              </table>
+            </article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    fallback = next(
+        block for block in document.blocks if block.locator.source_id == "T-bad"
+    )
+    assert fallback.kind is RichBlockKind.PARAGRAPH
+    presentation = source_presentation(document)
+    assert presentation is not None
+    fallback_view = _source_presentation_field(document, fallback, "text")
+    assert fallback_view["text"] == fallback.payload["text"]
+    ordinary = next(
+        block for block in document.blocks if block.locator.source_id == "T-good"
+    )
+    assert _source_presentation_caption(document, ordinary)["placement"] == (
+        "embedded"
+    )
+    assert "html_structure" in _diagnostic_categories(document)
+
+
+def test_html_latexml_span_tabular_recovers_safe_table_grid(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article>
+              <figure id="S4.T6" class="ltx_table">
+                <figcaption class="ltx_caption ltx_centering">
+                  Table 6: Member variable stars.
+                </figcaption>
+                <span class="ltx_transformed_outer">
+                  <span class="ltx_transformed_inner">
+                    <span class="ltx_tabular ltx_align_middle">
+                      <span class="ltx_tr">
+                        <span class="ltx_td ltx_align_left ltx_border_tt">No.</span>
+                        <span class="ltx_td ltx_align_center ltx_border_tt">
+                          <span class="ltx_tabular"><span class="ltx_tr">
+                            <span class="ltx_td">Source ID</span>
+                          </span></span>
+                        </span>
+                        <span class="ltx_td ltx_align_center ltx_border_tt">
+                          <math alttext="\\alpha"><semantics><mi>alpha</mi>
+                          <annotation encoding="application/x-tex">\\alpha</annotation>
+                          </semantics></math>
+                        </span>
+                      </span>
+                      <span class="ltx_tr">
+                        <span class="ltx_td">01</span>
+                        <span class="ltx_td">2014635675271057280</span>
+                        <span class="ltx_td">343.608</span>
+                      </span>
+                    </span>
+                  </span>
+                </span>
+              </figure>
+            </article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert len(document.blocks) == 1
+    table = document.blocks[0]
+    assert table.kind is RichBlockKind.TABLE
+    assert table.locator.source_id == "S4.T6"
+    assert table.payload == {
+        "headers": ("No.", "Source ID", "alpha"),
+        "rows": (("01", "2014635675271057280", "343.608"),),
+        "caption": "Table 6: Member variable stars.",
+    }
+    presentation = source_presentation(document)
+    assert presentation is not None
+    cells = presentation["tables"][0]["cells"]
+    assert [cell["kind"] for cell in cells] == [
+        "header",
+        "header",
+        "header",
+        "data",
+        "data",
+        "data",
+    ]
+    assert cells[0]["horizontal_alignment"] == "left"
+    assert cells[1]["horizontal_alignment"] == "center"
+    assert cells[0]["rule_edges"] == (
+        {"edge": "top", "source": "class:ltx_border_tt"},
+    )
 
 
 def test_html_source_notes_preserve_marker_body_owner_and_inline_semantics(
@@ -2622,7 +2814,7 @@ def test_html_source_notes_ignore_bodyless_footnotemark_placeholders(tmp_path):
         "<table><caption>Table {note}</caption><tr><td>A</td></tr></table>",
     ),
 )
-def test_html_notes_in_titles_and_captions_fail_closed(tmp_path, markup):
+def test_html_notes_in_titles_and_captions_degrade_locally(tmp_path, markup):
     repository = SourceRepository(tmp_path / "cache")
     note = """
       <span class="ltx_note ltx_role_footnote" id="footnote1">
@@ -2632,14 +2824,18 @@ def test_html_notes_in_titles_and_captions_fail_closed(tmp_path, markup):
         </span>
       </span>
     """
-    with pytest.raises(ValueError, match="source notes.*cannot be represented"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                f"<article>{markup.format(note=note)}</article>".encode(),
-                SourceFormat.HTML,
-            )
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            f"<article>{markup.format(note=note)}</article>".encode(),
+            SourceFormat.HTML,
         )
+    )
+    assert document.blocks
+    assert "source_notes" in _diagnostic_categories(document)
+    assert "Body." in " ".join(
+        str(block.payload) for block in document.blocks
+    )
 
 
 def test_html_note_anchors_use_final_normalized_visible_text(tmp_path):
@@ -3083,7 +3279,7 @@ def test_html_latexml_table_figure_preserves_wrapper_and_visible_grid(tmp_path):
         "</td></tr></table>",
     ],
 )
-def test_html_latexml_table_figure_with_multiple_tables_fails_closed(
+def test_html_latexml_table_figure_with_multiple_tables_preserves_plain_flow(
     tmp_path,
     table_markup,
 ):
@@ -3103,12 +3299,16 @@ def test_html_latexml_table_figure_with_multiple_tables_fails_closed(
 
     document = RichDocumentParserService(repository).parse_source(primary)
 
-    assert [block.kind for block in document.blocks] == [RichBlockKind.HEADING]
-    assert all(block.locator.source_id != "S3.T1" for block in document.blocks)
+    assert [block.kind for block in document.blocks] == [
+        RichBlockKind.HEADING,
+        RichBlockKind.PARAGRAPH,
+    ]
+    assert "Table 1: Ambiguous wrapper." in document.blocks[-1].payload["text"]
+    assert "html_structure" in _diagnostic_categories(document)
 
 
 @pytest.mark.parametrize("span", ["0", "-1", "invalid", "5000"])
-def test_html_latexml_table_figure_with_unsafe_span_fails_closed(
+def test_html_latexml_table_figure_with_unsafe_span_preserves_plain_flow(
     tmp_path,
     span,
 ):
@@ -3128,8 +3328,12 @@ def test_html_latexml_table_figure_with_unsafe_span_fails_closed(
 
     document = RichDocumentParserService(repository).parse_source(primary)
 
-    assert [block.kind for block in document.blocks] == [RichBlockKind.HEADING]
-    assert all(block.locator.source_id != "S3.T1" for block in document.blocks)
+    assert [block.kind for block in document.blocks] == [
+        RichBlockKind.HEADING,
+        RichBlockKind.PARAGRAPH,
+    ]
+    assert "unsafe" in document.blocks[-1].payload["text"]
+    assert "table_presentation" in _diagnostic_categories(document)
 
 
 def test_html_table_rejects_aggregate_span_coverage_before_expansion(tmp_path):
@@ -3147,7 +3351,12 @@ def test_html_table_rejects_aggregate_span_coverage_before_expansion(tmp_path):
         )
     )
 
-    assert [block.kind for block in document.blocks] == [RichBlockKind.HEADING]
+    assert [block.kind for block in document.blocks] == [
+        RichBlockKind.HEADING,
+        RichBlockKind.PARAGRAPH,
+    ]
+    assert document.blocks[-1].payload["text"] == "unsafe"
+    assert "table_presentation" in _diagnostic_categories(document)
 
 
 def test_table_presentation_rejects_aggregate_span_before_grid_expansion(
@@ -3413,6 +3622,61 @@ def test_html_source_presentation_preserves_exact_figure_panel_layout(tmp_path):
     ) == source_presentation(document)
 
 
+def test_html_latexml_single_figure_accepts_neutral_p_span_wrappers(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article>
+              <figure class="ltx_figure" id="S4.F1">
+                <p class="ltx_p ltx_align_center">
+                  <span class="ltx_text">
+                    <img class="ltx_graphics ltx_img_landscape"
+                         id="S4.F1.g1" src="paper/P1.jpg"
+                         width="320" height="180">
+                  </span>
+                </p>
+                <figcaption class="ltx_caption ltx_centering">
+                  Figure 1: wrapped graphic.
+                </figcaption>
+              </figure>
+            </article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    figure = next(
+        block for block in document.blocks if block.kind is RichBlockKind.FIGURE
+    )
+    presentation = _source_presentation_figure(document, figure)
+
+    assert presentation["layout"] == {
+        "kind": "single",
+        "column_count": 1,
+        "row_count": 1,
+        "rows": ((0,),),
+        "column_source": "latexml_ar5iv_direct_graphic",
+        "row_sources": ("latexml_ar5iv_direct_graphic",),
+        "break_after_panel_indexes": (),
+        "break_source": None,
+    }
+    assert presentation["panels"] == (
+        {
+            "panel_index": 0,
+            "source_id": "S4.F1.g1",
+            "row_index": 0,
+            "column_index": 0,
+            "display_width": 320,
+            "display_height": 180,
+            "dimension_source": "attributes:width,height",
+            "aspect_ratio": None,
+            "aspect_ratio_source": None,
+        },
+    )
+
+
 @pytest.mark.parametrize(
     "flex_markup",
     (
@@ -3450,24 +3714,27 @@ def test_html_source_presentation_preserves_exact_figure_panel_layout(tmp_path):
         '<img class="ltx_graphics" src="a.png">'
         '<img class="ltx_graphics" src="b.png">',
         '<div><img class="ltx_graphics ltx_figure_panel" src="a.png"></div>',
+        '<p><span>prefix<img class="ltx_graphics" src="a.png"></span></p>',
+        '<p><span><img class="ltx_graphics" src="a.png"></span>'
+        '<em>extra</em></p>',
     ),
 )
-def test_html_latexml_figure_layout_structure_fails_closed(
+def test_html_latexml_figure_layout_structure_degrades_to_neutral(
     tmp_path,
     flex_markup,
 ):
     repository = SourceRepository(tmp_path / "cache")
-    with pytest.raises(ValueError, match="Figure panel layout"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                (
-                    '<article><figure class="ltx_figure" id="F1">'
-                    f"{flex_markup}</figure></article>"
-                ).encode(),
-                SourceFormat.HTML,
-            )
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            (
+                '<article><figure class="ltx_figure" id="F1">'
+                f"{flex_markup}</figure></article>"
+            ).encode(),
+            SourceFormat.HTML,
         )
+    )
+    assert "figure_layout" in _diagnostic_categories(document)
 
 
 @pytest.mark.parametrize(
@@ -3483,20 +3750,21 @@ def test_html_latexml_figure_layout_structure_fails_closed(
         'width="1000001" height="2"',
     ),
 )
-def test_html_latexml_figure_panel_dimensions_fail_closed(tmp_path, attributes):
+def test_html_latexml_figure_panel_dimensions_degrade_to_neutral(tmp_path, attributes):
     repository = SourceRepository(tmp_path / "cache")
-    with pytest.raises(ValueError, match="Figure panel layout"):
-        RichDocumentParserService(repository).parse_source(
-            _store(
-                repository,
-                (
-                    '<article><figure class="ltx_figure" id="F1">'
-                    '<img class="ltx_graphics" id="F1.g1" src="a.png" '
-                    f"{attributes}></figure></article>"
-                ).encode(),
-                SourceFormat.HTML,
-            )
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            (
+                '<article><figure class="ltx_figure" id="F1">'
+                '<img class="ltx_graphics" id="F1.g1" src="a.png" '
+                f"{attributes}></figure></article>"
+            ).encode(),
+            SourceFormat.HTML,
         )
+    )
+    assert document.blocks[0].kind is RichBlockKind.FIGURE
+    assert "figure_layout" in _diagnostic_categories(document)
 
 
 def test_source_presentation_figure_layout_rejects_tamper_and_is_digested(
@@ -3956,7 +4224,7 @@ def test_html_fifteen_panel_figure_preserves_order_and_missing_state(tmp_path):
         '<object id="S4.F4" type="image/svg+xml" data="media/a.svg"></object>',
     ],
 )
-def test_html_compound_figure_rejects_panel_identity_collisions(
+def test_html_compound_figure_isolates_panel_identity_collisions(
     tmp_path,
     panels,
 ):
@@ -3969,13 +4237,15 @@ def test_html_compound_figure_rejects_panel_identity_collisions(
     )
     repository = SourceRepository(tmp_path / "cache")
 
-    with pytest.raises(ValueError, match="source target manifest"):
-        RichDocumentParserService(repository).parse(
-            SourceBundle(primary=repository.import_path(source))
-        )
+    outcome = RichDocumentParserService(repository).parse(
+        SourceBundle(primary=repository.import_path(source))
+    )
+    assert outcome.document.blocks[0].kind is RichBlockKind.FIGURE
+    assert source_target_manifest(outcome.document) is None
+    assert "source_target_manifest" in _diagnostic_categories(outcome.document)
 
 
-def test_html_figures_reject_cross_parent_panel_identity_collisions(tmp_path):
+def test_html_figures_isolate_cross_parent_panel_identity_collisions(tmp_path):
     source = tmp_path / "paper.html"
     source.write_text(
         """
@@ -3994,10 +4264,507 @@ def test_html_figures_reject_cross_parent_panel_identity_collisions(tmp_path):
     )
     repository = SourceRepository(tmp_path / "cache")
 
-    with pytest.raises(ValueError, match="source target manifest"):
-        RichDocumentParserService(repository).parse(
-            SourceBundle(primary=repository.import_path(source))
+    outcome = RichDocumentParserService(repository).parse(
+        SourceBundle(primary=repository.import_path(source))
+    )
+    assert len(outcome.document.blocks) == 2
+    assert source_target_manifest(outcome.document) is None
+    assert "source_target_manifest" in _diagnostic_categories(outcome.document)
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    (
+        "<span>Alpha <em>beta</em>.</span>",
+        "<!-- converter note --><span data-publisher='unknown'>Alpha <em>beta</em>.</span>",
+        "\n <div class='publisher-shell'> Alpha <em>beta</em>. </div>\n",
+    ),
+)
+def test_html_nonsemantic_wrappers_attributes_and_comments_preserve_core_content(
+    tmp_path,
+    wrapper,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    baseline = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"<article><p>Alpha <em>beta</em>.</p></article>",
+            SourceFormat.HTML,
         )
+    )
+    varied = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            f"<article><p>{wrapper}</p></article>".encode(),
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in varied.blocks] == [block.kind for block in baseline.blocks]
+    assert [block.payload for block in varied.blocks] == [block.payload for block in baseline.blocks]
+    assert document_diagnostics(varied)["visible_content"]["unaccounted"] == 0
+
+
+def test_optional_projection_corruption_preserves_core_blocks_and_records_fallback(
+    tmp_path,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    valid = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p>Before.</p><figure class="ltx_figure" id="F1">
+              <img class="ltx_graphics" id="F1.g1" src="plot.png">
+            </figure><table id="T1"><tr><td>Cell</td></tr></table><p>After.</p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+    corrupted = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p>Before.</p><figure class="ltx_figure" id="F1">
+              <p>prefix<img class="ltx_graphics" id="F1.g1" src="plot.png"></p>
+            </figure><table id="T1"><tr><td class="ltx_align_left" style="text-align:center">Cell</td></tr></table><p>After.</p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in corrupted.blocks] == [
+        block.kind for block in valid.blocks
+    ]
+    assert [block.payload for block in corrupted.blocks] == [
+        block.payload for block in valid.blocks
+    ]
+    categories = _diagnostic_categories(corrupted)
+    assert "figure_layout" in categories
+    assert "table_presentation" in categories
+    assert source_presentation(corrupted) is not None
+
+
+def test_target_projection_failure_isolated_from_visible_core_content(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p>Before.</p><figure id="F1"><object id="panel"
+              type="image/svg+xml" data="a.svg"></object></figure><p>After.</p>
+              <figure id="F2"><object id="panel" type="image/svg+xml"
+              data="b.svg"></object></figure></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.payload["text"] for block in document.blocks if block.kind is RichBlockKind.PARAGRAPH] == [
+        "Before.",
+        "After.",
+    ]
+    assert source_target_manifest(document) is None
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert diagnostics["visible_content"] == {
+        "visible_units": 4,
+        "emitted": 4,
+        "documented_exclusions": 0,
+        "opaque": 0,
+        "unaccounted": 0,
+    }
+
+
+def test_html_mixed_paragraph_preserves_embedded_video_with_auditable_fallback(
+    tmp_path,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p>Before <video id="clip" src="clip.mp4"
+            aria-label="Demonstration clip"></video> after.</p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [
+        RichBlockKind.PARAGRAPH,
+        RichBlockKind.FIGURE,
+        RichBlockKind.PARAGRAPH,
+    ]
+    assert [
+        block.payload["text"]
+        for block in document.blocks
+        if block.kind is RichBlockKind.PARAGRAPH
+    ] == ["Before", "after."]
+    figure = document.blocks[1]
+    assert figure.locator.source_id == "clip"
+    assert figure.payload["target"] == "clip.mp4"
+    assert figure.payload["alt_text"] == "Demonstration clip"
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert diagnostics["visible_content"]["unaccounted"] == 0
+    assert [
+        (entry["category"], entry["scope"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ] == [("embedded_media", "clip", "neutral_projection")]
+
+
+@pytest.mark.parametrize(
+    ("markup", "source_id", "target", "alt_text"),
+    (
+        (
+            '<video id="video" src="movie.mp4" aria-label="Movie"></video>',
+            "video",
+            "movie.mp4",
+            "Movie",
+        ),
+        (
+            '<audio id="audio" aria-label="Podcast"><source src="podcast.ogg" '
+            'type="audio/ogg"></audio>',
+            "audio",
+            "podcast.ogg",
+            "Podcast",
+        ),
+        (
+            '<canvas id="canvas" aria-label="Rendered chart"></canvas>',
+            "canvas",
+            "",
+            "Rendered chart",
+        ),
+        (
+            '<svg id="drawing" aria-label="Vector diagram" viewBox="0 0 8 8">'
+            '<path d="M0 0L8 8"></path></svg>',
+            "drawing",
+            "",
+            "Vector diagram",
+        ),
+    ),
+)
+def test_html_standalone_rendered_media_has_auditable_figure_fallback(
+    tmp_path,
+    markup,
+    source_id,
+    target,
+    alt_text,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            f"<article>{markup}</article>".encode(),
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [RichBlockKind.FIGURE]
+    figure = document.blocks[0]
+    assert figure.locator.source_id == source_id
+    assert figure.payload["target"] == target
+    assert figure.payload["alt_text"] == alt_text
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert diagnostics["visible_content"]["unaccounted"] == 0
+    assert [
+        (entry["category"], entry["scope"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ] == [("embedded_media", source_id, "neutral_projection")]
+
+
+def test_html_structured_figure_preserves_every_media_with_matching_diagnostics(
+    tmp_path,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><figure id="figure">
+              <img id="image" src="image.png" alt="Image">
+              <video id="video" src="video.mp4"></video>
+              <audio id="audio"><source src="audio.ogg"></audio>
+              <svg id="drawing"><path d="M0 0L1 1"></path></svg>
+            </figure></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    figures = [
+        block for block in document.blocks if block.kind is RichBlockKind.FIGURE
+    ]
+    assert [block.payload["target"] for block in figures] == [
+        "image.png",
+        "video.mp4",
+        "audio.ogg",
+        "",
+    ]
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    media_diagnostics = [
+        (entry["scope"], entry["status"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ]
+    assert media_diagnostics == [
+        ("audio", "neutral", "neutral_projection"),
+        ("drawing", "neutral", "neutral_projection"),
+        ("image", "exact", "none"),
+        ("video", "neutral", "neutral_projection"),
+    ]
+    assert len({scope for scope, _status, _fallback in media_diagnostics}) == len(
+        figures
+    )
+
+
+def test_html_list_figure_with_video_emits_media_not_empty_list(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><ul><li id="item"><figure id="figure">
+              <video id="video" src="video.mp4"></video>
+            </figure></li></ul></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [RichBlockKind.FIGURE]
+    figure = document.blocks[0]
+    assert figure.payload["target"] == "video.mp4"
+    assert figure.list_path[0].item_source_id == "item"
+
+
+def test_html_nonmedia_src_and_data_attributes_remain_visible_text(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p><span src="important.txt" data="still-text">
+              Important text.
+            </span></p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [RichBlockKind.PARAGRAPH]
+    assert document.blocks[0].payload["text"] == "Important text."
+
+
+def test_html_media_owner_target_precedes_descendant_fallback_target(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><p><object id="media" data="primary.svg">
+              <img src="fallback.png" alt="Fallback">
+            </object></p></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    figure = next(
+        block for block in document.blocks if block.kind is RichBlockKind.FIGURE
+    )
+    assert figure.payload["target"] == "primary.svg"
+
+
+def test_html_defs_only_svg_does_not_create_an_empty_figure(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <article><svg id="definitions"><defs>
+              <linearGradient id="gradient"><stop offset="0"></stop></linearGradient>
+            </defs></svg></article>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert not [
+        block for block in document.blocks if block.kind is RichBlockKind.FIGURE
+    ]
+
+
+@pytest.mark.parametrize(
+    ("markup", "leading_kind"),
+    (
+        (
+            '<pre id="code">print(1)<video id="video" src="video.mp4"></video></pre>',
+            RichBlockKind.CODE,
+        ),
+        (
+            '<figure class="ltx_table" id="table-figure"><table id="table">'
+            '<tr><td>cell</td></tr></table><video id="video" '
+            'src="video.mp4"></video></figure>',
+            RichBlockKind.TABLE,
+        ),
+    ),
+)
+def test_html_nonmedia_blocks_compensate_unrepresented_embedded_media(
+    tmp_path,
+    markup,
+    leading_kind,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            f"<article>{markup}</article>".encode(),
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.kind for block in document.blocks] == [
+        leading_kind,
+        RichBlockKind.FIGURE,
+    ]
+    assert document.blocks[1].locator.source_id == "video"
+    assert document.blocks[1].payload["target"] == "video.mp4"
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert [
+        (entry["scope"], entry["status"], entry["fallback"])
+        for entry in diagnostics["projections"]
+        if entry["category"] == "embedded_media"
+    ] == [("video", "neutral", "neutral_projection")]
+
+
+def test_html_visible_content_walks_direct_children_without_descendant_search(
+    monkeypatch,
+):
+    depth = 128
+    soup = rich_parser.BeautifulSoup(
+        "<div>" * depth + "Visible." + "</div>" * depth,
+        "html.parser",
+    )
+    root = soup.find("div")
+    assert isinstance(root, rich_parser.Tag)
+    original_find_all = rich_parser.Tag.find_all
+    calls = 0
+
+    def count_find_all(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_find_all(*args, **kwargs)
+
+    monkeypatch.setattr(rich_parser.Tag, "find_all", count_find_all)
+
+    assert rich_parser._html_values_have_visible_content([root])
+    assert calls == 0
+
+
+def test_document_diagnostics_are_typed_serializable_and_reject_unaccounted_flow(
+    tmp_path,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"<article><p>Visible.</p></article>",
+            SourceFormat.HTML,
+        )
+    )
+    encoded = rich_document_to_document(document)
+
+    decoded = rich_document_from_document(encoded)
+    assert document_diagnostics(decoded) == document_diagnostics(document)
+    assert decoded.metadata[
+        DOCUMENT_DIAGNOSTICS_METADATA_KEY
+    ] == document.metadata[DOCUMENT_DIAGNOSTICS_METADATA_KEY]
+
+    metadata = dict(encoded["metadata"])
+    diagnostics = dict(metadata[DOCUMENT_DIAGNOSTICS_METADATA_KEY])
+    visible = dict(diagnostics["visible_content"])
+    visible["unaccounted"] = 1
+    diagnostics["visible_content"] = visible
+    metadata[DOCUMENT_DIAGNOSTICS_METADATA_KEY] = diagnostics
+    with pytest.raises(ValueError, match="reconcile|unaccounted"):
+        RichDocument(
+            source=document.source,
+            blocks=document.blocks,
+            sections=document.sections,
+            assets=document.assets,
+            page_map=document.page_map,
+            metadata=metadata,
+        )
+
+
+def test_html_visible_ownership_accounts_once_for_navigation_and_article_siblings(
+    tmp_path,
+):
+    repository = SourceRepository(tmp_path / "cache")
+    document = RichDocumentParserService(repository).parse_source(
+        _store(
+            repository,
+            b"""
+            <header><div>Publisher chrome.</div></header>
+            <nav>Outside navigation.</nav>
+            <article>
+              <nav><span>Reader controls.</span></nav>
+              <div class="publisher-wrapper"><p>First source paragraph.</p></div>
+              <div class="publisher-wrapper"><p>Second source paragraph.</p></div>
+            </article>
+            <footer><div>Publisher footer.</div></footer>
+            """,
+            SourceFormat.HTML,
+        )
+    )
+
+    assert [block.payload["text"] for block in document.blocks] == [
+        "First source paragraph.",
+        "Second source paragraph.",
+    ]
+    diagnostics = document_diagnostics(document)
+    assert diagnostics is not None
+    assert diagnostics["visible_content"] == {
+        "visible_units": 6,
+        "emitted": 2,
+        "documented_exclusions": 4,
+        "opaque": 0,
+        "unaccounted": 0,
+    }
+    categories = [item["category"] for item in diagnostics["projections"]]
+    assert categories.count("navigation") == 2
+    assert categories.count("outside_content") == 2
+    excluded = [
+        item["scope"]
+        for item in diagnostics["projections"]
+        if item["category"] in {"navigation", "outside_content"}
+    ]
+    assert len(excluded) == len(set(excluded))
+
+
+def test_visible_ownership_reports_a_real_set_difference_before_validation():
+    locator = SourceLocator(source_format=SourceFormat.HTML)
+    unit = rich_parser._HTMLVisibleOwnershipUnit(
+        identity="visible-test-unit",
+        locator=locator,
+        kind="content",
+    )
+    ledger = rich_parser._ProjectionLedger()
+    ledger.register(unit)
+
+    assert ledger.metadata()["visible_content"] == {
+        "visible_units": 1,
+        "emitted": 0,
+        "documented_exclusions": 0,
+        "opaque": 0,
+        "unaccounted": 1,
+    }
 
 
 def test_html_locators_use_opening_tags_and_cover_top_level_articles_once(
@@ -5464,6 +6231,41 @@ def test_html_equation_table_groups_fragments_by_visible_displayed_label(tmp_pat
     ]
     assert [block.payload["label"] for block in equations] == ["4", "5", "6"]
     assert all(block.payload["label"] != "S3.E23" for block in equations)
+
+
+def test_html_unlabelled_equation_table_groups_math_cells_by_row(tmp_path):
+    repository = SourceRepository(tmp_path / "cache")
+    primary = _store(
+        repository,
+        br"""
+        <article><h1>Overview</h1>
+        <table class="ltx_equation" id="S3.EG1">
+          <tr id="S3.Ex1">
+            <td><math alttext="\lambda_1"></math></td>
+            <td><math alttext="="></math></td>
+            <td><math alttext="a"></math></td>
+          </tr>
+          <tr id="S3.Ex2">
+            <td><math alttext="\lambda_2"></math></td>
+            <td><math alttext="="></math></td>
+            <td><math alttext="b"></math></td>
+          </tr>
+        </table></article>
+        """,
+        SourceFormat.HTML,
+    )
+
+    document = RichDocumentParserService(repository).parse_source(primary)
+
+    equations = [
+        block for block in document.blocks
+        if block.kind is RichBlockKind.EQUATION
+    ]
+    assert [block.payload["tex"] for block in equations] == [
+        r"\lambda_1 = a",
+        r"\lambda_2 = b",
+    ]
+    assert [block.payload["label"] for block in equations] == ["", ""]
 
 
 def test_ambiguous_pdf_math_evidence_is_diagnostic_not_a_rich_parse_failure(tmp_path):

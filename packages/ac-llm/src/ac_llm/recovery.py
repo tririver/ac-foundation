@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Any, Mapping
+from typing import Any
 
 from ac_jobs import (
     ArtifactRef,
     CorruptStateError,
     ExecutionFingerprint,
     JsonValue,
-    SemanticKeyDigest,
     ResumeReason,
+    SemanticKeyDigest,
     decode_artifact_ref,
     encode_artifact_ref,
 )
@@ -113,7 +114,6 @@ def fresh_generation(
         generation=GenerationRecord(generation, execution),
         host_turn_round=0,
         pending_host_turn=None,
-        seen_host_request_ids=(),
     )
 
 

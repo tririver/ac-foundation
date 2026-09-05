@@ -66,9 +66,17 @@ from .equation_labels import (
     detect_suspicious_equation_labels,
     equation_label_page_review_schema,
 )
+from .diagnostics import (
+    DOCUMENT_DIAGNOSTICS_METADATA_KEY,
+    DOCUMENT_DIAGNOSTICS_SCHEMA,
+    document_diagnostics,
+    validate_document_diagnostics,
+)
 
 __all__ = [
     "AssetImporter",
+    "DOCUMENT_DIAGNOSTICS_METADATA_KEY",
+    "DOCUMENT_DIAGNOSTICS_SCHEMA",
     "EQUATION_LABEL_PAGE_REVIEW_SCHEMA",
     "EQUATION_LABEL_VISUAL_DIAGNOSTIC_SCHEMA",
     "EQUATION_LABEL_VISUAL_PROMPT_VERSION",
@@ -108,6 +116,7 @@ __all__ = [
     "apply_visual_equation_labels",
     "decode_equation_label_page_review",
     "detect_suspicious_equation_labels",
+    "document_diagnostics",
     "equation_label_page_review_schema",
     "resolve_local_asset_path",
     "rich_block_from_document",
@@ -121,6 +130,7 @@ __all__ = [
     "validate_source_fidelity_metadata",
     "validate_source_presentation_metadata",
     "validate_list_paths",
+    "validate_document_diagnostics",
     "validate_source_target_manifest",
     "export_rich_document_workspace",
 ]

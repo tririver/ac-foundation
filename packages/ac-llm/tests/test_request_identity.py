@@ -54,6 +54,38 @@ def test_request_and_resume_codecs_are_closed_round_trips() -> None:
         decode_resume_input(legacy)
 
 
+def test_request_codec_and_semantic_identity_include_reasoning_effort() -> None:
+    request = LLMRequest(
+        "effort",
+        "Translate.",
+        JsonOutput({"type": "object"}),
+        ModelSelection("codex", "gpt-5.6-terra", reasoning_effort="high"),
+    )
+    document = request_to_document(request)
+
+    assert document["model"]["reasoning_effort"] == "high"
+    assert decode_request(document) == request
+    assert semantic_key(request) != semantic_key(
+        replace(
+            request,
+            model=ModelSelection(
+                "codex",
+                "gpt-5.6-terra",
+                reasoning_effort="medium",
+            ),
+        )
+    )
+
+    legacy = request_to_document(
+        replace(
+            request,
+            model=ModelSelection("codex", "gpt-5.6-terra"),
+        )
+    )
+    assert "reasoning_effort" not in legacy["model"]
+    assert decode_request(legacy).model.reasoning_effort is None
+
+
 def _input(
     input_id: str,
     digest: str,
@@ -167,6 +199,8 @@ def test_model_constraints_and_json_booleans_are_strict() -> None:
         ModelSelection(model="exact")
     with pytest.raises(InvalidRequestError):
         ModelSelection("codex", "exact", "high")
+    with pytest.raises(InvalidRequestError):
+        ModelSelection("codex", reasoning_effort="max")  # type: ignore[arg-type]
     with pytest.raises(InvalidRequestError):
         LLMExecutionOptions(internet="false")  # type: ignore[arg-type]
     with pytest.raises(InvalidRequestError):

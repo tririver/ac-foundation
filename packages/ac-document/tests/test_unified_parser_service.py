@@ -588,6 +588,41 @@ def test_html_equation_table_groups_fragments_into_logical_display_spans(tmp_pat
     assert [span.source_label for span in spans] == ["4", "5", "6"]
 
 
+def test_html_unlabelled_equation_table_groups_math_cells_by_row(tmp_path):
+    payload = br"""
+    <html><body><section id="S1"><h2>Model</h2>
+      <table class="ltx_equation" id="S1.EG1">
+        <tr id="S1.Ex1">
+          <td><math alttext="\lambda_1"></math></td>
+          <td><math alttext="="></math></td>
+          <td><math alttext="a"></math></td>
+        </tr>
+        <tr id="S1.Ex2">
+          <td><math alttext="\lambda_2"></math></td>
+          <td><math alttext="="></math></td>
+          <td><math alttext="b"></math></td>
+        </tr>
+      </table>
+    </section></body></html>
+    """
+    repository = SourceRepository(tmp_path / "cache")
+    artifact = _store(repository, payload, SourceFormat.HTML)
+
+    document = DocumentParserService(repository).parse(
+        SourceBundle(primary=artifact)
+    ).document
+
+    spans = [
+        span for span in document.math_spans
+        if span.kind is MathSpanKind.DISPLAY
+    ]
+    assert [span.normalized_tex for span in spans] == [
+        r"\lambda_1 = a",
+        r"\lambda_2 = b",
+    ]
+    assert [span.source_label for span in spans] == ["", ""]
+
+
 def test_html_ltx_math_wrapper_does_not_turn_inline_math_into_display_math(tmp_path):
     repository = SourceRepository(tmp_path / "cache")
     artifact = _store(

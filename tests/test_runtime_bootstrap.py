@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -191,3 +192,63 @@ def test_python_script_command_rejects_missing_script(tmp_path: Path) -> None:
         RUNTIME._python_script_command(
             tmp_path / "runtime", str(tmp_path / "missing.py"), []
         )
+
+
+def test_symlinked_private_console_scripts_keep_the_literal_venv_path(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "actual-runtime"
+    bin_dir = runtime / "venv/bin"
+    bin_dir.mkdir(parents=True)
+    linked_runtime = tmp_path / "linked-runtime"
+    linked_runtime.symlink_to(runtime, target_is_directory=True)
+    python = bin_dir / "python"
+    python.symlink_to(sys.executable)
+
+    sibling_target = tmp_path / "sibling.py"
+    sibling_target.write_text(
+        f"#!{linked_runtime / 'venv/bin/python'}\nprint('sibling')\n",
+        encoding="utf-8",
+    )
+    parent_target = tmp_path / "parent.py"
+    parent_target.write_text(
+        (
+            f"#!{linked_runtime / 'venv/bin/python'}\n"
+            "import subprocess\n"
+            "print(subprocess.check_output(['ac-sibling'], text=True).strip())\n"
+        ),
+        encoding="utf-8",
+    )
+    os.chmod(sibling_target, 0o755)
+    os.chmod(parent_target, 0o755)
+    (bin_dir / "ac-sibling").symlink_to(sibling_target)
+    (bin_dir / "ac-parent").symlink_to(parent_target)
+
+    environment = RUNTIME._private_runtime_environment(
+        linked_runtime, {"PATH": "/usr/bin"}
+    )
+
+    assert environment["PATH"].split(os.pathsep)[0] == str(
+        linked_runtime / "venv/bin"
+    )
+    completed = subprocess.run(
+        [str(linked_runtime / "venv/bin/ac-parent")],
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.stdout == "sibling\n"
+
+
+def test_private_runtime_uses_scripts_directory_on_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = tmp_path / "runtime"
+    monkeypatch.setattr(RUNTIME.os, "name", "nt")
+
+    assert RUNTIME._venv_bin_dir(runtime) == runtime / "venv/Scripts"
+    assert RUNTIME._venv_python(runtime) == runtime / "venv/Scripts/python.exe"
+    assert RUNTIME._venv_tool(runtime, "ac-jobs") == (
+        runtime / "venv/Scripts/ac-jobs.exe"
+    )
