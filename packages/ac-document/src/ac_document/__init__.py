@@ -1,6 +1,6 @@
 """Provider-neutral document infrastructure for AC Foundation."""
 
-__version__ = "2.0.4"
+__version__ = "2.0.5"
 
 from .cached_document import *
 from .cached_full_text_search import *
