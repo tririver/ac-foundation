@@ -50,6 +50,7 @@ class ResolvedModelSelection:
     provider: str
     model: str
     tier: str
+    reasoning_effort: str | None = None
 
 
 def detect_host(
@@ -102,4 +103,9 @@ def resolve_model_selection(
     if provider not in available:
         raise InvalidRequestError(f"Provider is unavailable: {provider}")
     model = selection.model or DEFAULT_MODELS[provider][selection.tier]
-    return ResolvedModelSelection(provider, model, selection.tier)
+    return ResolvedModelSelection(
+        provider,
+        model,
+        selection.tier,
+        selection.reasoning_effort,
+    )

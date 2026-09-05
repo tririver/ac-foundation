@@ -272,17 +272,31 @@ class ProcessRunner:
             process.wait()
             return
 
-        deadline = time.monotonic() + 0.25
+        # Give descendants enough time to run their SIGTERM cleanup even when
+        # the host is busy.  Sub-second grace proved too short under full-suite
+        # provider load, while one second remains below the bounded force-kill
+        # contract exercised by the caller.
+        deadline = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             try:
                 os.killpg(group_id, 0)
             except ProcessLookupError:
                 process.wait()
                 return
+            except PermissionError:
+                # Some constrained macOS hosts permit signaling an owned
+                # process group but deny signal-0 inspection. Continue with
+                # bounded force cleanup instead of losing the typed timeout.
+                break
             time.sleep(0.01)
 
         try:
             os.killpg(group_id, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except PermissionError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
         process.wait()

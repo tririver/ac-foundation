@@ -19,6 +19,7 @@ from ac_llm import (
     LLMRequest,
     ModelSelection,
     NativeResumeHandle,
+    ProviderGateOptions,
     ProviderExecution,
     ProviderFailure,
     ProviderTerminalKind,
@@ -178,6 +179,7 @@ def test_provider_warning_survives_completed_result_replay(
     options = LLMExecutionOptions(
         host_authority=HostAuthority.UNRESTRICTED,
         internet=False,
+        gate=ProviderGateOptions(minimum_available_memory_fraction=None),
     )
     generated = client.generate(
         _request("warning-replay"),

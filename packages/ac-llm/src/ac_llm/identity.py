@@ -134,6 +134,15 @@ def derive_run_id(handler: str, task_id: str) -> str:
 
 
 def _semantic_model(model: ModelSelection) -> dict[str, Any]:
+    document: dict[str, Any]
     if model.provider == "auto":
-        return {"provider": "auto", "model": None, "tier": model.tier}
-    return {"provider": model.provider, "model": model.model, "tier": model.tier}
+        document = {"provider": "auto", "model": None, "tier": model.tier}
+    else:
+        document = {
+            "provider": model.provider,
+            "model": model.model,
+            "tier": model.tier,
+        }
+    if model.reasoning_effort is not None:
+        document["reasoning_effort"] = model.reasoning_effort
+    return document

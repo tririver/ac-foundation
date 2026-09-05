@@ -154,6 +154,8 @@ class DshAdapter:
             "model": request.model,
             "prompt": bridge_prompt,
         }
+        if request.reasoning_effort is not None:
+            payload["reasoning_effort"] = request.reasoning_effort
         if request.capabilities.get("dsh_system_prompt"):
             payload["system"] = request.capabilities["dsh_system_prompt"]
 

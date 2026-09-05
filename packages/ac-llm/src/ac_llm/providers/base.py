@@ -90,6 +90,7 @@ class ProviderRequest:
     workspace: Path
     environment: Mapping[str, str] | None = None
     inputs: tuple[ProviderInputFile, ...] = ()
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,8 @@ class ProviderResumeRequest:
     workspace: Path
     environment: Mapping[str, str] | None = None
     inputs: tuple[ProviderInputFile, ...] = ()
+    model: str | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)

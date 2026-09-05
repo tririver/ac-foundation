@@ -103,6 +103,29 @@ def test_auto_selection_skips_unavailable_provider_before_binding(
     assert resolved.provider == "claude"
 
 
+def test_executor_passes_reasoning_effort_to_the_provider_request(
+    tmp_path: Path,
+    adapter,
+    registry,
+) -> None:
+    adapter.steps.append(_completed({"answer": 1}))
+    request = replace(
+        _request("reasoning-effort"),
+        model=ModelSelection("codex", reasoning_effort="high"),
+    )
+
+    result = LLMClient(registry=registry).generate(
+        request,
+        run_root=tmp_path,
+        options=LLMExecutionOptions(
+            gate=ProviderGateOptions(minimum_available_memory_fraction=None)
+        ),
+    )
+
+    assert isinstance(result.outcome, LLMCompleted)
+    assert adapter.requests[0].reasoning_effort == "high"
+
+
 def test_auto_selection_with_no_healthy_provider_creates_resumable_pause(
     tmp_path: Path,
     adapter,
