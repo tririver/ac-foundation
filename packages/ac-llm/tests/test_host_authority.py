@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
-from ac_jobs import ArtifactSourceRef, RunContext, RunRepository
+from ac_jobs import ArtifactSourceRef, ResumeReason, RunContext, RunRepository
 from ac_llm import (
     AcRuntimeEnvironment,
     EffectiveHostMode,
@@ -25,9 +25,9 @@ from ac_llm import (
     LLMRequest,
     ModelSelection,
     NativeResumeHandle,
-    ProviderGateOptions,
     ProviderExecution,
     ProviderFailure,
+    ProviderGateOptions,
     ProviderTerminalKind,
     ResumeAction,
     ResumeInput,
@@ -491,6 +491,263 @@ def test_duplicate_host_request_recovery_is_bounded(
     assert [item.request_id for item, _workspace in broker.calls] == ["request-1"]
     assert adapter.start_calls == 1
     assert adapter.resume_calls == 2
+
+
+def test_duplicate_host_request_recovery_retries_after_rate_limit_pause(
+    tmp_path: Path, adapter: Any, registry: Any
+) -> None:
+    adapter.steps.extend(
+        (
+            _host_request(),
+            _host_request(),
+            ProviderFailure("try again later", category=FailureCategory.RATE_LIMIT),
+            _host_complete({"answer": 22}),
+        )
+    )
+    broker = _Broker()
+    client = LLMClient(registry=registry)
+    options = LLMExecutionOptions(
+        host_broker=broker,
+        gate=ProviderGateOptions(enabled=False),
+    )
+
+    paused = client.generate(
+        _request("duplicate-rate-limit"),
+        run_root=tmp_path,
+        run_id="duplicate-rate-limit-run",
+        options=options,
+    )
+
+    assert isinstance(paused.outcome, LLMPaused)
+    assert paused.outcome.details["code"] == FailureCategory.RATE_LIMIT.value
+    recovered = client.resume(
+        run_root=tmp_path,
+        run_id="duplicate-rate-limit-run",
+        options=options,
+    )
+
+    assert isinstance(recovered.outcome, LLMCompleted)
+    assert recovered.outcome.value == {"answer": 22}
+    assert [item.request_id for item, _workspace in broker.calls] == ["request-1"]
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 3
+
+
+def test_duplicate_host_request_recovery_retries_after_crash_before_resume(
+    tmp_path: Path,
+    adapter: Any,
+    registry: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter.steps.extend(
+        (
+            _host_request(),
+            _host_request(),
+            _host_complete({"answer": 24}),
+        )
+    )
+    broker = _Broker()
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_resume = executor._resume_duplicate_host_turn
+
+    def crash_before_resume(*args: Any, **kwargs: Any) -> Any:
+        raise KeyboardInterrupt("crash after duplicate recovery publication")
+
+    monkeypatch.setattr(executor, "_resume_duplicate_host_turn", crash_before_resume)
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(
+            _request("duplicate-resume-window"),
+            run_root=tmp_path,
+            run_id="duplicate-resume-window-run",
+            options=LLMExecutionOptions(host_broker=broker),
+        )
+
+    monkeypatch.setattr(executor, "_resume_duplicate_host_turn", original_resume)
+    recovered = client.resume(
+        run_root=tmp_path,
+        run_id="duplicate-resume-window-run",
+        options=LLMExecutionOptions(host_broker=broker),
+    )
+
+    assert isinstance(recovered.outcome, LLMCompleted)
+    assert recovered.outcome.value == {"answer": 24}
+    assert [item.request_id for item, _workspace in broker.calls] == ["request-1"]
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 2
+
+
+def test_duplicate_recovery_attempt_crash_uses_the_standard_crash_guard(
+    tmp_path: Path,
+    adapter: Any,
+    registry: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter.steps.extend((_host_request(), _host_request()))
+    broker = _Broker()
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_resume = adapter.resume
+
+    def crash_after_provider_acceptance(
+        handle: Any,
+        provider_request: Any,
+        observer: Any,
+        stop: Any,
+    ) -> Any:
+        if adapter.resume_calls == 1:
+            adapter.resume_calls += 1
+            adapter.requests.append(provider_request)
+            raise KeyboardInterrupt("crash after duplicate continuation acceptance")
+        return original_resume(handle, provider_request, observer, stop)
+
+    monkeypatch.setattr(adapter, "resume", crash_after_provider_acceptance)
+    request = _request("duplicate-attempt-crash")
+    options = LLMExecutionOptions(host_broker=broker)
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(
+            request,
+            run_root=tmp_path,
+            run_id="duplicate-attempt-crash-run",
+            options=options,
+        )
+
+    monkeypatch.setattr(adapter, "resume", original_resume)
+    repository = RunRepository(tmp_path)
+    snapshot = repository.inspect("duplicate-attempt-crash-run").snapshot
+    context = RunContext(repository, snapshot, resume_input=None)
+    store = executor._task_store(context, request.task_id)
+    state = store.read()
+    assert state is not None
+    assert state.current.raw_response is None
+    assert state.current.attempt_started
+
+    guarded = executor._drive(
+        context,
+        request,
+        state,
+        store,
+        options,
+        crash_retry_available=False,
+    )
+
+    assert isinstance(guarded, LLMPaused)
+    assert guarded.reason is ResumeReason.EXECUTION_INTERRUPTED
+    assert guarded.details == {"code": "provider_crash_retry_exhausted"}
+    assert [item.request_id for item, _workspace in broker.calls] == ["request-1"]
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 2
+
+
+def test_duplicate_recovery_raw_publish_replaces_stale_duplicate_raw_after_crashes(
+    tmp_path: Path,
+    adapter: Any,
+    registry: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter.steps.extend(
+        (
+            _host_request(),
+            _host_request(),
+            _host_complete({"answer": 26}),
+        )
+    )
+    broker = _Broker()
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_update = executor._update_current
+    crash_stage = 0
+
+    def crash_in_combined_window(state: Any, **changes: Any) -> Any:
+        nonlocal crash_stage
+        if (
+            crash_stage == 0
+            and state.current.raw_response is not None
+            and changes.get("raw_response") is None
+            and changes.get("attempt_started") is False
+        ):
+            crash_stage = 1
+            raise KeyboardInterrupt("crash after duplicate recovery publication")
+        recovery_raw = changes.get("raw_response")
+        if (
+            crash_stage == 1
+            and recovery_raw is not None
+            and recovery_raw.artifact_id.endswith("-duplicate-recovery-1.json")
+        ):
+            crash_stage = 2
+            raise KeyboardInterrupt("crash after dedicated recovery raw publication")
+        return original_update(state, **changes)
+
+    monkeypatch.setattr(executor, "_update_current", crash_in_combined_window)
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(
+            _request("duplicate-combined-window"),
+            run_root=tmp_path,
+            run_id="duplicate-combined-window-run",
+            options=LLMExecutionOptions(host_broker=broker),
+        )
+    with pytest.raises(KeyboardInterrupt):
+        client.resume(
+            run_root=tmp_path,
+            run_id="duplicate-combined-window-run",
+            options=LLMExecutionOptions(host_broker=broker),
+        )
+
+    monkeypatch.setattr(executor, "_update_current", original_update)
+    recovered = client.resume(
+        run_root=tmp_path,
+        run_id="duplicate-combined-window-run",
+        options=LLMExecutionOptions(host_broker=broker),
+    )
+
+    assert isinstance(recovered.outcome, LLMCompleted)
+    assert recovered.outcome.value == {"answer": 26}
+    assert [item.request_id for item, _workspace in broker.calls] == ["request-1"]
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 2
+
+
+def test_host_request_identity_crash_after_pending_turn_commit_brokers_on_resume(
+    tmp_path: Path,
+    adapter: Any,
+    registry: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter.steps.extend((_host_request(), _host_complete({"answer": 23})))
+    broker = _Broker()
+    client = LLMClient(registry=registry)
+    executor = client.service._executor
+    original_publish = executor._publish_host_request_identity
+
+    def crash_after_identity(*args: Any, **kwargs: Any) -> Any:
+        original_publish(*args, **kwargs)
+        raise KeyboardInterrupt("crash after host request identity publication")
+
+    monkeypatch.setattr(
+        executor,
+        "_publish_host_request_identity",
+        crash_after_identity,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        client.generate(
+            _request("identity-commit-window"),
+            run_root=tmp_path,
+            run_id="identity-commit-window-run",
+            options=LLMExecutionOptions(host_broker=broker),
+        )
+
+    monkeypatch.setattr(executor, "_publish_host_request_identity", original_publish)
+    recovered = client.resume(
+        run_root=tmp_path,
+        run_id="identity-commit-window-run",
+        options=LLMExecutionOptions(host_broker=broker),
+    )
+
+    assert isinstance(recovered.outcome, LLMCompleted)
+    assert recovered.outcome.value == {"answer": 23}
+    assert [item.request_id for item, _workspace in broker.calls] == ["request-1"]
+    assert adapter.start_calls == 1
+    assert adapter.resume_calls == 1
 
 
 def test_duplicate_host_request_uses_one_synthetic_refusal_without_continuation(

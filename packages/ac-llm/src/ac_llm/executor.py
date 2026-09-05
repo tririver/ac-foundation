@@ -545,15 +545,6 @@ class LLMTaskExecutor:
                         state.current.raw_response,
                         options,
                     )
-                duplicate_recovery = self._read_duplicate_recovery(context, state)
-                if duplicate_recovery is not None:
-                    return LLMFailed(
-                        DuplicateHostRequestError(
-                            duplicate_recovery["request_id"],
-                            duplicate_recovery["instruction"],
-                            recovery_exhausted=True,
-                        )
-                    )
                 if state.current.attempt_started:
                     if not crash_retry_available:
                         return self._pause(
@@ -568,6 +559,18 @@ class LLMTaskExecutor:
                     )
                     crash_retry_available = False
                     continue
+                duplicate_recovery = self._read_duplicate_recovery(context, state)
+                if duplicate_recovery is not None:
+                    return self._resume_duplicate_host_turn(
+                        context,
+                        request,
+                        state,
+                        store,
+                        canonical_json_bytes(
+                            duplicate_recovery["continuation"]
+                        ).decode("utf-8"),
+                        options,
+                    )
                 adapter = self.registry.create(state.resolved_provider or "")
                 diagnostic = adapter.doctor()
                 if not diagnostic.available:
@@ -942,13 +945,18 @@ class LLMTaskExecutor:
         Provider material is immutable and its location is deterministic for a
         generation/host-turn pair.  This closes the only publication window in
         which an interrupted process could otherwise issue the provider call a
-        second time despite already having a locally recoverable response.
+        second time despite already having a locally recoverable response. A
+        dedicated duplicate-recovery raw response supersedes a stale original
+        duplicate raw reference after a composed crash.
         """
-        if state.current.raw_response is not None:
+        recovery = self._read_duplicate_recovery(context, state)
+        if state.current.raw_response is not None and recovery is None:
             return state
         scoped = self._artifacts(context, state.semantic_key)
         ref = scoped.find(self._raw_response_artifact_id(context, state))
         if ref is None:
+            return state
+        if state.current.raw_response == ref:
             return state
         # Verify the persisted document before it affects durable state.
         self._execution_from_raw(context, ref, state.resolved_provider or "")
@@ -1569,11 +1577,29 @@ class LLMTaskExecutor:
     def _raw_response_artifact_id(self, context: Any, state: LLMTaskState) -> str:
         recovery = self._read_duplicate_recovery(context, state)
         suffix = (
-            f"{state.host_turn_round}-duplicate-recovery-1.json"
+            self._duplicate_recovery_raw_response_name(state)
             if recovery is not None
             else f"{state.host_turn_round}.json"
         )
         return f"generations/{state.current.generation}/raw-responses/{suffix}"
+
+    @staticmethod
+    def _duplicate_recovery_raw_response_name(state: LLMTaskState) -> str:
+        return f"{state.host_turn_round}-duplicate-recovery-1.json"
+
+    def _duplicate_recovery_has_raw_response(self, state: LLMTaskState) -> bool:
+        raw_response = state.current.raw_response
+        relative_artifact_id = (
+            f"generations/{state.current.generation}/raw-responses/"
+            f"{self._duplicate_recovery_raw_response_name(state)}"
+        )
+        return (
+            raw_response is not None
+            and (
+                raw_response.artifact_id == relative_artifact_id
+                or raw_response.artifact_id.endswith(f"/{relative_artifact_id}")
+            )
+        )
 
     def _publish_host_request_identity(
         self,
@@ -1643,6 +1669,35 @@ class LLMTaskExecutor:
             )
         except Exception as exc:
             raise CorruptTaskStateError("Host request identity artifact is corrupt.") from exc
+
+    def _ensure_host_request_identity(
+        self,
+        context: Any,
+        state: LLMTaskState,
+        host_request: HostRequest,
+    ) -> None:
+        """Attach the identity only after the pending turn is durable."""
+
+        identity = self._read_host_request_identity(
+            context, state, host_request.request_id
+        )
+        if identity is None:
+            self._publish_host_request_identity(
+                context,
+                state,
+                host_request,
+                generation=state.current.generation,
+                round=state.host_turn_round,
+            )
+            return
+        if (
+            identity.request != host_request
+            or identity.generation != state.current.generation
+            or identity.round != state.host_turn_round
+        ):
+            raise CorruptTaskStateError(
+                "Host request identity conflicts with the pending host turn."
+            )
 
     def _read_duplicate_recovery(
         self,
@@ -1737,24 +1792,42 @@ class LLMTaskExecutor:
                     )
                 )
             if recovery is not None:
-                return LLMFailed(
-                    DuplicateHostRequestError(
-                        duplicate.request_id,
-                        duplicate.instruction,
-                        recovery_exhausted=True,
+                if self._duplicate_recovery_has_raw_response(current):
+                    return LLMFailed(
+                        DuplicateHostRequestError(
+                            duplicate.request_id,
+                            duplicate.instruction,
+                            recovery_exhausted=True,
+                        )
                     )
+                return self._resume_duplicate_host_turn(
+                    context,
+                    request,
+                    current,
+                    store,
+                    canonical_json_bytes(recovery["continuation"]).decode("utf-8"),
+                    options,
                 )
             continuation_prompt = self._persisted_continuation_prompt(
                 context, current, identity
             )
         else:
             if recovery is not None:
-                return LLMFailed(
-                    DuplicateHostRequestError(
-                        duplicate.request_id,
-                        duplicate.instruction,
-                        recovery_exhausted=True,
+                if self._duplicate_recovery_has_raw_response(current):
+                    return LLMFailed(
+                        DuplicateHostRequestError(
+                            duplicate.request_id,
+                            duplicate.instruction,
+                            recovery_exhausted=True,
+                        )
                     )
+                return self._resume_duplicate_host_turn(
+                    context,
+                    request,
+                    current,
+                    store,
+                    canonical_json_bytes(recovery["continuation"]).decode("utf-8"),
+                    options,
                 )
             continuation_prompt = None
         action = "replay"
@@ -1856,7 +1929,10 @@ class LLMTaskExecutor:
         existing_identity = self._read_host_request_identity(
             context, state, turn.request.request_id
         )
-        if existing_identity is not None:
+        if (
+            existing_identity is not None
+            and turn.request.request_id in state.seen_host_request_ids
+        ):
             return self._recover_duplicate_host_turn(
                 context,
                 request,
@@ -1874,13 +1950,6 @@ class LLMTaskExecutor:
             ),
             encode_host_turn(turn),
         )
-        self._publish_host_request_identity(
-            context,
-            state,
-            turn.request,
-            generation=state.current.generation,
-            round=next_round,
-        )
         current = store.read() or state
         next_state = replace(
             current,
@@ -1896,6 +1965,7 @@ class LLMTaskExecutor:
             + (turn.request.request_id,),
         )
         store.compare_and_swap(next_state.revision - 1, next_state)
+        self._ensure_host_request_identity(context, next_state, turn.request)
         if options.host_broker is None:
             return self._pause(
                 store,
@@ -2082,6 +2152,7 @@ class LLMTaskExecutor:
         raw = context.artifacts.read_bytes(state.pending_host_turn)
         turn = decode_host_turn(json.loads(raw.decode("utf-8")))
         assert turn.request is not None
+        self._ensure_host_request_identity(context, state, turn.request)
         completed = self._read_host_broker_completion(context, state, turn.request)
         if completed is not None:
             response, files = completed
